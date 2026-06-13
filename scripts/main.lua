@@ -1,5 +1,5 @@
 -- ============================================================================
--- 外卖冲冲冲 - 阶段 2.3：多单反馈与满载提示
+-- 外卖冲冲冲 - 阶段 2.4：目标距离与车道提示
 -- 竖屏跑酷游戏原型
 -- 风格：积木阳光城（浅色道路、蓝绿城市基底、大块面、强轮廓）
 -- ============================================================================
@@ -178,7 +178,7 @@ function Start()
 
     SubscribeToEvent("Update", "HandleUpdate")
 
-    print("=== 外卖冲冲冲 - 阶段 2.3：多单反馈与满载提示 ===")
+    print("=== 外卖冲冲冲 - 阶段 2.4：目标距离与车道提示 ===")
     print("操作: 左右滑动=变道, 上滑/空格=跳跃, 下滑/S=下滑")
     print("闭环: 未取餐→经过橙色取餐点→送餐中→经过绿色送餐点→循环")
 end
@@ -635,6 +635,65 @@ local function ShowToast(text)
         toastLabel:SetVisible(true)
     end
     toastTimer_ = 1.2
+end
+
+--- 获取车道名称
+---@param lane integer
+---@return string
+local function GetLaneName(lane)
+    if lane == 1 then return "左道"
+    elseif lane == 2 then return "中道"
+    else return "右道"
+    end
+end
+
+--- 更新目标提示（距离 + 车道 + 颜色反馈）
+---@param playerZ number
+local function UpdateTargetHint(playerZ)
+    local hintLabel = UI.FindById("target_hint")
+    if not hintLabel then return end
+
+    local text = ""
+    local r, g, b, a = 255, 200, 60, 255  -- 默认橙黄色
+
+    if carriedOrderCount_ <= 0 then
+        -- 未携带订单，找取餐点
+        if pickupActive_ then
+            local dist = math.max(0, math.floor(pickupNode_.position.z - playerZ))
+            text = string.format("目标：取餐点 %dm | %s", dist, GetLaneName(pickupLane_))
+        else
+            text = "目标：寻找取餐点"
+        end
+        -- 橙黄色
+        r, g, b = 255, 200, 60
+    else
+        -- 携带订单，送餐
+        if deliveryActive_ then
+            local dist = math.max(0, math.floor(deliveryNode_.position.z - playerZ))
+            local prefix = "目标"
+            if carriedOrderCount_ >= maxCarryOrders_ then
+                prefix = "满载"
+                r, g, b = 255, 240, 0  -- 亮黄色
+            else
+                r, g, b = 144, 238, 144  -- 浅绿色
+            end
+            text = string.format("%s：送餐点 %dm | %s | %.1fs", prefix, dist, GetLaneName(deliveryLane_), deliveryTimer_)
+        else
+            text = string.format("目标：送餐点生成中 | %.1fs", deliveryTimer_)
+            if carriedOrderCount_ >= maxCarryOrders_ then
+                r, g, b = 255, 240, 0
+            else
+                r, g, b = 144, 238, 144
+            end
+        end
+        -- 倒计时 <= 3s 时变红色
+        if deliveryTimer_ <= 3.0 then
+            r, g, b = 255, 60, 60
+        end
+    end
+
+    hintLabel:SetText(text)
+    hintLabel:SetFontColor({ r, g, b, a })
 end
 
 --- 检测玩家是否经过取餐点
@@ -1213,14 +1272,25 @@ function CreateUI()
                 left = 0, right = 0,
                 textAlign = "center",
             },
-            -- HUD: 距离 + 速度
+            -- HUD: 主状态行
             UI.Label {
                 id = "hud_info",
-                text = "0 m | 8.0 m/s | 订单 0/2 | 未取餐 | 收入 ¥0 | 已送 0",
+                text = "0 m | 8.0 m/s | 订单 0/2 | ¥0 | 已送 0",
                 fontSize = 14,
                 fontColor = { 255, 255, 200, 210 },
                 position = "absolute",
                 top = 50,
+                left = 0, right = 0,
+                textAlign = "center",
+            },
+            -- 目标提示行
+            UI.Label {
+                id = "target_hint",
+                text = "目标：寻找取餐点",
+                fontSize = 15,
+                fontColor = { 255, 200, 60, 255 },
+                position = "absolute",
+                top = 72,
                 left = 0, right = 0,
                 textAlign = "center",
             },
@@ -1231,7 +1301,7 @@ function CreateUI()
                 fontSize = 16,
                 fontColor = { 255, 220, 50, 255 },
                 position = "absolute",
-                top = 76,
+                top = 96,
                 left = 0, right = 0,
                 textAlign = "center",
                 visible = false,
@@ -1585,18 +1655,9 @@ function HandleUpdate(eventType, eventData)
         uiTimer_ = uiTimer_ - 0.25
         local hudLabel = UI.FindById("hud_info")
         if hudLabel then
-            local orderText
-            if orderState_ == "carrying" then
-                if carriedOrderCount_ >= maxCarryOrders_ then
-                    orderText = string.format("满载送餐中 %.1fs", deliveryTimer_)
-                else
-                    orderText = string.format("送餐中 %.1fs", deliveryTimer_)
-                end
-            else
-                orderText = "未取餐"
-            end
-            hudLabel:SetText(string.format("%d m | %.1f m/s | 订单 %d/%d | %s | 收入 ¥%d | 已送 %d",
-                math.floor(distanceTraveled_), currentSpeed_, carriedOrderCount_, maxCarryOrders_, orderText, currentIncome_, deliveredOrderCount_))
+            hudLabel:SetText(string.format("%d m | %.1f m/s | 订单 %d/%d | ¥%d | 已送 %d",
+                math.floor(distanceTraveled_), currentSpeed_, carriedOrderCount_, maxCarryOrders_, currentIncome_, deliveredOrderCount_))
         end
+        UpdateTargetHint(newZ)
     end
 end
