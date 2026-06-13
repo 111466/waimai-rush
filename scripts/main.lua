@@ -1,5 +1,5 @@
 -- ============================================================================
--- 外卖冲冲冲 - 阶段 2.2：允许取第二单
+-- 外卖冲冲冲 - 阶段 2.3：多单反馈与满载提示
 -- 竖屏跑酷游戏原型
 -- 风格：积木阳光城（浅色道路、蓝绿城市基底、大块面、强轮廓）
 -- ============================================================================
@@ -142,6 +142,10 @@ local currentIncome_ = 0           -- 本局累计收入
 -- 携带容量
 local maxCarryOrders_ = 2          -- 最多可携带订单数
 local carriedOrderCount_ = 0       -- 当前携带订单数
+local deliveredOrderCount_ = 0     -- 本局已送达订单数
+
+-- Toast 提示
+local toastTimer_ = 0.0            -- Toast 剩余显示时间
 
 -- 游戏结束 UI 引用
 local gameOverPanel_ = nil
@@ -174,7 +178,7 @@ function Start()
 
     SubscribeToEvent("Update", "HandleUpdate")
 
-    print("=== 外卖冲冲冲 - 阶段 2.2：允许取第二单 ===")
+    print("=== 外卖冲冲冲 - 阶段 2.3：多单反馈与满载提示 ===")
     print("操作: 左右滑动=变道, 上滑/空格=跳跃, 下滑/S=下滑")
     print("闭环: 未取餐→经过橙色取餐点→送餐中→经过绿色送餐点→循环")
 end
@@ -622,6 +626,17 @@ local function TrySpawnPickup(playerZ)
     print(string.format("[取餐点] 生成: 车道=%d, Z=%.1f", lane, spawnZ))
 end
 
+--- 显示 Toast 提示（短暂文字反馈）
+---@param text string
+local function ShowToast(text)
+    local toastLabel = UI.FindById("toast_text")
+    if toastLabel then
+        toastLabel:SetText(text)
+        toastLabel:SetVisible(true)
+    end
+    toastTimer_ = 1.2
+end
+
 --- 检测玩家是否经过取餐点
 local function CheckPickup(playerZ)
     if not pickupActive_ then return end
@@ -648,6 +663,9 @@ local function CheckPickup(playerZ)
         -- 如果还没满载，安排下一个取餐点
         if carriedOrderCount_ < maxCarryOrders_ then
             nextPickupZ_ = playerZ + 35.0 + math.random() * 20.0
+            ShowToast(string.format("取餐 +1，订单 %d/%d", carriedOrderCount_, maxCarryOrders_))
+        else
+            ShowToast("满载！先去送餐")
         end
 
         print(string.format("[取餐点] 取餐成功！订单 %d/%d，倒计时 %.1fs", carriedOrderCount_, maxCarryOrders_, deliveryTimer_))
@@ -773,6 +791,7 @@ local function CheckDelivery(playerZ)
     if math.abs(playerZ - delZ) < 1.0 then
         -- 送达成功
         currentIncome_ = currentIncome_ + deliveryReward_
+        deliveredOrderCount_ = deliveredOrderCount_ + 1
         carriedOrderCount_ = math.max(carriedOrderCount_ - 1, 0)
         deliveryActive_ = false
         deliveryNode_.enabled = false
@@ -787,12 +806,14 @@ local function CheckDelivery(playerZ)
             if carriedOrderCount_ < maxCarryOrders_ and not pickupActive_ then
                 nextPickupZ_ = playerZ + 35.0 + math.random() * 20.0
             end
+            ShowToast(string.format("送达 +¥%d，剩余 %d/%d", deliveryReward_, carriedOrderCount_, maxCarryOrders_))
             print(string.format("[送餐点] 送达成功！收入 +%d，累计 ¥%d，剩余订单 %d/%d", deliveryReward_, currentIncome_, carriedOrderCount_, maxCarryOrders_))
         else
             -- 全部送完，回到未取餐
             orderState_ = "none"
             deliveryTimer_ = 0.0
             nextPickupZ_ = playerZ + 35.0 + math.random() * 20.0
+            ShowToast("全部送完，继续接单")
             print(string.format("[送餐点] 送达成功！收入 +%d，累计 ¥%d，全部送完", deliveryReward_, currentIncome_))
         end
     end
@@ -908,6 +929,11 @@ local function TriggerGameOver(reason)
         if incomeLabel then
             incomeLabel:SetText(string.format("本局收入: ¥%d", currentIncome_))
         end
+
+        local deliveredLabel = UI.FindById("go_delivered")
+        if deliveredLabel then
+            deliveredLabel:SetText(string.format("送达订单: %d 单", deliveredOrderCount_))
+        end
     end
 end
 
@@ -958,6 +984,8 @@ local function RestartGame()
     deliveryTimer_ = 0.0
     currentIncome_ = 0
     carriedOrderCount_ = 0
+    deliveredOrderCount_ = 0
+    toastTimer_ = 0.0
     if deliveryNode_ then
         deliveryNode_.enabled = false
         deliveryNode_.position = Vector3(0, -100, -100)
@@ -993,6 +1021,12 @@ local function RestartGame()
     -- 隐藏游戏结束面板
     if gameOverPanel_ then
         gameOverPanel_:SetVisible(false)
+    end
+
+    -- 隐藏 Toast
+    local toastLabel = UI.FindById("toast_text")
+    if toastLabel then
+        toastLabel:SetVisible(false)
     end
 
     -- 更新摄像机
@@ -1142,6 +1176,13 @@ function CreateUI()
                         fontColor = { 34, 139, 34, 255 },
                         marginTop = 6,
                     },
+                    UI.Label {
+                        id = "go_delivered",
+                        text = "送达订单: 0 单",
+                        fontSize = 15,
+                        fontColor = { 255, 165, 0, 255 },
+                        marginTop = 4,
+                    },
                     UI.Button {
                         text = "再来一局",
                         variant = "primary",
@@ -1175,13 +1216,25 @@ function CreateUI()
             -- HUD: 距离 + 速度
             UI.Label {
                 id = "hud_info",
-                text = "0 m | 8.0 m/s | 订单 0/2 | 未取餐 | 收入 ¥0",
+                text = "0 m | 8.0 m/s | 订单 0/2 | 未取餐 | 收入 ¥0 | 已送 0",
                 fontSize = 14,
                 fontColor = { 255, 255, 200, 210 },
                 position = "absolute",
                 top = 50,
                 left = 0, right = 0,
                 textAlign = "center",
+            },
+            -- Toast 提示（短暂显示）
+            UI.Label {
+                id = "toast_text",
+                text = "",
+                fontSize = 16,
+                fontColor = { 255, 220, 50, 255 },
+                position = "absolute",
+                top = 76,
+                left = 0, right = 0,
+                textAlign = "center",
+                visible = false,
             },
             gameOverPanel_,
         },
@@ -1514,6 +1567,18 @@ function HandleUpdate(eventType, eventData)
         deliveryNode_.rotation = Quaternion(runTime_ * 60.0, Vector3.UP)
     end
 
+    -- Toast 提示递减
+    if toastTimer_ > 0 then
+        toastTimer_ = toastTimer_ - dt
+        if toastTimer_ <= 0 then
+            toastTimer_ = 0
+            local toastLabel = UI.FindById("toast_text")
+            if toastLabel then
+                toastLabel:SetVisible(false)
+            end
+        end
+    end
+
     -- HUD 更新（节流 4Hz）
     uiTimer_ = uiTimer_ + dt
     if uiTimer_ >= 0.25 then
@@ -1522,12 +1587,16 @@ function HandleUpdate(eventType, eventData)
         if hudLabel then
             local orderText
             if orderState_ == "carrying" then
-                orderText = string.format("送餐中 %.1fs", deliveryTimer_)
+                if carriedOrderCount_ >= maxCarryOrders_ then
+                    orderText = string.format("满载送餐中 %.1fs", deliveryTimer_)
+                else
+                    orderText = string.format("送餐中 %.1fs", deliveryTimer_)
+                end
             else
                 orderText = "未取餐"
             end
-            hudLabel:SetText(string.format("%d m | %.1f m/s | 订单 %d/%d | %s | 收入 ¥%d",
-                math.floor(distanceTraveled_), currentSpeed_, carriedOrderCount_, maxCarryOrders_, orderText, currentIncome_))
+            hudLabel:SetText(string.format("%d m | %.1f m/s | 订单 %d/%d | %s | 收入 ¥%d | 已送 %d",
+                math.floor(distanceTraveled_), currentSpeed_, carriedOrderCount_, maxCarryOrders_, orderText, currentIncome_, deliveredOrderCount_))
         end
     end
 end
