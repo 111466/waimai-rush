@@ -637,6 +637,15 @@ local function ShowToast(text)
     toastTimer_ = 1.2
 end
 
+--- 安全设置 Label 字体颜色（兼容 SetFontColor 不存在的情况）
+---@param label any
+---@param color table
+local function SafeSetLabelColor(label, color)
+    if not label then return end
+    if not label.SetFontColor then return end
+    pcall(label.SetFontColor, label, color)
+end
+
 --- 获取车道名称
 ---@param lane integer
 ---@return string
@@ -693,7 +702,7 @@ local function UpdateTargetHint(playerZ)
     end
 
     hintLabel:SetText(text)
-    hintLabel:SetFontColor({ r, g, b, a })
+    SafeSetLabelColor(hintLabel, { r, g, b, a })
 end
 
 --- 检测玩家是否经过取餐点
