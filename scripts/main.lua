@@ -1,5 +1,5 @@
 -- ============================================================================
--- 外卖冲冲冲 - 阶段 2.7：超时压力与错过目标反馈
+-- 外卖冲冲冲 - 阶段 2.8：送达后的短时加速爽感
 -- 竖屏跑酷游戏原型
 -- 风格：积木阳光城（浅色道路、蓝绿城市基底、大块面、强轮廓）
 -- ============================================================================
@@ -154,6 +154,11 @@ local maxComboCount_ = 0           -- 本局最高连送
 -- 超时警告
 local lowTimeWarningShown_ = false -- 本轮倒计时是否已显示快超时提示
 
+-- 送达加速
+local boostTimer_ = 0.0            -- 加速剩余时间
+local boostDuration_ = 1.5         -- 加速持续时长(秒)
+local boostSpeedBonus_ = 2.0       -- 加速额外速度(m/s)
+
 -- 游戏结束 UI 引用
 local gameOverPanel_ = nil
 
@@ -185,7 +190,7 @@ function Start()
 
     SubscribeToEvent("Update", "HandleUpdate")
 
-    print("=== 外卖冲冲冲 - 阶段 2.7：超时压力与错过目标反馈 ===")
+    print("=== 外卖冲冲冲 - 阶段 2.8：送达后的短时加速爽感 ===")
     print("操作: 左右滑动=变道, 上滑/空格=跳跃, 下滑/S=下滑")
     print("新增: 快超时警告 Toast + 错过目标反馈 + HUD 紧急状态")
 end
@@ -931,14 +936,16 @@ local function CheckDelivery(playerZ)
             if carriedOrderCount_ < maxCarryOrders_ and not pickupActive_ then
                 nextPickupZ_ = playerZ + 35.0 + math.random() * 20.0
             end
-            ShowToast(string.format("送达 +¥%d，连送 %d，剩余 %d/%d", reward, comboCount_, carriedOrderCount_, maxCarryOrders_))
+            boostTimer_ = boostDuration_
+            ShowToast(string.format("送达 +¥%d，连送 %d，剩余 %d/%d，加速！", reward, comboCount_, carriedOrderCount_, maxCarryOrders_))
             print(string.format("[送餐点] 送达成功！连送 %d，奖励 +%d，累计 ¥%d，剩余 %d/%d", comboCount_, reward, currentIncome_, carriedOrderCount_, maxCarryOrders_))
         else
             -- 全部送完，回到未取餐
             orderState_ = "none"
             deliveryTimer_ = 0.0
             nextPickupZ_ = playerZ + 35.0 + math.random() * 20.0
-            ShowToast(string.format("全部送完 +¥%d，连送 %d", reward, comboCount_))
+            boostTimer_ = boostDuration_
+            ShowToast(string.format("全部送完 +¥%d，连送 %d，加速！", reward, comboCount_))
             print(string.format("[送餐点] 送达成功！连送 %d，奖励 +%d，累计 ¥%d，全部送完", comboCount_, reward, currentIncome_))
         end
     end
@@ -1002,10 +1009,15 @@ end
 --- 根据距离计算当前速度（平滑递增）
 local function UpdateSpeed()
     -- 每跑 SPEED_DISTANCE_FACTOR 米增加 1 点速度，上限 MAX_SPEED
-    currentSpeed_ = math.min(
+    local baseSpeed = math.min(
         CONFIG.MAX_SPEED,
         CONFIG.BASE_SPEED + distanceTraveled_ / CONFIG.SPEED_DISTANCE_FACTOR
     )
+    if boostTimer_ > 0 then
+        currentSpeed_ = math.min(CONFIG.MAX_SPEED + boostSpeedBonus_, baseSpeed + boostSpeedBonus_)
+    else
+        currentSpeed_ = baseSpeed
+    end
 end
 
 -- ============================================================================
@@ -1120,6 +1132,7 @@ local function RestartGame()
     comboCount_ = 0
     maxComboCount_ = 0
     lowTimeWarningShown_ = false
+    boostTimer_ = 0.0
     if deliveryNode_ then
         deliveryNode_.enabled = false
         deliveryNode_.position = Vector3(0, -100, -100)
@@ -1652,6 +1665,11 @@ function HandleUpdate(eventType, eventData)
     UpdateAction(dt)
     UpdateLaneChange(dt)
 
+    -- 更新加速计时
+    if boostTimer_ > 0 then
+        boostTimer_ = math.max(0, boostTimer_ - dt)
+    end
+
     -- 更新速度（基于距离平滑递增）
     UpdateSpeed()
 
@@ -1762,12 +1780,16 @@ function HandleUpdate(eventType, eventData)
         uiTimer_ = uiTimer_ - 0.25
         local hudLabel = UI.FindById("hud_info")
         if hudLabel then
+            local speedTag = string.format("%.1f m/s", currentSpeed_)
+            if boostTimer_ > 0 then
+                speedTag = speedTag .. " 加速"
+            end
             local orderTag = string.format("订单 %d/%d", carriedOrderCount_, maxCarryOrders_)
             if orderState_ == "carrying" and deliveryTimer_ <= 3.0 then
                 orderTag = orderTag .. " 紧急"
             end
-            hudLabel:SetText(string.format("%d m | %.1f m/s | %s | ¥%d | 连送 %d | 已送 %d",
-                math.floor(distanceTraveled_), currentSpeed_, orderTag, currentIncome_, comboCount_, deliveredOrderCount_))
+            hudLabel:SetText(string.format("%d m | %s | %s | ¥%d | 连送 %d | 已送 %d",
+                math.floor(distanceTraveled_), speedTag, orderTag, currentIncome_, comboCount_, deliveredOrderCount_))
         end
         UpdateTargetHint(newZ)
     end
