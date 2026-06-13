@@ -49,8 +49,8 @@ local CONFIG = {
     CAM_OFFSET_Z = -7.0,
     CAM_LOOK_AHEAD = 5.0,
 
-    -- 障碍物参数
-    OBSTACLE_POOL_SIZE = 10,         -- 障碍物池大小
+    -- 障碍物参数（每种类型独立池，各 8 个）
+    OBSTACLE_POOL_PER_TYPE = 8,      -- 每种类型的池大小
     OBSTACLE_SPACING_MIN = 14.0,     -- 障碍物最小间距（米）≈ 1.75s at 8m/s
     OBSTACLE_SPACING_MAX = 22.0,     -- 障碍物最大间距（米）
     OBSTACLE_SPAWN_AHEAD = 80.0,     -- 在玩家前方多远生成
@@ -426,21 +426,21 @@ local function CreateObstacleNode(obstacleType)
 end
 
 function CreateObstaclePool()
-    for i = 1, CONFIG.OBSTACLE_POOL_SIZE do
-        -- 均匀分配三种类型
-        local typeIdx = ((i - 1) % 3) + 1
-        local types = { "block", "low", "high" }
-        local obstType = types[typeIdx]
-
-        local node = CreateObstacleNode(obstType)
-        obstacles_[i] = {
-            node = node,
-            type = obstType,
-            lane = 0,
-            active = false,
-        }
+    local types = { "block", "low", "high" }
+    local idx = 0
+    for _, obstType in ipairs(types) do
+        for _ = 1, CONFIG.OBSTACLE_POOL_PER_TYPE do
+            idx = idx + 1
+            local node = CreateObstacleNode(obstType)
+            obstacles_[idx] = {
+                node = node,
+                type = obstType,
+                lane = 0,
+                active = false,
+            }
+        end
     end
-    print(string.format("[障碍物] 对象池创建完毕, 大小=%d", CONFIG.OBSTACLE_POOL_SIZE))
+    print(string.format("[障碍物] 对象池创建完毕, 每种类型=%d, 总共=%d", CONFIG.OBSTACLE_POOL_PER_TYPE, idx))
 end
 
 --- 从池中获取一个空闲的障碍物
@@ -491,20 +491,33 @@ local function DeactivateObstacle(obs)
 end
 
 --- 生成新障碍物（在玩家前方）
+--- 如果首选类型无空闲对象，fallback 到其他有空闲的类型，保持密度稳定
 local function SpawnObstacles(playerZ)
     local spawnLimit = playerZ + CONFIG.OBSTACLE_SPAWN_AHEAD
+    local types = { "block", "low", "high" }
 
     while nextObstacleZ_ < spawnLimit do
         -- 随机选择障碍类型
         local typeRoll = math.random(1, 3)
-        local types = { "block", "low", "high" }
         local obstType = types[typeRoll]
 
         -- 随机选择车道
         local lane = math.random(1, 3)
 
-        -- 获取空闲障碍物
+        -- 尝试获取首选类型的空闲对象
         local obs = GetFreeObstacle(obstType)
+
+        -- fallback: 首选类型用完了，尝试其他类型
+        if not obs then
+            for _, fallbackType in ipairs(types) do
+                if fallbackType ~= obstType then
+                    obs = GetFreeObstacle(fallbackType)
+                    if obs then break end
+                end
+            end
+        end
+
+        -- 只有所有类型都用完才跳过（不应该发生，池足够大）
         if obs then
             ActivateObstacle(obs, lane, nextObstacleZ_)
         end
