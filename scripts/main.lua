@@ -1,5 +1,5 @@
 -- ============================================================================
--- 外卖冲冲冲 - 阶段 3.1：障碍与订单节奏打磨
+-- 外卖冲冲冲 - 阶段 3.2：首分钟节奏保底
 -- 竖屏跑酷游戏原型
 -- 风格：积木阳光城（浅色道路、蓝绿城市基底、大块面、强轮廓）
 -- ============================================================================
@@ -122,7 +122,7 @@ local orderState_ = "none"         -- "none" = 未取餐, "carrying" = 已取餐
 local pickupNode_ = nil
 local pickupLane_ = 0
 local pickupActive_ = false
-local nextPickupZ_ = 45.0
+local nextPickupZ_ = 35.0
 
 -- 送餐点状态
 ---@type Node
@@ -165,6 +165,10 @@ local gameOverPanel_ = nil
 -- 开局提示标记（第一帧显示）
 local startToastPending_ = true
 
+-- 首分钟节奏保底
+local firstDeliveryInRun_ = true       -- 第一次送餐点使用更近间距
+local lastOrderPointSeenTime_ = 0.0    -- 最近一次订单相关事件的 runTime_
+
 -- ============================================================================
 -- 生命周期
 -- ============================================================================
@@ -193,9 +197,9 @@ function Start()
 
     SubscribeToEvent("Update", "HandleUpdate")
 
-    print("=== 外卖冲冲冲 - 阶段 3.1：障碍与订单节奏打磨 ===")
+    print("=== 外卖冲冲冲 - 阶段 3.2：首分钟节奏保底 ===")
     print("操作: 左右滑动=变道, 上滑/空格=跳跃, 下滑/S=下滑")
-    print("新增: 目标点安全间距 + 取送餐点互斥 + 节奏参数调整")
+    print("新增: 首分钟节奏保底 + 更早首个取餐点 + 8秒空窗强制触发")
 end
 
 function Stop()
@@ -673,6 +677,7 @@ local function TrySpawnPickup(playerZ)
     pickupNode_.position = Vector3(laneX, 0, spawnZ)
     pickupNode_.enabled = true
 
+    lastOrderPointSeenTime_ = runTime_
     print(string.format("[取餐点] 生成: 车道=%d, Z=%.1f", lane, spawnZ))
 end
 
@@ -787,8 +792,15 @@ local function CheckPickup(playerZ)
 
         -- 如果当前没有活跃送餐点，设置送餐点生成位置
         if not deliveryActive_ then
-            nextDeliveryZ_ = playerZ + 42.0 + math.random() * 23.0
+            if firstDeliveryInRun_ then
+                nextDeliveryZ_ = playerZ + 38.0 + math.random() * 17.0  -- 首单：38~55m
+                firstDeliveryInRun_ = false
+            else
+                nextDeliveryZ_ = playerZ + 42.0 + math.random() * 23.0  -- 常规：42~65m
+            end
         end
+
+        lastOrderPointSeenTime_ = runTime_
 
         -- 如果还没满载，安排下一个取餐点
         if carriedOrderCount_ < maxCarryOrders_ then
@@ -815,6 +827,7 @@ local function RecyclePickupBehind(playerZ)
         pickupNode_.position = Vector3(0, -100, -100)
         -- 设置下一个取餐点位置（前方 32~50m）
         nextPickupZ_ = playerZ + 32.0 + math.random() * 18.0
+        lastOrderPointSeenTime_ = runTime_
         ShowToast("错过取餐点")
         print(string.format("[取餐点] 已错过，下一个 Z=%.1f", nextPickupZ_))
     end
@@ -920,6 +933,7 @@ local function TrySpawnDelivery(playerZ)
     deliveryNode_.position = Vector3(laneX, 0, spawnZ)
     deliveryNode_.enabled = true
 
+    lastOrderPointSeenTime_ = runTime_
     print(string.format("[送餐点] 生成: 车道=%d, Z=%.1f", lane, spawnZ))
 end
 
@@ -957,6 +971,7 @@ local function CheckDelivery(playerZ)
                 nextPickupZ_ = playerZ + 32.0 + math.random() * 18.0
             end
             boostTimer_ = boostDuration_
+            lastOrderPointSeenTime_ = runTime_
             ShowToast(string.format("送达 +¥%d，连送 %d，剩余 %d/%d，加速！", reward, comboCount_, carriedOrderCount_, maxCarryOrders_))
             print(string.format("[送餐点] 送达成功！连送 %d，奖励 +%d，累计 ¥%d，剩余 %d/%d", comboCount_, reward, currentIncome_, carriedOrderCount_, maxCarryOrders_))
         else
@@ -965,6 +980,7 @@ local function CheckDelivery(playerZ)
             deliveryTimer_ = 0.0
             nextPickupZ_ = playerZ + 32.0 + math.random() * 18.0
             boostTimer_ = boostDuration_
+            lastOrderPointSeenTime_ = runTime_
             ShowToast(string.format("全部送完 +¥%d，连送 %d，加速！", reward, comboCount_))
             print(string.format("[送餐点] 送达成功！连送 %d，奖励 +%d，累计 ¥%d，全部送完", comboCount_, reward, currentIncome_))
         end
@@ -983,6 +999,7 @@ local function RecycleDeliveryBehind(playerZ)
         deliveryNode_.position = Vector3(0, -100, -100)
         -- 在前方重新安排送餐点（前方 42~65m）
         nextDeliveryZ_ = playerZ + 42.0 + math.random() * 23.0
+        lastOrderPointSeenTime_ = runTime_
         ShowToast("错过送餐点，前方重新导航")
         print(string.format("[送餐点] 已错过，下一个 Z=%.1f", nextDeliveryZ_))
     end
@@ -1148,7 +1165,7 @@ local function RestartGame()
     orderState_ = "none"
     pickupActive_ = false
     pickupLane_ = 0
-    nextPickupZ_ = 50.0  -- 玩家起始 Z=5, 取餐点在前方约 45m
+    nextPickupZ_ = 35.0  -- 玩家起始 Z=5, 取餐点在前方约 30m
     if pickupNode_ then
         pickupNode_.enabled = false
         pickupNode_.position = Vector3(0, -100, -100)
@@ -1167,6 +1184,8 @@ local function RestartGame()
     maxComboCount_ = 0
     lowTimeWarningShown_ = false
     boostTimer_ = 0.0
+    firstDeliveryInRun_ = true
+    lastOrderPointSeenTime_ = 0.0
     if deliveryNode_ then
         deliveryNode_.enabled = false
         deliveryNode_.position = Vector3(0, -100, -100)
@@ -1787,6 +1806,27 @@ function HandleUpdate(eventType, eventData)
     TrySpawnDelivery(newZ)
     CheckDelivery(newZ)
     RecycleDeliveryBehind(newZ)
+
+    -- 首分钟节奏保底：超过 8 秒没有订单事件时，强制缩短下一个触发距离
+    if runTime_ < 60.0 and (runTime_ - lastOrderPointSeenTime_) > 8.0 then
+        if carriedOrderCount_ <= 0 and not pickupActive_ then
+            -- 没有携带订单且没有活跃取餐点 → 强制缩短取餐点距离
+            local forcedZ = newZ + 32.0 + math.random() * 13.0  -- 32~45m
+            if nextPickupZ_ > forcedZ then
+                nextPickupZ_ = forcedZ
+                print(string.format("[节奏保底] 空窗 %.1fs，取餐点提前到 Z=%.1f", runTime_ - lastOrderPointSeenTime_, forcedZ))
+            end
+            lastOrderPointSeenTime_ = runTime_  -- 重置，避免每帧触发
+        elseif carriedOrderCount_ > 0 and not deliveryActive_ then
+            -- 有订单但没有活跃送餐点 → 强制缩短送餐点距离
+            local forcedZ = newZ + 38.0 + math.random() * 17.0  -- 38~55m
+            if nextDeliveryZ_ > forcedZ then
+                nextDeliveryZ_ = forcedZ
+                print(string.format("[节奏保底] 空窗 %.1fs，送餐点提前到 Z=%.1f", runTime_ - lastOrderPointSeenTime_, forcedZ))
+            end
+            lastOrderPointSeenTime_ = runTime_  -- 重置，避免每帧触发
+        end
+    end
 
     -- 取餐点/送餐点可视强化动画（浮动 + 旋转 + 近距离加速）
     if pickupActive_ and pickupNode_ then
