@@ -1,5 +1,5 @@
 -- ============================================================================
--- 外卖冲冲冲 - 阶段 2.6：送达奖励反馈与连送爽感
+-- 外卖冲冲冲 - 阶段 2.7：超时压力与错过目标反馈
 -- 竖屏跑酷游戏原型
 -- 风格：积木阳光城（浅色道路、蓝绿城市基底、大块面、强轮廓）
 -- ============================================================================
@@ -151,6 +151,9 @@ local toastTimer_ = 0.0            -- Toast 剩余显示时间
 local comboCount_ = 0              -- 当前连续送达次数
 local maxComboCount_ = 0           -- 本局最高连送
 
+-- 超时警告
+local lowTimeWarningShown_ = false -- 本轮倒计时是否已显示快超时提示
+
 -- 游戏结束 UI 引用
 local gameOverPanel_ = nil
 
@@ -182,9 +185,9 @@ function Start()
 
     SubscribeToEvent("Update", "HandleUpdate")
 
-    print("=== 外卖冲冲冲 - 阶段 2.6：送达奖励反馈与连送爽感 ===")
+    print("=== 外卖冲冲冲 - 阶段 2.7：超时压力与错过目标反馈 ===")
     print("操作: 左右滑动=变道, 上滑/空格=跳跃, 下滑/S=下滑")
-    print("连送: 连续送达奖励递增 8→9→10→12，HUD 显示连送数")
+    print("新增: 快超时警告 Toast + 错过目标反馈 + HUD 紧急状态")
 end
 
 function Stop()
@@ -752,6 +755,7 @@ local function CheckPickup(playerZ)
         carriedOrderCount_ = math.min(carriedOrderCount_ + 1, maxCarryOrders_)
         orderState_ = "carrying"
         deliveryTimer_ = deliveryTimeLimit_  -- 每次取餐重置倒计时
+        lowTimeWarningShown_ = false         -- 新倒计时，重置警告标记
         pickupActive_ = false
         pickupNode_.enabled = false
         pickupNode_.position = Vector3(0, -100, -100)
@@ -786,6 +790,7 @@ local function RecyclePickupBehind(playerZ)
         pickupNode_.position = Vector3(0, -100, -100)
         -- 设置下一个取餐点位置（前方 35~55m）
         nextPickupZ_ = playerZ + 35.0 + math.random() * 20.0
+        ShowToast("错过取餐点")
         print(string.format("[取餐点] 已错过，下一个 Z=%.1f", nextPickupZ_))
     end
 end
@@ -920,6 +925,7 @@ local function CheckDelivery(playerZ)
             -- 还有剩余订单，继续送餐中
             orderState_ = "carrying"
             deliveryTimer_ = deliveryTimeLimit_  -- 送达后重置倒计时
+            lowTimeWarningShown_ = false         -- 新倒计时，重置警告标记
             nextDeliveryZ_ = playerZ + 45.0 + math.random() * 25.0
             -- 允许继续生成取餐点
             if carriedOrderCount_ < maxCarryOrders_ and not pickupActive_ then
@@ -950,6 +956,7 @@ local function RecycleDeliveryBehind(playerZ)
         deliveryNode_.position = Vector3(0, -100, -100)
         -- 在前方重新安排送餐点
         nextDeliveryZ_ = playerZ + 45.0 + math.random() * 25.0
+        ShowToast("错过送餐点，前方重新导航")
         print(string.format("[送餐点] 已错过，下一个 Z=%.1f", nextDeliveryZ_))
     end
 end
@@ -1112,6 +1119,7 @@ local function RestartGame()
     toastTimer_ = 0.0
     comboCount_ = 0
     maxComboCount_ = 0
+    lowTimeWarningShown_ = false
     if deliveryNode_ then
         deliveryNode_.enabled = false
         deliveryNode_.position = Vector3(0, -100, -100)
@@ -1683,6 +1691,11 @@ function HandleUpdate(eventType, eventData)
             TriggerGameOver("送餐超时")
             return
         end
+        -- 快超时警告（每轮倒计时只触发一次）
+        if deliveryTimer_ <= 3.0 and not lowTimeWarningShown_ then
+            ShowToast("快超时了！")
+            lowTimeWarningShown_ = true
+        end
     end
 
     -- 循环回收
@@ -1749,8 +1762,12 @@ function HandleUpdate(eventType, eventData)
         uiTimer_ = uiTimer_ - 0.25
         local hudLabel = UI.FindById("hud_info")
         if hudLabel then
-            hudLabel:SetText(string.format("%d m | %.1f m/s | 订单 %d/%d | ¥%d | 连送 %d | 已送 %d",
-                math.floor(distanceTraveled_), currentSpeed_, carriedOrderCount_, maxCarryOrders_, currentIncome_, comboCount_, deliveredOrderCount_))
+            local orderTag = string.format("订单 %d/%d", carriedOrderCount_, maxCarryOrders_)
+            if orderState_ == "carrying" and deliveryTimer_ <= 3.0 then
+                orderTag = orderTag .. " 紧急"
+            end
+            hudLabel:SetText(string.format("%d m | %.1f m/s | %s | ¥%d | 连送 %d | 已送 %d",
+                math.floor(distanceTraveled_), currentSpeed_, orderTag, currentIncome_, comboCount_, deliveredOrderCount_))
         end
         UpdateTargetHint(newZ)
     end
