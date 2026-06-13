@@ -1,5 +1,5 @@
 -- ============================================================================
--- 外卖冲冲冲 - 阶段 1.3：订单倒计时与超时失败
+-- 外卖冲冲冲 - 阶段 1.4：单订单收益与累计收入
 -- 竖屏跑酷游戏原型
 -- 风格：积木阳光城（浅色道路、蓝绿城市基底、大块面、强轮廓）
 -- ============================================================================
@@ -135,6 +135,10 @@ local nextDeliveryZ_ = 0.0
 local deliveryTimeLimit_ = 12.0    -- 送餐限时（秒）
 local deliveryTimer_ = 0.0         -- 当前剩余时间
 
+-- 收入
+local deliveryReward_ = 8          -- 每次送达收益
+local currentIncome_ = 0           -- 本局累计收入
+
 -- 游戏结束 UI 引用
 local gameOverPanel_ = nil
 
@@ -166,7 +170,7 @@ function Start()
 
     SubscribeToEvent("Update", "HandleUpdate")
 
-    print("=== 外卖冲冲冲 - 阶段 1.2：送餐点与单订单闭环 ===")
+    print("=== 外卖冲冲冲 - 阶段 1.3/1.4：订单倒计时 + 单订单收益 ===")
     print("操作: 左右滑动=变道, 上滑/空格=跳跃, 下滑/S=下滑")
     print("闭环: 未取餐→经过橙色取餐点→送餐中→经过绿色送餐点→循环")
 end
@@ -757,11 +761,12 @@ local function CheckDelivery(playerZ)
         orderState_ = "none"
         deliveryActive_ = false
         deliveryTimer_ = 0.0
+        currentIncome_ = currentIncome_ + deliveryReward_
         deliveryNode_.enabled = false
         deliveryNode_.position = Vector3(0, -100, -100)
         -- 设置新的取餐点位置，形成闭环
         nextPickupZ_ = playerZ + 35.0 + math.random() * 20.0
-        print(string.format("[送餐点] 送达成功！下一个取餐点 Z=%.1f", nextPickupZ_))
+        print(string.format("[送餐点] 送达成功！收入 +%d，累计 ¥%d，下一个取餐点 Z=%.1f", deliveryReward_, currentIncome_, nextPickupZ_))
     end
 end
 
@@ -870,6 +875,11 @@ local function TriggerGameOver(reason)
             local seconds = math.floor(runTime_ % 60)
             timeLabel:SetText(string.format("持续时间: %d:%02d", minutes, seconds))
         end
+
+        local incomeLabel = UI.FindById("go_income")
+        if incomeLabel then
+            incomeLabel:SetText(string.format("本局收入: ¥%d", currentIncome_))
+        end
     end
 end
 
@@ -918,6 +928,7 @@ local function RestartGame()
     deliveryLane_ = 0
     nextDeliveryZ_ = 0.0
     deliveryTimer_ = 0.0
+    currentIncome_ = 0
     if deliveryNode_ then
         deliveryNode_.enabled = false
         deliveryNode_.position = Vector3(0, -100, -100)
@@ -1095,6 +1106,13 @@ function CreateUI()
                         fontColor = { 80, 80, 80, 255 },
                         marginTop = 6,
                     },
+                    UI.Label {
+                        id = "go_income",
+                        text = "本局收入: ¥0",
+                        fontSize = 15,
+                        fontColor = { 34, 139, 34, 255 },
+                        marginTop = 6,
+                    },
                     UI.Button {
                         text = "再来一局",
                         variant = "primary",
@@ -1128,7 +1146,7 @@ function CreateUI()
             -- HUD: 距离 + 速度
             UI.Label {
                 id = "hud_info",
-                text = "0 m  |  8.0 m/s",
+                text = "0 m | 8.0 m/s | 未取餐 | 收入 ¥0",
                 fontSize = 14,
                 fontColor = { 255, 255, 200, 210 },
                 position = "absolute",
@@ -1479,7 +1497,7 @@ function HandleUpdate(eventType, eventData)
             else
                 orderText = "未取餐"
             end
-            hudLabel:SetText(string.format("%d m | %.1f m/s | %s", math.floor(distanceTraveled_), currentSpeed_, orderText))
+            hudLabel:SetText(string.format("%d m | %.1f m/s | %s | 收入 ¥%d", math.floor(distanceTraveled_), currentSpeed_, orderText, currentIncome_))
         end
     end
 end
