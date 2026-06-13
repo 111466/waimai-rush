@@ -1,5 +1,5 @@
 -- ============================================================================
--- 外卖冲冲冲 - 阶段 2.8：送达后的短时加速爽感
+-- 外卖冲冲冲 - 阶段 2.9：开局与失败后的快速再来一局手感
 -- 竖屏跑酷游戏原型
 -- 风格：积木阳光城（浅色道路、蓝绿城市基底、大块面、强轮廓）
 -- ============================================================================
@@ -162,6 +162,9 @@ local boostSpeedBonus_ = 2.0       -- 加速额外速度(m/s)
 -- 游戏结束 UI 引用
 local gameOverPanel_ = nil
 
+-- 开局提示标记（第一帧显示）
+local startToastPending_ = true
+
 -- ============================================================================
 -- 生命周期
 -- ============================================================================
@@ -190,9 +193,9 @@ function Start()
 
     SubscribeToEvent("Update", "HandleUpdate")
 
-    print("=== 外卖冲冲冲 - 阶段 2.8：送达后的短时加速爽感 ===")
+    print("=== 外卖冲冲冲 - 阶段 2.9：开局与失败后的快速再来一局手感 ===")
     print("操作: 左右滑动=变道, 上滑/空格=跳跃, 下滑/S=下滑")
-    print("新增: 快超时警告 Toast + 错过目标反馈 + HUD 紧急状态")
+    print("新增: 开局提示 Toast + 结算评价文案 + 空格/R 快速重开")
 end
 
 function Stop()
@@ -1077,6 +1080,20 @@ local function TriggerGameOver(reason)
         if comboLabel then
             comboLabel:SetText(string.format("最高连送: %d", maxComboCount_))
         end
+
+        -- 评价文案
+        local rankLabel = UI.FindById("go_rank_text")
+        if rankLabel then
+            local rankText
+            if deliveredOrderCount_ == 0 then
+                rankText = "还没送到，下一单冲！"
+            elseif deliveredOrderCount_ < 5 then
+                rankText = "跑腿新人，上手了！"
+            else
+                rankText = "金牌骑手，继续冲！"
+            end
+            rankLabel:SetText(rankText)
+        end
     end
 end
 
@@ -1178,6 +1195,9 @@ local function RestartGame()
 
     -- 更新摄像机
     UpdateCameraPosition()
+
+    -- 重开提示
+    ShowToast("继续冲！")
 end
 
 -- ============================================================================
@@ -1337,8 +1357,15 @@ function CreateUI()
                         fontColor = { 255, 100, 50, 255 },
                         marginTop = 4,
                     },
+                    UI.Label {
+                        id = "go_rank_text",
+                        text = "",
+                        fontSize = 16,
+                        fontColor = { 80, 200, 120, 255 },
+                        marginTop = 8,
+                    },
                     UI.Button {
-                        text = "再来一局",
+                        text = "再来一局 (空格/R)",
                         variant = "primary",
                         marginTop = 22,
                         width = 160,
@@ -1654,7 +1681,17 @@ function HandleUpdate(eventType, eventData)
     if playerNode_ == nil then return end
 
     if gameState_ == "gameOver" then
+        -- 快捷重开：空格键或 R 键
+        if input:GetKeyPress(KEY_SPACE) or input:GetKeyPress(KEY_R) then
+            RestartGame()
+        end
         return
+    end
+
+    -- 开局提示（第一帧触发）
+    if startToastPending_ then
+        startToastPending_ = false
+        ShowToast("左右滑动变道，上滑跳跃，下滑躲避")
     end
 
     -- 输入
