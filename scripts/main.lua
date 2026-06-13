@@ -1,5 +1,5 @@
 -- ============================================================================
--- 外卖冲冲冲 - 阶段 1.4：单订单收益与累计收入
+-- 外卖冲冲冲 - 阶段 2.1：携带容量 HUD 与订单数量状态
 -- 竖屏跑酷游戏原型
 -- 风格：积木阳光城（浅色道路、蓝绿城市基底、大块面、强轮廓）
 -- ============================================================================
@@ -139,6 +139,10 @@ local deliveryTimer_ = 0.0         -- 当前剩余时间
 local deliveryReward_ = 8          -- 每次送达收益
 local currentIncome_ = 0           -- 本局累计收入
 
+-- 携带容量
+local maxCarryOrders_ = 2          -- 最多可携带订单数
+local carriedOrderCount_ = 0       -- 当前携带订单数
+
 -- 游戏结束 UI 引用
 local gameOverPanel_ = nil
 
@@ -170,7 +174,7 @@ function Start()
 
     SubscribeToEvent("Update", "HandleUpdate")
 
-    print("=== 外卖冲冲冲 - 阶段 1.3/1.4：订单倒计时 + 单订单收益 ===")
+    print("=== 外卖冲冲冲 - 阶段 2.1：携带容量 HUD 与订单数量状态 ===")
     print("操作: 左右滑动=变道, 上滑/空格=跳跃, 下滑/S=下滑")
     print("闭环: 未取餐→经过橙色取餐点→送餐中→经过绿色送餐点→循环")
 end
@@ -630,6 +634,7 @@ local function CheckPickup(playerZ)
     if math.abs(playerZ - pickZ) < 1.0 then
         -- 取餐成功
         orderState_ = "carrying"
+        carriedOrderCount_ = 1
         deliveryTimer_ = deliveryTimeLimit_
         pickupActive_ = false
         pickupNode_.enabled = false
@@ -759,6 +764,7 @@ local function CheckDelivery(playerZ)
     if math.abs(playerZ - delZ) < 1.0 then
         -- 送达成功
         orderState_ = "none"
+        carriedOrderCount_ = 0
         deliveryActive_ = false
         deliveryTimer_ = 0.0
         currentIncome_ = currentIncome_ + deliveryReward_
@@ -929,6 +935,7 @@ local function RestartGame()
     nextDeliveryZ_ = 0.0
     deliveryTimer_ = 0.0
     currentIncome_ = 0
+    carriedOrderCount_ = 0
     if deliveryNode_ then
         deliveryNode_.enabled = false
         deliveryNode_.position = Vector3(0, -100, -100)
@@ -1146,7 +1153,7 @@ function CreateUI()
             -- HUD: 距离 + 速度
             UI.Label {
                 id = "hud_info",
-                text = "0 m | 8.0 m/s | 未取餐 | 收入 ¥0",
+                text = "0 m | 8.0 m/s | 订单 0/2 | 未取餐 | 收入 ¥0",
                 fontSize = 14,
                 fontColor = { 255, 255, 200, 210 },
                 position = "absolute",
@@ -1497,7 +1504,8 @@ function HandleUpdate(eventType, eventData)
             else
                 orderText = "未取餐"
             end
-            hudLabel:SetText(string.format("%d m | %.1f m/s | %s | 收入 ¥%d", math.floor(distanceTraveled_), currentSpeed_, orderText, currentIncome_))
+            hudLabel:SetText(string.format("%d m | %.1f m/s | 订单 %d/%d | %s | 收入 ¥%d",
+                math.floor(distanceTraveled_), currentSpeed_, carriedOrderCount_, maxCarryOrders_, orderText, currentIncome_))
         end
     end
 end
