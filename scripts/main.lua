@@ -1,5 +1,5 @@
 -- ============================================================================
--- 外卖冲冲冲 - 阶段 2.9：开局与失败后的快速再来一局手感
+-- 外卖冲冲冲 - 阶段 3.1：障碍与订单节奏打磨
 -- 竖屏跑酷游戏原型
 -- 风格：积木阳光城（浅色道路、蓝绿城市基底、大块面、强轮廓）
 -- ============================================================================
@@ -193,9 +193,9 @@ function Start()
 
     SubscribeToEvent("Update", "HandleUpdate")
 
-    print("=== 外卖冲冲冲 - 阶段 2.9：开局与失败后的快速再来一局手感 ===")
+    print("=== 外卖冲冲冲 - 阶段 3.1：障碍与订单节奏打磨 ===")
     print("操作: 左右滑动=变道, 上滑/空格=跳跃, 下滑/S=下滑")
-    print("新增: 开局提示 Toast + 结算评价文案 + 空格/R 快速重开")
+    print("新增: 目标点安全间距 + 取送餐点互斥 + 节奏参数调整")
 end
 
 function Stop()
@@ -621,9 +621,26 @@ local function IsPickupConflictWithObstacles(lane, z)
     for i = 1, #obstacles_ do
         local obs = obstacles_[i]
         if obs.active and obs.lane == lane then
-            if math.abs(obs.node.position.z - z) < 4.0 then
+            if math.abs(obs.node.position.z - z) < 5.0 then
                 return true
             end
+        end
+    end
+    return false
+end
+
+--- 判断目标点是否与另一个活跃目标点太近（同车道 z 距离 < 8m）
+local function IsOrderPointTooClose(lane, z)
+    -- 检查活跃取餐点
+    if pickupActive_ and pickupLane_ == lane then
+        if math.abs(pickupNode_.position.z - z) < 8.0 then
+            return true
+        end
+    end
+    -- 检查活跃送餐点
+    if deliveryActive_ and deliveryLane_ == lane then
+        if math.abs(deliveryNode_.position.z - z) < 8.0 then
+            return true
         end
     end
     return false
@@ -641,9 +658,9 @@ local function TrySpawnPickup(playerZ)
     local lane = math.random(1, 3)
     local spawnZ = nextPickupZ_
 
-    -- 避免与障碍物重叠：如果冲突，向前推 5m，最多尝试 5 次
-    for _ = 1, 5 do
-        if not IsPickupConflictWithObstacles(lane, spawnZ) then
+    -- 避免与障碍物重叠及目标点互近：最多尝试 6 次，每次前推 5m
+    for _ = 1, 6 do
+        if not IsPickupConflictWithObstacles(lane, spawnZ) and not IsOrderPointTooClose(lane, spawnZ) then
             break
         end
         spawnZ = spawnZ + 5.0
@@ -770,12 +787,12 @@ local function CheckPickup(playerZ)
 
         -- 如果当前没有活跃送餐点，设置送餐点生成位置
         if not deliveryActive_ then
-            nextDeliveryZ_ = playerZ + 45.0 + math.random() * 25.0
+            nextDeliveryZ_ = playerZ + 42.0 + math.random() * 23.0
         end
 
         -- 如果还没满载，安排下一个取餐点
         if carriedOrderCount_ < maxCarryOrders_ then
-            nextPickupZ_ = playerZ + 35.0 + math.random() * 20.0
+            nextPickupZ_ = playerZ + 32.0 + math.random() * 18.0
             ShowToast(string.format("取餐 +1，订单 %d/%d", carriedOrderCount_, maxCarryOrders_))
         else
             ShowToast("满载！先去送餐")
@@ -796,8 +813,8 @@ local function RecyclePickupBehind(playerZ)
         pickupActive_ = false
         pickupNode_.enabled = false
         pickupNode_.position = Vector3(0, -100, -100)
-        -- 设置下一个取餐点位置（前方 35~55m）
-        nextPickupZ_ = playerZ + 35.0 + math.random() * 20.0
+        -- 设置下一个取餐点位置（前方 32~50m）
+        nextPickupZ_ = playerZ + 32.0 + math.random() * 18.0
         ShowToast("错过取餐点")
         print(string.format("[取餐点] 已错过，下一个 Z=%.1f", nextPickupZ_))
     end
@@ -868,7 +885,7 @@ local function IsDeliveryConflictWithObstacles(lane, z)
     for i = 1, #obstacles_ do
         local obs = obstacles_[i]
         if obs.active and obs.lane == lane then
-            if math.abs(obs.node.position.z - z) < 4.0 then
+            if math.abs(obs.node.position.z - z) < 5.0 then
                 return true
             end
         end
@@ -888,9 +905,9 @@ local function TrySpawnDelivery(playerZ)
     local lane = math.random(1, 3)
     local spawnZ = nextDeliveryZ_
 
-    -- 避免与障碍物重叠：如果冲突，向前推 5m，最多尝试 5 次
-    for _ = 1, 5 do
-        if not IsDeliveryConflictWithObstacles(lane, spawnZ) then
+    -- 避免与障碍物重叠及目标点互近：最多尝试 6 次，每次前推 5m
+    for _ = 1, 6 do
+        if not IsDeliveryConflictWithObstacles(lane, spawnZ) and not IsOrderPointTooClose(lane, spawnZ) then
             break
         end
         spawnZ = spawnZ + 5.0
@@ -934,10 +951,10 @@ local function CheckDelivery(playerZ)
             orderState_ = "carrying"
             deliveryTimer_ = deliveryTimeLimit_  -- 送达后重置倒计时
             lowTimeWarningShown_ = false         -- 新倒计时，重置警告标记
-            nextDeliveryZ_ = playerZ + 45.0 + math.random() * 25.0
+            nextDeliveryZ_ = playerZ + 42.0 + math.random() * 23.0
             -- 允许继续生成取餐点
             if carriedOrderCount_ < maxCarryOrders_ and not pickupActive_ then
-                nextPickupZ_ = playerZ + 35.0 + math.random() * 20.0
+                nextPickupZ_ = playerZ + 32.0 + math.random() * 18.0
             end
             boostTimer_ = boostDuration_
             ShowToast(string.format("送达 +¥%d，连送 %d，剩余 %d/%d，加速！", reward, comboCount_, carriedOrderCount_, maxCarryOrders_))
@@ -946,7 +963,7 @@ local function CheckDelivery(playerZ)
             -- 全部送完，回到未取餐
             orderState_ = "none"
             deliveryTimer_ = 0.0
-            nextPickupZ_ = playerZ + 35.0 + math.random() * 20.0
+            nextPickupZ_ = playerZ + 32.0 + math.random() * 18.0
             boostTimer_ = boostDuration_
             ShowToast(string.format("全部送完 +¥%d，连送 %d，加速！", reward, comboCount_))
             print(string.format("[送餐点] 送达成功！连送 %d，奖励 +%d，累计 ¥%d，全部送完", comboCount_, reward, currentIncome_))
@@ -964,8 +981,8 @@ local function RecycleDeliveryBehind(playerZ)
         deliveryActive_ = false
         deliveryNode_.enabled = false
         deliveryNode_.position = Vector3(0, -100, -100)
-        -- 在前方重新安排送餐点
-        nextDeliveryZ_ = playerZ + 45.0 + math.random() * 25.0
+        -- 在前方重新安排送餐点（前方 42~65m）
+        nextDeliveryZ_ = playerZ + 42.0 + math.random() * 23.0
         ShowToast("错过送餐点，前方重新导航")
         print(string.format("[送餐点] 已错过，下一个 Z=%.1f", nextDeliveryZ_))
     end
