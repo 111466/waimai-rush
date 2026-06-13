@@ -1,5 +1,5 @@
 -- ============================================================================
--- 外卖冲冲冲 - 阶段 3.6：失败原因与教学反馈强化
+-- 外卖冲冲冲 - 阶段 4.2-5.1：反馈、UI收紧与试玩平衡
 -- 竖屏跑酷游戏原型
 -- 风格：积木阳光城（浅色道路、蓝绿城市基底、大块面、强轮廓）
 -- ============================================================================
@@ -177,6 +177,13 @@ local lastOrderPointSeenTime_ = 0.0    -- 最近一次订单相关事件的 runT
 -- 难度曲线
 local highPressureToastShown_ = false  -- 高压期提示是否已显示
 
+-- 镜头反馈
+local baseCameraFov_ = 60.0
+local boostCameraFov_ = 66.0
+local highPressureCameraFov_ = 63.0
+local currentCameraFov_ = 60.0       -- 当前实际 FOV（平滑插值用）
+local cameraTilt_ = 0.0              -- 当前镜头倾斜角度（度）
+
 -- ============================================================================
 -- 生命周期
 -- ============================================================================
@@ -205,7 +212,7 @@ function Start()
 
     SubscribeToEvent("Update", "HandleUpdate")
 
-    print("=== 外卖冲冲冲 - 阶段 3.6：失败原因与教学反馈强化 ===")
+    print("=== 外卖冲冲冲 - 阶段 4.2-5.1：反馈、UI收紧与试玩平衡 ===")
     print("操作: 左右滑动=变道, 上滑/空格=跳跃, 下滑/S=下滑")
     print("新增: 三道封死检测 + 同车道过密检测 + 公平性前推机制")
 end
@@ -863,6 +870,12 @@ local function UpdateTargetHint(playerZ)
     SafeSetLabelColor(hintLabel, { r, g, b, a })
 end
 
+--- 反馈占位函数（音效/震动接入点）
+---@param cueName string 反馈事件名
+local function TriggerFeedback(cueName)
+    print("[反馈] " .. cueName)
+end
+
 --- 检测玩家是否经过取餐点
 local function CheckPickup(playerZ)
     if not pickupActive_ then return end
@@ -902,6 +915,7 @@ local function CheckPickup(playerZ)
             ShowToast("满载！先去送餐")
         end
 
+        TriggerFeedback("pickup")
         print(string.format("[取餐点] 取餐成功！订单 %d/%d，倒计时 %.1fs", carriedOrderCount_, maxCarryOrders_, deliveryTimer_))
     end
 end
@@ -1064,6 +1078,9 @@ local function CheckDelivery(playerZ)
             end
             boostTimer_ = boostDuration_
             lastOrderPointSeenTime_ = runTime_
+            TriggerFeedback("delivery")
+            TriggerFeedback("boost")
+            if comboCount_ >= 3 then TriggerFeedback("combo") end
             ShowToast(string.format("送达 +¥%d，连送 %d，剩余 %d/%d，加速！", reward, comboCount_, carriedOrderCount_, maxCarryOrders_))
             print(string.format("[送餐点] 送达成功！连送 %d，奖励 +%d，累计 ¥%d，剩余 %d/%d", comboCount_, reward, currentIncome_, carriedOrderCount_, maxCarryOrders_))
         else
@@ -1073,6 +1090,9 @@ local function CheckDelivery(playerZ)
             nextPickupZ_ = playerZ + 32.0 + math.random() * 18.0
             boostTimer_ = boostDuration_
             lastOrderPointSeenTime_ = runTime_
+            TriggerFeedback("delivery")
+            TriggerFeedback("boost")
+            if comboCount_ >= 3 then TriggerFeedback("combo") end
             ShowToast(string.format("全部送完 +¥%d，连送 %d，加速！", reward, comboCount_))
             print(string.format("[送餐点] 送达成功！连送 %d，奖励 +%d，累计 ¥%d，全部送完", comboCount_, reward, currentIncome_))
         end
@@ -1171,6 +1191,7 @@ end
 
 local function TriggerGameOver(reason)
     gameState_ = "gameOver"
+    TriggerFeedback("game_over")
 
     -- 更新最高距离
     local dist = math.floor(distanceTraveled_)
@@ -1249,6 +1270,7 @@ end
 --- 重置游戏（再来一局）
 local function RestartGame()
     print("[重启] 再来一局")
+    TriggerFeedback("restart")
 
     -- 重置游戏状态
     gameState_ = "running"
@@ -1304,6 +1326,8 @@ local function RestartGame()
     highPressureToastShown_ = false
     jumpBufferTimer_ = 0.0
     slideBufferTimer_ = 0.0
+    currentCameraFov_ = baseCameraFov_
+    cameraTilt_ = 0.0
     if deliveryNode_ then
         deliveryNode_.enabled = false
         deliveryNode_.position = Vector3(0, -100, -100)
@@ -1416,12 +1440,45 @@ function SetupCamera()
     UpdateCameraPosition()
 end
 
-function UpdateCameraPosition()
+function UpdateCameraPosition(dt)
     if playerNode_ == nil or cameraNode_ == nil then return end
     local pp = playerNode_.position
     cameraNode_.position = Vector3(0, pp.y + CONFIG.CAM_OFFSET_Y, pp.z + CONFIG.CAM_OFFSET_Z)
     local lookTarget = Vector3(0, pp.y + 0.5, pp.z + CONFIG.CAM_LOOK_AHEAD)
     cameraNode_:LookAt(lookTarget)
+
+    -- FOV 平滑插值
+    if dt and dt > 0 then
+        local targetFov = baseCameraFov_
+        if GetDifficultyPhase() == 3 then
+            targetFov = highPressureCameraFov_
+        end
+        local fovSpeed = 6.0  -- 越大越快趋近
+        currentCameraFov_ = currentCameraFov_ + (targetFov - currentCameraFov_) * math.min(fovSpeed * dt, 1.0)
+        local camera = cameraNode_:GetComponent("Camera")
+        if camera then
+            camera.fov = currentCameraFov_
+        end
+
+        -- 变道倾斜
+        local targetTilt = 0.0
+        if laneChangeTimer_ > 0.0 then
+            local dir = 0.0
+            if laneChangeToX_ > laneChangeFromX_ then
+                dir = -1.0  -- 向右变道，镜头右倾（负roll）
+            elseif laneChangeToX_ < laneChangeFromX_ then
+                dir = 1.0   -- 向左变道，镜头左倾（正roll）
+            end
+            local progress = 1.0 - (laneChangeTimer_ / LANE_CHANGE_DURATION)
+            -- 中间最大，两端为零的正弦曲线
+            targetTilt = dir * 0.5 * math.sin(progress * math.pi)
+        end
+        local tiltSpeed = 8.0
+        cameraTilt_ = cameraTilt_ + (targetTilt - cameraTilt_) * math.min(tiltSpeed * dt, 1.0)
+        -- 应用倾斜（在 LookAt 之后叠加 roll）
+        local rot = cameraNode_.rotation
+        cameraNode_.rotation = rot * Quaternion(cameraTilt_, Vector3.FORWARD)
+    end
 end
 
 -- ============================================================================
@@ -1486,9 +1543,9 @@ function CreateUI()
                     UI.Label {
                         id = "go_time",
                         text = "持续时间: 0:00",
-                        fontSize = 15,
-                        fontColor = { 80, 80, 80, 255 },
-                        marginTop = 6,
+                        fontSize = 13,
+                        fontColor = { 120, 120, 120, 255 },
+                        marginTop = 4,
                     },
                     UI.Label {
                         id = "go_income",
@@ -1555,14 +1612,25 @@ function CreateUI()
                 left = 0, right = 0,
                 textAlign = "center",
             },
-            -- HUD: 主状态行
+            -- HUD 第一行：距离 + 速度 + 阶段
             UI.Label {
                 id = "hud_info",
-                text = "0 m | 8.0 m/s | 订单 0/2 | ¥0 | 连送 0 | 已送 0",
+                text = "0 m | 8.0 m/s | 热身",
                 fontSize = 14,
                 fontColor = { 255, 255, 200, 210 },
                 position = "absolute",
-                top = 50,
+                top = 48,
+                left = 0, right = 0,
+                textAlign = "center",
+            },
+            -- HUD 第二行：订单 + 收入 + 连送 + 已送
+            UI.Label {
+                id = "order_info",
+                text = "订单 0/2 | ¥0 | 连送 0 | 已送 0",
+                fontSize = 13,
+                fontColor = { 200, 240, 255, 200 },
+                position = "absolute",
+                top = 66,
                 left = 0, right = 0,
                 textAlign = "center",
             },
@@ -1573,7 +1641,7 @@ function CreateUI()
                 fontSize = 15,
                 fontColor = { 255, 200, 60, 255 },
                 position = "absolute",
-                top = 72,
+                top = 86,
                 left = 0, right = 0,
                 textAlign = "center",
             },
@@ -1584,7 +1652,7 @@ function CreateUI()
                 fontSize = 16,
                 fontColor = { 255, 220, 50, 255 },
                 position = "absolute",
-                top = 96,
+                top = 110,
                 left = 0, right = 0,
                 textAlign = "center",
                 visible = false,
@@ -1952,6 +2020,7 @@ function HandleUpdate(eventType, eventData)
         -- 快超时警告（每轮倒计时只触发一次）
         if deliveryTimer_ <= 3.0 and not lowTimeWarningShown_ then
             ShowToast("快超时了！")
+            TriggerFeedback("low_time")
             lowTimeWarningShown_ = true
         end
     end
@@ -1962,7 +2031,7 @@ function HandleUpdate(eventType, eventData)
     RecycleBuildings(newZ)
 
     -- 摄像机
-    UpdateCameraPosition()
+    UpdateCameraPosition(dt)
 
     -- 取餐点逻辑
     TrySpawnPickup(newZ)
@@ -2039,20 +2108,27 @@ function HandleUpdate(eventType, eventData)
     uiTimer_ = uiTimer_ + dt
     if uiTimer_ >= 0.25 then
         uiTimer_ = uiTimer_ - 0.25
+        -- 第一行：距离 + 速度 + 阶段
         local hudLabel = UI.FindById("hud_info")
         if hudLabel then
             local speedTag = string.format("%.1f m/s", currentSpeed_)
             if boostTimer_ > 0 then
                 speedTag = speedTag .. " 加速"
             end
+            local phaseNames = { "热身", "冲刺", "高压" }
+            local phaseTag = phaseNames[GetDifficultyPhase()] or ""
+            hudLabel:SetText(string.format("%d m | %s | %s",
+                math.floor(distanceTraveled_), speedTag, phaseTag))
+        end
+        -- 第二行：订单 + 收入 + 连送 + 已送
+        local orderLabel = UI.FindById("order_info")
+        if orderLabel then
             local orderTag = string.format("订单 %d/%d", carriedOrderCount_, maxCarryOrders_)
             if orderState_ == "carrying" and deliveryTimer_ <= 3.0 then
                 orderTag = orderTag .. " 紧急"
             end
-            local phaseNames = { "热身", "冲刺", "高压" }
-            local phaseTag = phaseNames[GetDifficultyPhase()] or ""
-            hudLabel:SetText(string.format("%d m | %s | %s | ¥%d | 连送 %d | 已送 %d | %s",
-                math.floor(distanceTraveled_), speedTag, orderTag, currentIncome_, comboCount_, deliveredOrderCount_, phaseTag))
+            orderLabel:SetText(string.format("%s | ¥%d | 连送 %d | 已送 %d",
+                orderTag, currentIncome_, comboCount_, deliveredOrderCount_))
         end
         UpdateTargetHint(newZ)
     end
