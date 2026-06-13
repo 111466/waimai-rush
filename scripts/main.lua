@@ -1,5 +1,5 @@
 -- ============================================================================
--- 外卖冲冲冲 - 阶段 0.1：基础场景与三车道
+-- 外卖冲冲冲 - 阶段 0.2：左右变道
 -- 竖屏跑酷游戏原型
 -- 风格：积木阳光城（浅色道路、蓝绿城市基底、大块面、强轮廓）
 -- ============================================================================
@@ -46,6 +46,19 @@ local CONFIG = {
     CAM_OFFSET_Z = -7.0,
     CAM_LOOK_AHEAD = 5.0,
 }
+
+-- 变道参数
+local LANE_CHANGE_DURATION = 0.2     -- 变道持续时间（秒）
+local SWIPE_THRESHOLD = 40.0         -- 滑动触发阈值（像素）
+
+-- 变道状态
+local laneChangeTimer_ = 0.0         -- 变道计时器（>0 表示正在变道中）
+local laneChangeFromX_ = 0.0         -- 变道起始 X
+local laneChangeToX_ = 0.0           -- 变道目标 X
+
+-- 触摸滑动检测
+local touchStartX_ = nil             -- 触摸开始时的 X 坐标（像素）
+local touchId_ = -1                  -- 正在追踪的触摸 ID
 
 -- 运行距离追踪
 local distanceTraveled_ = 0.0
@@ -480,6 +493,105 @@ local function RecycleBuildings(playerZ)
 end
 
 -- ============================================================================
+-- 变道逻辑
+-- ============================================================================
+
+--- 判断是否正在变道中
+local function IsChangingLane()
+    return laneChangeTimer_ > 0.0
+end
+
+--- 发起变道（direction: -1 左移, +1 右移）
+local function TryChangeLane(direction)
+    -- 变道中，忽略新输入
+    if IsChangingLane() then return end
+
+    local newLane = CONFIG.currentLane + direction
+    -- 边界限制（车道 1~3）
+    if newLane < 1 or newLane > 3 then return end
+
+    -- 开始变道
+    laneChangeFromX_ = CONFIG.LANE_X[CONFIG.currentLane]
+    laneChangeToX_ = CONFIG.LANE_X[newLane]
+    CONFIG.currentLane = newLane
+    laneChangeTimer_ = LANE_CHANGE_DURATION
+
+    print(string.format("[变道] 方向=%d, 目标车道=%d, 目标X=%.1f", direction, newLane, laneChangeToX_))
+end
+
+--- 在有触摸时实时检测滑动距离是否超过阈值
+local function HandleTouchSwipe()
+    if IsChangingLane() then
+        -- 变道中，清除触摸追踪状态
+        touchStartX_ = nil
+        touchId_ = -1
+        return
+    end
+
+    local numTouches = input.numTouches
+    if numTouches > 0 then
+        local touch = input:GetTouch(0)
+        if touchStartX_ == nil then
+            -- 新触摸开始，记录起始 X
+            touchStartX_ = touch.position.x
+            touchId_ = touch.touchID
+        else
+            -- 持续追踪，判断是否超过阈值
+            local currentX = touch.position.x
+            local deltaX = currentX - touchStartX_
+
+            if deltaX > SWIPE_THRESHOLD then
+                -- 向右滑动 → 右变道
+                TryChangeLane(1)
+                touchStartX_ = nil
+                touchId_ = -1
+            elseif deltaX < -SWIPE_THRESHOLD then
+                -- 向左滑动 → 左变道
+                TryChangeLane(-1)
+                touchStartX_ = nil
+                touchId_ = -1
+            end
+        end
+    else
+        -- 触摸释放，清除追踪
+        touchStartX_ = nil
+        touchId_ = -1
+    end
+end
+
+--- 处理键盘输入（调试用）
+local function HandleKeyboardInput()
+    if IsChangingLane() then return end
+
+    if input:GetKeyPress(KEY_A) or input:GetKeyPress(KEY_LEFT) then
+        TryChangeLane(-1)
+    elseif input:GetKeyPress(KEY_D) or input:GetKeyPress(KEY_RIGHT) then
+        TryChangeLane(1)
+    end
+end
+
+--- 更新变道平滑移动
+local function UpdateLaneChange(dt)
+    if laneChangeTimer_ <= 0.0 then return end
+
+    laneChangeTimer_ = laneChangeTimer_ - dt
+    if laneChangeTimer_ <= 0.0 then
+        -- 变道完成，精确到目标位置
+        laneChangeTimer_ = 0.0
+        local pos = playerNode_.position
+        playerNode_.position = Vector3(laneChangeToX_, pos.y, pos.z)
+    else
+        -- 线性插值（从起始到目标）
+        local progress = 1.0 - (laneChangeTimer_ / LANE_CHANGE_DURATION)
+        -- 使用 smoothstep 让动作更自然
+        local t = progress * progress * (3.0 - 2.0 * progress)
+        local currentX = laneChangeFromX_ + (laneChangeToX_ - laneChangeFromX_) * t
+        local pos = playerNode_.position
+        playerNode_.position = Vector3(currentX, pos.y, pos.z)
+    end
+end
+
+-- ============================================================================
 -- 游戏更新
 -- ============================================================================
 
@@ -491,6 +603,13 @@ local uiTimer_ = 0.0
 function HandleUpdate(eventType, eventData)
     local dt = eventData["TimeStep"]:GetFloat()
     if playerNode_ == nil then return end
+
+    -- 输入检测（触摸 + 键盘）
+    HandleTouchSwipe()
+    HandleKeyboardInput()
+
+    -- 更新变道平滑移动
+    UpdateLaneChange(dt)
 
     -- 玩家自动向前跑
     local currentPos = playerNode_.position
