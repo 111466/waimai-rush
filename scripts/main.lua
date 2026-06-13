@@ -1,5 +1,5 @@
 -- ============================================================================
--- 外卖冲冲冲 - 阶段 2.5：取餐点/送餐点可视强化
+-- 外卖冲冲冲 - 阶段 2.6：送达奖励反馈与连送爽感
 -- 竖屏跑酷游戏原型
 -- 风格：积木阳光城（浅色道路、蓝绿城市基底、大块面、强轮廓）
 -- ============================================================================
@@ -147,6 +147,10 @@ local deliveredOrderCount_ = 0     -- 本局已送达订单数
 -- Toast 提示
 local toastTimer_ = 0.0            -- Toast 剩余显示时间
 
+-- 连送系统
+local comboCount_ = 0              -- 当前连续送达次数
+local maxComboCount_ = 0           -- 本局最高连送
+
 -- 游戏结束 UI 引用
 local gameOverPanel_ = nil
 
@@ -178,9 +182,9 @@ function Start()
 
     SubscribeToEvent("Update", "HandleUpdate")
 
-    print("=== 外卖冲冲冲 - 阶段 2.5：取餐点/送餐点可视强化 ===")
+    print("=== 外卖冲冲冲 - 阶段 2.6：送达奖励反馈与连送爽感 ===")
     print("操作: 左右滑动=变道, 上滑/空格=跳跃, 下滑/S=下滑")
-    print("强化: 取餐点/送餐点多部件模型 + 浮动动画 + 近距离加速反馈")
+    print("连送: 连续送达奖励递增 8→9→10→12，HUD 显示连送数")
 end
 
 function Stop()
@@ -644,6 +648,17 @@ local function TrySpawnPickup(playerZ)
     print(string.format("[取餐点] 生成: 车道=%d, Z=%.1f", lane, spawnZ))
 end
 
+--- 根据连送计数计算本次送达奖励
+---@param combo integer
+---@return integer
+local function GetComboReward(combo)
+    if combo <= 1 then return 8
+    elseif combo == 2 then return 9
+    elseif combo == 3 then return 10
+    else return 12
+    end
+end
+
 --- 显示 Toast 提示（短暂文字反馈）
 ---@param text string
 local function ShowToast(text)
@@ -888,8 +903,13 @@ local function CheckDelivery(playerZ)
     -- Z 轴距离判断
     local delZ = deliveryNode_.position.z
     if math.abs(playerZ - delZ) < 1.0 then
-        -- 送达成功
-        currentIncome_ = currentIncome_ + deliveryReward_
+        -- 送达成功：先更新连送计数，再计算奖励
+        comboCount_ = comboCount_ + 1
+        if comboCount_ > maxComboCount_ then
+            maxComboCount_ = comboCount_
+        end
+        local reward = GetComboReward(comboCount_)
+        currentIncome_ = currentIncome_ + reward
         deliveredOrderCount_ = deliveredOrderCount_ + 1
         carriedOrderCount_ = math.max(carriedOrderCount_ - 1, 0)
         deliveryActive_ = false
@@ -905,15 +925,15 @@ local function CheckDelivery(playerZ)
             if carriedOrderCount_ < maxCarryOrders_ and not pickupActive_ then
                 nextPickupZ_ = playerZ + 35.0 + math.random() * 20.0
             end
-            ShowToast(string.format("送达 +¥%d，剩余 %d/%d", deliveryReward_, carriedOrderCount_, maxCarryOrders_))
-            print(string.format("[送餐点] 送达成功！收入 +%d，累计 ¥%d，剩余订单 %d/%d", deliveryReward_, currentIncome_, carriedOrderCount_, maxCarryOrders_))
+            ShowToast(string.format("送达 +¥%d，连送 %d，剩余 %d/%d", reward, comboCount_, carriedOrderCount_, maxCarryOrders_))
+            print(string.format("[送餐点] 送达成功！连送 %d，奖励 +%d，累计 ¥%d，剩余 %d/%d", comboCount_, reward, currentIncome_, carriedOrderCount_, maxCarryOrders_))
         else
             -- 全部送完，回到未取餐
             orderState_ = "none"
             deliveryTimer_ = 0.0
             nextPickupZ_ = playerZ + 35.0 + math.random() * 20.0
-            ShowToast("全部送完，继续接单")
-            print(string.format("[送餐点] 送达成功！收入 +%d，累计 ¥%d，全部送完", deliveryReward_, currentIncome_))
+            ShowToast(string.format("全部送完 +¥%d，连送 %d", reward, comboCount_))
+            print(string.format("[送餐点] 送达成功！连送 %d，奖励 +%d，累计 ¥%d，全部送完", comboCount_, reward, currentIncome_))
         end
     end
 end
@@ -1033,6 +1053,11 @@ local function TriggerGameOver(reason)
         if deliveredLabel then
             deliveredLabel:SetText(string.format("送达订单: %d 单", deliveredOrderCount_))
         end
+
+        local comboLabel = UI.FindById("go_combo")
+        if comboLabel then
+            comboLabel:SetText(string.format("最高连送: %d", maxComboCount_))
+        end
     end
 end
 
@@ -1085,6 +1110,8 @@ local function RestartGame()
     carriedOrderCount_ = 0
     deliveredOrderCount_ = 0
     toastTimer_ = 0.0
+    comboCount_ = 0
+    maxComboCount_ = 0
     if deliveryNode_ then
         deliveryNode_.enabled = false
         deliveryNode_.position = Vector3(0, -100, -100)
@@ -1282,6 +1309,13 @@ function CreateUI()
                         fontColor = { 255, 165, 0, 255 },
                         marginTop = 4,
                     },
+                    UI.Label {
+                        id = "go_combo",
+                        text = "最高连送: 0",
+                        fontSize = 15,
+                        fontColor = { 255, 100, 50, 255 },
+                        marginTop = 4,
+                    },
                     UI.Button {
                         text = "再来一局",
                         variant = "primary",
@@ -1315,7 +1349,7 @@ function CreateUI()
             -- HUD: 主状态行
             UI.Label {
                 id = "hud_info",
-                text = "0 m | 8.0 m/s | 订单 0/2 | ¥0 | 已送 0",
+                text = "0 m | 8.0 m/s | 订单 0/2 | ¥0 | 连送 0 | 已送 0",
                 fontSize = 14,
                 fontColor = { 255, 255, 200, 210 },
                 position = "absolute",
@@ -1715,8 +1749,8 @@ function HandleUpdate(eventType, eventData)
         uiTimer_ = uiTimer_ - 0.25
         local hudLabel = UI.FindById("hud_info")
         if hudLabel then
-            hudLabel:SetText(string.format("%d m | %.1f m/s | 订单 %d/%d | ¥%d | 已送 %d",
-                math.floor(distanceTraveled_), currentSpeed_, carriedOrderCount_, maxCarryOrders_, currentIncome_, deliveredOrderCount_))
+            hudLabel:SetText(string.format("%d m | %.1f m/s | 订单 %d/%d | ¥%d | 连送 %d | 已送 %d",
+                math.floor(distanceTraveled_), currentSpeed_, carriedOrderCount_, maxCarryOrders_, currentIncome_, comboCount_, deliveredOrderCount_))
         end
         UpdateTargetHint(newZ)
     end
