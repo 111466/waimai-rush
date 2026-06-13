@@ -1,5 +1,5 @@
 -- ============================================================================
--- 外卖冲冲冲 - 阶段 1.2：送餐点与单订单闭环
+-- 外卖冲冲冲 - 阶段 1.3：订单倒计时与超时失败
 -- 竖屏跑酷游戏原型
 -- 风格：积木阳光城（浅色道路、蓝绿城市基底、大块面、强轮廓）
 -- ============================================================================
@@ -130,6 +130,10 @@ local deliveryNode_ = nil
 local deliveryLane_ = 0
 local deliveryActive_ = false
 local nextDeliveryZ_ = 0.0
+
+-- 送餐倒计时
+local deliveryTimeLimit_ = 12.0    -- 送餐限时（秒）
+local deliveryTimer_ = 0.0         -- 当前剩余时间
 
 -- 游戏结束 UI 引用
 local gameOverPanel_ = nil
@@ -622,12 +626,13 @@ local function CheckPickup(playerZ)
     if math.abs(playerZ - pickZ) < 1.0 then
         -- 取餐成功
         orderState_ = "carrying"
+        deliveryTimer_ = deliveryTimeLimit_
         pickupActive_ = false
         pickupNode_.enabled = false
         pickupNode_.position = Vector3(0, -100, -100)
         -- 设置送餐点生成位置
         nextDeliveryZ_ = playerZ + 45.0 + math.random() * 25.0
-        print(string.format("[取餐点] 取餐成功！送餐点将在 Z=%.1f 生成", nextDeliveryZ_))
+        print(string.format("[取餐点] 取餐成功！倒计时 %.1fs，送餐点 Z=%.1f", deliveryTimer_, nextDeliveryZ_))
     end
 end
 
@@ -751,6 +756,7 @@ local function CheckDelivery(playerZ)
         -- 送达成功
         orderState_ = "none"
         deliveryActive_ = false
+        deliveryTimer_ = 0.0
         deliveryNode_.enabled = false
         deliveryNode_.position = Vector3(0, -100, -100)
         -- 设置新的取餐点位置，形成闭环
@@ -911,6 +917,7 @@ local function RestartGame()
     deliveryActive_ = false
     deliveryLane_ = 0
     nextDeliveryZ_ = 0.0
+    deliveryTimer_ = 0.0
     if deliveryNode_ then
         deliveryNode_.enabled = false
         deliveryNode_.position = Vector3(0, -100, -100)
@@ -1424,6 +1431,16 @@ function HandleUpdate(eventType, eventData)
         return
     end
 
+    -- 送餐倒计时（只在 carrying 状态递减）
+    if orderState_ == "carrying" then
+        deliveryTimer_ = deliveryTimer_ - dt
+        if deliveryTimer_ <= 0 then
+            deliveryTimer_ = 0
+            TriggerGameOver("送餐超时")
+            return
+        end
+    end
+
     -- 循环回收
     RecycleRoadSegments(newZ)
     RecycleLaneLines(newZ)
@@ -1456,7 +1473,12 @@ function HandleUpdate(eventType, eventData)
         uiTimer_ = uiTimer_ - 0.25
         local hudLabel = UI.FindById("hud_info")
         if hudLabel then
-            local orderText = orderState_ == "carrying" and "送餐中" or "未取餐"
+            local orderText
+            if orderState_ == "carrying" then
+                orderText = string.format("送餐中 %.1fs", deliveryTimer_)
+            else
+                orderText = "未取餐"
+            end
             hudLabel:SetText(string.format("%d m | %.1f m/s | %s", math.floor(distanceTraveled_), currentSpeed_, orderText))
         end
     end
