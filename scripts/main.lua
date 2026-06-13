@@ -1,5 +1,5 @@
 -- ============================================================================
--- 外卖冲冲冲 - 阶段 1.1：取餐点基础实现
+-- 外卖冲冲冲 - 阶段 1.2：送餐点与单订单闭环
 -- 竖屏跑酷游戏原型
 -- 风格：积木阳光城（浅色道路、蓝绿城市基底、大块面、强轮廓）
 -- ============================================================================
@@ -117,12 +117,19 @@ local nextObstacleZ_ = 30.0
 local mat_ = {}
 
 -- 取餐点状态
-local orderState_ = "none"         -- "none" = 未取餐, "carrying" = 已取餐
+local orderState_ = "none"         -- "none" = 未取餐, "carrying" = 已取餐（送餐中）
 ---@type Node
 local pickupNode_ = nil
 local pickupLane_ = 0
 local pickupActive_ = false
 local nextPickupZ_ = 45.0
+
+-- 送餐点状态
+---@type Node
+local deliveryNode_ = nil
+local deliveryLane_ = 0
+local deliveryActive_ = false
+local nextDeliveryZ_ = 0.0
 
 -- 游戏结束 UI 引用
 local gameOverPanel_ = nil
@@ -149,14 +156,15 @@ function Start()
     CreatePlayer()
     CreateObstaclePool()
     CreatePickupPoint()
+    CreateDeliveryPoint()
     SetupCamera()
     CreateUI()
 
     SubscribeToEvent("Update", "HandleUpdate")
 
-    print("=== 外卖冲冲冲 - 阶段 1.1：取餐点基础实现 ===")
+    print("=== 外卖冲冲冲 - 阶段 1.2：送餐点与单订单闭环 ===")
     print("操作: 左右滑动=变道, 上滑/空格=跳跃, 下滑/S=下滑")
-    print("目标: 切到取餐点所在车道自动取餐, HUD 显示取餐状态")
+    print("闭环: 未取餐→经过橙色取餐点→送餐中→经过绿色送餐点→循环")
 end
 
 function Stop()
@@ -229,6 +237,10 @@ function CreateMaterials()
     -- 取餐点材质（橙色，醒目）
     mat_.pickupBase = CreatePBRMaterial(Color(1.0, 0.6, 0.1, 1.0), 0.0, 0.4)
     mat_.pickupTop = CreatePBRMaterial(Color(1.0, 0.85, 0.2, 1.0), 0.0, 0.4)
+
+    -- 送餐点材质（蓝绿色，和取餐点区分）
+    mat_.deliveryBase = CreatePBRMaterial(Color(0.1, 0.75, 0.65, 1.0), 0.0, 0.4)
+    mat_.deliveryTop = CreatePBRMaterial(Color(0.2, 0.9, 0.8, 1.0), 0.0, 0.4)
 end
 
 -- ============================================================================
@@ -613,7 +625,9 @@ local function CheckPickup(playerZ)
         pickupActive_ = false
         pickupNode_.enabled = false
         pickupNode_.position = Vector3(0, -100, -100)
-        print("[取餐点] 取餐成功！进入已取餐状态")
+        -- 设置送餐点生成位置
+        nextDeliveryZ_ = playerZ + 45.0 + math.random() * 25.0
+        print(string.format("[取餐点] 取餐成功！送餐点将在 Z=%.1f 生成", nextDeliveryZ_))
     end
 end
 
@@ -631,6 +645,133 @@ local function RecyclePickupBehind(playerZ)
         -- 设置下一个取餐点位置（前方 35~55m）
         nextPickupZ_ = playerZ + 35.0 + math.random() * 20.0
         print(string.format("[取餐点] 已错过，下一个 Z=%.1f", nextPickupZ_))
+    end
+end
+
+-- ============================================================================
+-- 送餐点
+-- ============================================================================
+
+--- 创建送餐点节点（初始隐藏）
+function CreateDeliveryPoint()
+    local boxMdl = cache:GetResource("Model", "Models/Box.mdl")
+    local cylMdl = cache:GetResource("Model", "Models/Cylinder.mdl")
+
+    deliveryNode_ = scene_:CreateChild("DeliveryPoint")
+    deliveryNode_.position = Vector3(0, -100, -100)
+    deliveryNode_.enabled = false
+
+    -- 底座（蓝绿色圆柱）
+    local base = deliveryNode_:CreateChild("Base")
+    base.position = Vector3(0, 0.15, 0)
+    base.scale = Vector3(0.9, 0.3, 0.9)
+    local baseModel = base:CreateComponent("StaticModel")
+    baseModel:SetModel(cylMdl)
+    baseModel:SetMaterial(mat_.deliveryBase)
+    baseModel.castShadows = true
+
+    -- 小房子主体（方块）
+    local house = deliveryNode_:CreateChild("House")
+    house.position = Vector3(0, 0.7, 0)
+    house.scale = Vector3(0.6, 0.8, 0.5)
+    local houseModel = house:CreateComponent("StaticModel")
+    houseModel:SetModel(boxMdl)
+    houseModel:SetMaterial(mat_.deliveryTop)
+    houseModel.castShadows = true
+
+    -- 屋顶（扁方块模拟三角形屋顶）
+    local roof = deliveryNode_:CreateChild("Roof")
+    roof.position = Vector3(0, 1.2, 0)
+    roof.scale = Vector3(0.7, 0.25, 0.6)
+    roof.rotation = Quaternion(45, Vector3.FORWARD)
+    local roofModel = roof:CreateComponent("StaticModel")
+    roofModel:SetModel(boxMdl)
+    roofModel:SetMaterial(mat_.deliveryBase)
+    roofModel.castShadows = true
+
+    print("[送餐点] 节点已创建")
+end
+
+--- 检查某个 z 位置是否与已有障碍物冲突（同车道距离 < 4m）
+---@param lane number
+---@param z number
+---@return boolean
+local function IsDeliveryConflictWithObstacles(lane, z)
+    for i = 1, #obstacles_ do
+        local obs = obstacles_[i]
+        if obs.active and obs.lane == lane then
+            if math.abs(obs.node.position.z - z) < 4.0 then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+--- 尝试生成送餐点
+local function TrySpawnDelivery(playerZ)
+    -- 仅在已取餐且当前无活跃送餐点时生成
+    if orderState_ ~= "carrying" or deliveryActive_ then return end
+
+    -- 只在玩家接近 nextDeliveryZ_ 时生成（提前 80m 内）
+    if nextDeliveryZ_ > playerZ + 80.0 then return end
+
+    -- 随机选车道
+    local lane = math.random(1, 3)
+    local spawnZ = nextDeliveryZ_
+
+    -- 避免与障碍物重叠：如果冲突，向前推 5m，最多尝试 5 次
+    for _ = 1, 5 do
+        if not IsDeliveryConflictWithObstacles(lane, spawnZ) then
+            break
+        end
+        spawnZ = spawnZ + 5.0
+    end
+
+    -- 激活送餐点
+    deliveryLane_ = lane
+    deliveryActive_ = true
+    local laneX = CONFIG.LANE_X[lane] or 0.0
+    deliveryNode_.position = Vector3(laneX, 0, spawnZ)
+    deliveryNode_.enabled = true
+
+    print(string.format("[送餐点] 生成: 车道=%d, Z=%.1f", lane, spawnZ))
+end
+
+--- 检测玩家是否经过送餐点（送达）
+local function CheckDelivery(playerZ)
+    if not deliveryActive_ then return end
+
+    -- 必须在同车道
+    if CONFIG.currentLane ~= deliveryLane_ then return end
+
+    -- Z 轴距离判断
+    local delZ = deliveryNode_.position.z
+    if math.abs(playerZ - delZ) < 1.0 then
+        -- 送达成功
+        orderState_ = "none"
+        deliveryActive_ = false
+        deliveryNode_.enabled = false
+        deliveryNode_.position = Vector3(0, -100, -100)
+        -- 设置新的取餐点位置，形成闭环
+        nextPickupZ_ = playerZ + 35.0 + math.random() * 20.0
+        print(string.format("[送餐点] 送达成功！下一个取餐点 Z=%.1f", nextPickupZ_))
+    end
+end
+
+--- 回收已超过玩家的送餐点（玩家错过了）
+local function RecycleDeliveryBehind(playerZ)
+    if not deliveryActive_ then return end
+
+    local delZ = deliveryNode_.position.z
+    if delZ < playerZ - 5.0 then
+        -- 玩家错过了，送餐点回收，重新在前方生成
+        deliveryActive_ = false
+        deliveryNode_.enabled = false
+        deliveryNode_.position = Vector3(0, -100, -100)
+        -- 在前方重新安排送餐点
+        nextDeliveryZ_ = playerZ + 45.0 + math.random() * 25.0
+        print(string.format("[送餐点] 已错过，下一个 Z=%.1f", nextDeliveryZ_))
     end
 end
 
@@ -764,6 +905,15 @@ local function RestartGame()
     if pickupNode_ then
         pickupNode_.enabled = false
         pickupNode_.position = Vector3(0, -100, -100)
+    end
+
+    -- 重置送餐点状态
+    deliveryActive_ = false
+    deliveryLane_ = 0
+    nextDeliveryZ_ = 0.0
+    if deliveryNode_ then
+        deliveryNode_.enabled = false
+        deliveryNode_.position = Vector3(0, -100, -100)
     end
 
     -- 重置道路池
@@ -1287,9 +1437,17 @@ function HandleUpdate(eventType, eventData)
     CheckPickup(newZ)
     RecyclePickupBehind(newZ)
 
-    -- 取餐点旋转动画（让取餐点更醒目）
+    -- 送餐点逻辑
+    TrySpawnDelivery(newZ)
+    CheckDelivery(newZ)
+    RecycleDeliveryBehind(newZ)
+
+    -- 取餐点/送餐点旋转动画（更醒目）
     if pickupActive_ and pickupNode_ then
         pickupNode_.rotation = Quaternion(runTime_ * 90.0, Vector3.UP)
+    end
+    if deliveryActive_ and deliveryNode_ then
+        deliveryNode_.rotation = Quaternion(runTime_ * 60.0, Vector3.UP)
     end
 
     -- HUD 更新（节流 4Hz）
@@ -1298,7 +1456,7 @@ function HandleUpdate(eventType, eventData)
         uiTimer_ = uiTimer_ - 0.25
         local hudLabel = UI.FindById("hud_info")
         if hudLabel then
-            local orderText = orderState_ == "carrying" and "已取餐" or "未取餐"
+            local orderText = orderState_ == "carrying" and "送餐中" or "未取餐"
             hudLabel:SetText(string.format("%d m | %.1f m/s | %s", math.floor(distanceTraveled_), currentSpeed_, orderText))
         end
     end
