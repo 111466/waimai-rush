@@ -1,5 +1,5 @@
 -- ============================================================================
--- 外卖冲冲冲 - 阶段 3.3：难度曲线与压力节奏
+-- 外卖冲冲冲 - 阶段 3.4：障碍组合公平性
 -- 竖屏跑酷游戏原型
 -- 风格：积木阳光城（浅色道路、蓝绿城市基底、大块面、强轮廓）
 -- ============================================================================
@@ -200,9 +200,9 @@ function Start()
 
     SubscribeToEvent("Update", "HandleUpdate")
 
-    print("=== 外卖冲冲冲 - 阶段 3.3：难度曲线与压力节奏 ===")
+    print("=== 外卖冲冲冲 - 阶段 3.4：障碍组合公平性 ===")
     print("操作: 左右滑动=变道, 上滑/空格=跳跃, 下滑/S=下滑")
-    print("新增: 三阶段难度曲线(教学/正常/高压) + 障碍间距按阶段修正 + HUD阶段标签")
+    print("新增: 三道封死检测 + 同车道过密检测 + 公平性前推机制")
 end
 
 function Stop()
@@ -550,15 +550,70 @@ local function GetCurrentSpacingRange()
     return spacingMin, spacingMax
 end
 
---- 生成新障碍物（在玩家前方）
+--- 统计某个 z 附近活跃障碍数量（用于避免三道封死）
+---@param z number
+---@param threshold number
+---@return integer
+local function CountObstaclesNearZ(z, threshold)
+    local count = 0
+    for i = 1, #obstacles_ do
+        local obs = obstacles_[i]
+        if obs.active and math.abs(obs.node.position.z - z) < threshold then
+            count = count + 1
+        end
+    end
+    return count
+end
+
+--- 判断某车道在 z 附近是否过密（前后 10m 内已有活跃障碍）
+---@param lane integer
+---@param z number
+---@return boolean
+local function IsLaneTooDense(lane, z)
+    for i = 1, #obstacles_ do
+        local obs = obstacles_[i]
+        if obs.active and obs.lane == lane and math.abs(obs.node.position.z - z) < 10.0 then
+            return true
+        end
+    end
+    return false
+end
+
+--- 生成新障碍物（在玩家前方，含公平性检测）
 local function SpawnObstacles(playerZ)
     local spawnLimit = playerZ + CONFIG.OBSTACLE_SPAWN_AHEAD
     local types = { "block", "low", "high" }
+    local maxIterations = 60  -- 防止死循环
 
+    local iterations = 0
     while nextObstacleZ_ < spawnLimit do
+        iterations = iterations + 1
+        if iterations > maxIterations then break end
+
+        -- 公平性检测 1：避免三道封死
+        if CountObstaclesNearZ(nextObstacleZ_, 3.5) >= 2 then
+            -- 附近已有 2 个障碍，跳过此次，往前推安全间距
+            nextObstacleZ_ = nextObstacleZ_ + 5.0
+            print("[障碍公平] 避免三道封死，前推 5m")
+            goto continue_spawn
+        end
+
         local typeRoll = math.random(1, 3)
         local obstType = types[typeRoll]
         local lane = math.random(1, 3)
+
+        -- 公平性检测 2：避免同车道过密，最多换 3 次车道
+        local laneAttempts = 0
+        while IsLaneTooDense(lane, nextObstacleZ_) and laneAttempts < 3 do
+            lane = math.random(1, 3)
+            laneAttempts = laneAttempts + 1
+        end
+        -- 如果 3 次都不合适，前推 5m 跳过
+        if IsLaneTooDense(lane, nextObstacleZ_) then
+            nextObstacleZ_ = nextObstacleZ_ + 5.0
+            print("[障碍公平] 同车道过密，前推 5m")
+            goto continue_spawn
+        end
 
         local obs = GetFreeObstacle(obstType)
         if not obs then
@@ -574,6 +629,7 @@ local function SpawnObstacles(playerZ)
             ActivateObstacle(obs, lane, nextObstacleZ_)
         end
 
+        ::continue_spawn::
         local spacingMin, spacingMax = GetCurrentSpacingRange()
         local spacing = spacingMin + math.random() * (spacingMax - spacingMin)
         nextObstacleZ_ = nextObstacleZ_ + spacing
