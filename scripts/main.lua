@@ -1,5 +1,5 @@
 -- ============================================================================
--- 外卖冲冲冲 - 阶段 2.4：目标距离与车道提示
+-- 外卖冲冲冲 - 阶段 2.5：取餐点/送餐点可视强化
 -- 竖屏跑酷游戏原型
 -- 风格：积木阳光城（浅色道路、蓝绿城市基底、大块面、强轮廓）
 -- ============================================================================
@@ -178,9 +178,9 @@ function Start()
 
     SubscribeToEvent("Update", "HandleUpdate")
 
-    print("=== 外卖冲冲冲 - 阶段 2.4：目标距离与车道提示 ===")
+    print("=== 外卖冲冲冲 - 阶段 2.5：取餐点/送餐点可视强化 ===")
     print("操作: 左右滑动=变道, 上滑/空格=跳跃, 下滑/S=下滑")
-    print("闭环: 未取餐→经过橙色取餐点→送餐中→经过绿色送餐点→循环")
+    print("强化: 取餐点/送餐点多部件模型 + 浮动动画 + 近距离加速反馈")
 end
 
 function Stop()
@@ -254,9 +254,14 @@ function CreateMaterials()
     mat_.pickupBase = CreatePBRMaterial(Color(1.0, 0.6, 0.1, 1.0), 0.0, 0.4)
     mat_.pickupTop = CreatePBRMaterial(Color(1.0, 0.85, 0.2, 1.0), 0.0, 0.4)
 
+    -- 取餐点柱子材质（明亮橙黄渐变标识柱）
+    mat_.pickupPillar = CreatePBRMaterial(Color(1.0, 0.75, 0.15, 1.0), 0.0, 0.3)
+
     -- 送餐点材质（蓝绿色，和取餐点区分）
     mat_.deliveryBase = CreatePBRMaterial(Color(0.1, 0.75, 0.65, 1.0), 0.0, 0.4)
     mat_.deliveryTop = CreatePBRMaterial(Color(0.2, 0.9, 0.8, 1.0), 0.0, 0.4)
+    -- 送餐点柱子材质
+    mat_.deliveryPillar = CreatePBRMaterial(Color(0.15, 0.85, 0.75, 1.0), 0.0, 0.3)
 end
 
 -- ============================================================================
@@ -542,7 +547,7 @@ end
 -- 取餐点
 -- ============================================================================
 
---- 创建取餐点节点（初始隐藏）
+--- 创建取餐点节点（多部件可视强化，初始隐藏）
 function CreatePickupPoint()
     local boxMdl = cache:GetResource("Model", "Models/Box.mdl")
     local cylMdl = cache:GetResource("Model", "Models/Cylinder.mdl")
@@ -551,33 +556,46 @@ function CreatePickupPoint()
     pickupNode_.position = Vector3(0, -100, -100)
     pickupNode_.enabled = false
 
-    -- 底座（橙色圆柱）
+    -- 底座（大橙色圆盘，贴地）
     local base = pickupNode_:CreateChild("Base")
-    base.position = Vector3(0, 0.25, 0)
-    base.scale = Vector3(0.8, 0.5, 0.8)
+    base.position = Vector3(0, 0.08, 0)
+    base.scale = Vector3(1.2, 0.16, 1.2)
     local baseModel = base:CreateComponent("StaticModel")
     baseModel:SetModel(cylMdl)
     baseModel:SetMaterial(mat_.pickupBase)
     baseModel.castShadows = true
 
-    -- 外卖袋（黄色方块）
-    local bag = pickupNode_:CreateChild("Bag")
-    bag.position = Vector3(0, 0.8, 0)
-    bag.scale = Vector3(0.5, 0.6, 0.4)
+    -- 竖直标识柱（细长圆柱）
+    local pillar = pickupNode_:CreateChild("Pillar")
+    pillar.position = Vector3(0, 0.9, 0)
+    pillar.scale = Vector3(0.15, 1.6, 0.15)
+    local pillarModel = pillar:CreateComponent("StaticModel")
+    pillarModel:SetModel(cylMdl)
+    pillarModel:SetMaterial(mat_.pickupPillar)
+    pillarModel.castShadows = true
+
+    -- 浮动标志容器（会上下浮动 + 旋转）
+    local floater = pickupNode_:CreateChild("Floater")
+    floater.position = Vector3(0, 2.0, 0)
+
+    -- 外卖袋主体（黄色方块）
+    local bag = floater:CreateChild("Bag")
+    bag.position = Vector3(0, 0, 0)
+    bag.scale = Vector3(0.55, 0.65, 0.45)
     local bagModel = bag:CreateComponent("StaticModel")
     bagModel:SetModel(boxMdl)
     bagModel:SetMaterial(mat_.pickupTop)
     bagModel.castShadows = true
 
-    -- 提手（小方块）
-    local handle = pickupNode_:CreateChild("Handle")
-    handle.position = Vector3(0, 1.2, 0)
-    handle.scale = Vector3(0.25, 0.15, 0.1)
+    -- 提手（橙色小方块）
+    local handle = floater:CreateChild("Handle")
+    handle.position = Vector3(0, 0.4, 0)
+    handle.scale = Vector3(0.28, 0.15, 0.12)
     local handleModel = handle:CreateComponent("StaticModel")
     handleModel:SetModel(boxMdl)
-    handleModel:SetMaterial(mat_.pickupTop)
+    handleModel:SetMaterial(mat_.pickupBase)
 
-    print("[取餐点] 节点已创建")
+    print("[取餐点] 多部件节点已创建（底座+柱子+浮动标志）")
 end
 
 --- 检查某个 z 位置是否与已有障碍物冲突（同车道距离 < 4m）
@@ -761,7 +779,7 @@ end
 -- 送餐点
 -- ============================================================================
 
---- 创建送餐点节点（初始隐藏）
+--- 创建送餐点节点（多部件可视强化，初始隐藏）
 function CreateDeliveryPoint()
     local boxMdl = cache:GetResource("Model", "Models/Box.mdl")
     local cylMdl = cache:GetResource("Model", "Models/Cylinder.mdl")
@@ -770,35 +788,48 @@ function CreateDeliveryPoint()
     deliveryNode_.position = Vector3(0, -100, -100)
     deliveryNode_.enabled = false
 
-    -- 底座（蓝绿色圆柱）
+    -- 底座（蓝绿色大圆盘，贴地）
     local base = deliveryNode_:CreateChild("Base")
-    base.position = Vector3(0, 0.15, 0)
-    base.scale = Vector3(0.9, 0.3, 0.9)
+    base.position = Vector3(0, 0.08, 0)
+    base.scale = Vector3(1.2, 0.16, 1.2)
     local baseModel = base:CreateComponent("StaticModel")
     baseModel:SetModel(cylMdl)
     baseModel:SetMaterial(mat_.deliveryBase)
     baseModel.castShadows = true
 
-    -- 小房子主体（方块）
-    local house = deliveryNode_:CreateChild("House")
-    house.position = Vector3(0, 0.7, 0)
-    house.scale = Vector3(0.6, 0.8, 0.5)
+    -- 竖直标识柱
+    local pillar = deliveryNode_:CreateChild("Pillar")
+    pillar.position = Vector3(0, 0.9, 0)
+    pillar.scale = Vector3(0.15, 1.6, 0.15)
+    local pillarModel = pillar:CreateComponent("StaticModel")
+    pillarModel:SetModel(cylMdl)
+    pillarModel:SetMaterial(mat_.deliveryPillar)
+    pillarModel.castShadows = true
+
+    -- 浮动标志容器（会上下浮动 + 旋转）
+    local floater = deliveryNode_:CreateChild("Floater")
+    floater.position = Vector3(0, 2.0, 0)
+
+    -- 小房子主体（绿色方块门牌造型）
+    local house = floater:CreateChild("House")
+    house.position = Vector3(0, 0, 0)
+    house.scale = Vector3(0.6, 0.7, 0.45)
     local houseModel = house:CreateComponent("StaticModel")
     houseModel:SetModel(boxMdl)
     houseModel:SetMaterial(mat_.deliveryTop)
     houseModel.castShadows = true
 
-    -- 屋顶（扁方块模拟三角形屋顶）
-    local roof = deliveryNode_:CreateChild("Roof")
-    roof.position = Vector3(0, 1.2, 0)
-    roof.scale = Vector3(0.7, 0.25, 0.6)
+    -- 屋顶（扁方块，模拟三角顶）
+    local roof = floater:CreateChild("Roof")
+    roof.position = Vector3(0, 0.5, 0)
+    roof.scale = Vector3(0.7, 0.25, 0.55)
     roof.rotation = Quaternion(45, Vector3.FORWARD)
     local roofModel = roof:CreateComponent("StaticModel")
     roofModel:SetModel(boxMdl)
     roofModel:SetMaterial(mat_.deliveryBase)
     roofModel.castShadows = true
 
-    print("[送餐点] 节点已创建")
+    print("[送餐点] 多部件节点已创建（底座+柱子+浮动标志）")
 end
 
 --- 检查某个 z 位置是否与已有障碍物冲突（同车道距离 < 4m）
@@ -1638,12 +1669,32 @@ function HandleUpdate(eventType, eventData)
     CheckDelivery(newZ)
     RecycleDeliveryBehind(newZ)
 
-    -- 取餐点/送餐点旋转动画（更醒目）
+    -- 取餐点/送餐点可视强化动画（浮动 + 旋转 + 近距离加速）
     if pickupActive_ and pickupNode_ then
-        pickupNode_.rotation = Quaternion(runTime_ * 90.0, Vector3.UP)
+        local pickDist = pickupNode_.position.z - newZ
+        local isNear = pickDist < 12.0 and pickDist > 0
+        -- 旋转速度：近距离时加快
+        local rotSpeed = isNear and 180.0 or 90.0
+        pickupNode_.rotation = Quaternion(runTime_ * rotSpeed, Vector3.UP)
+        -- 浮动标志上下浮动
+        local floater = pickupNode_:GetChild("Floater")
+        if floater then
+            local floatFreq = isNear and 6.0 or 3.0
+            local floatAmp = isNear and 0.3 or 0.18
+            floater.position = Vector3(0, 2.0 + math.sin(runTime_ * floatFreq) * floatAmp, 0)
+        end
     end
     if deliveryActive_ and deliveryNode_ then
-        deliveryNode_.rotation = Quaternion(runTime_ * 60.0, Vector3.UP)
+        local delDist = deliveryNode_.position.z - newZ
+        local isNear = delDist < 12.0 and delDist > 0
+        local rotSpeed = isNear and 150.0 or 60.0
+        deliveryNode_.rotation = Quaternion(runTime_ * rotSpeed, Vector3.UP)
+        local floater = deliveryNode_:GetChild("Floater")
+        if floater then
+            local floatFreq = isNear and 5.0 or 2.5
+            local floatAmp = isNear and 0.28 or 0.15
+            floater.position = Vector3(0, 2.0 + math.sin(runTime_ * floatFreq) * floatAmp, 0)
+        end
     end
 
     -- Toast 提示递减
