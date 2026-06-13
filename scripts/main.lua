@@ -1,5 +1,5 @@
 -- ============================================================================
--- 外卖冲冲冲 - 阶段 3.4：障碍组合公平性
+-- 外卖冲冲冲 - 阶段 3.5：移动手感微调与输入容错
 -- 竖屏跑酷游戏原型
 -- 风格：积木阳光城（浅色道路、蓝绿城市基底、大块面、强轮廓）
 -- ============================================================================
@@ -68,7 +68,7 @@ local CONFIG = {
 }
 
 -- 变道参数
-local LANE_CHANGE_DURATION = 0.2
+local LANE_CHANGE_DURATION = 0.18
 local SWIPE_THRESHOLD = 40.0
 
 -- 变道状态
@@ -84,6 +84,11 @@ local SLIDE_DURATION = 0.5
 -- 动作状态: "run" / "jump" / "slide"
 local actionState_ = "run"
 local actionTimer_ = 0.0
+
+-- 输入缓冲（动作容错）
+local jumpBufferTimer_ = 0.0
+local slideBufferTimer_ = 0.0
+local inputBufferDuration_ = 0.12
 
 -- 触摸滑动检测
 local touchStartX_ = nil
@@ -200,7 +205,7 @@ function Start()
 
     SubscribeToEvent("Update", "HandleUpdate")
 
-    print("=== 外卖冲冲冲 - 阶段 3.4：障碍组合公平性 ===")
+    print("=== 外卖冲冲冲 - 阶段 3.5：移动手感微调与输入容错 ===")
     print("操作: 左右滑动=变道, 上滑/空格=跳跃, 下滑/S=下滑")
     print("新增: 三道封死检测 + 同车道过密检测 + 公平性前推机制")
 end
@@ -598,35 +603,37 @@ local function SpawnObstacles(playerZ)
             goto continue_spawn
         end
 
-        local typeRoll = math.random(1, 3)
-        local obstType = types[typeRoll]
-        local lane = math.random(1, 3)
+        do
+            local typeRoll = math.random(1, 3)
+            local obstType = types[typeRoll]
+            local lane = math.random(1, 3)
 
-        -- 公平性检测 2：避免同车道过密，最多换 3 次车道
-        local laneAttempts = 0
-        while IsLaneTooDense(lane, nextObstacleZ_) and laneAttempts < 3 do
-            lane = math.random(1, 3)
-            laneAttempts = laneAttempts + 1
-        end
-        -- 如果 3 次都不合适，前推 5m 跳过
-        if IsLaneTooDense(lane, nextObstacleZ_) then
-            nextObstacleZ_ = nextObstacleZ_ + 5.0
-            print("[障碍公平] 同车道过密，前推 5m")
-            goto continue_spawn
-        end
+            -- 公平性检测 2：避免同车道过密，最多换 3 次车道
+            local laneAttempts = 0
+            while IsLaneTooDense(lane, nextObstacleZ_) and laneAttempts < 3 do
+                lane = math.random(1, 3)
+                laneAttempts = laneAttempts + 1
+            end
+            -- 如果 3 次都不合适，前推 5m 跳过
+            if IsLaneTooDense(lane, nextObstacleZ_) then
+                nextObstacleZ_ = nextObstacleZ_ + 5.0
+                print("[障碍公平] 同车道过密，前推 5m")
+                goto continue_spawn
+            end
 
-        local obs = GetFreeObstacle(obstType)
-        if not obs then
-            for _, fallbackType in ipairs(types) do
-                if fallbackType ~= obstType then
-                    obs = GetFreeObstacle(fallbackType)
-                    if obs then break end
+            local obs = GetFreeObstacle(obstType)
+            if not obs then
+                for _, fallbackType in ipairs(types) do
+                    if fallbackType ~= obstType then
+                        obs = GetFreeObstacle(fallbackType)
+                        if obs then break end
+                    end
                 end
             end
-        end
 
-        if obs then
-            ActivateObstacle(obs, lane, nextObstacleZ_)
+            if obs then
+                ActivateObstacle(obs, lane, nextObstacleZ_)
+            end
         end
 
         ::continue_spawn::
@@ -1272,6 +1279,8 @@ local function RestartGame()
     firstDeliveryInRun_ = true
     lastOrderPointSeenTime_ = 0.0
     highPressureToastShown_ = false
+    jumpBufferTimer_ = 0.0
+    slideBufferTimer_ = 0.0
     if deliveryNode_ then
         deliveryNode_.enabled = false
         deliveryNode_.position = Vector3(0, -100, -100)
@@ -1647,18 +1656,38 @@ local function CanDoAction()
 end
 
 local function TryJump()
-    if not CanDoAction() then return end
+    if not CanDoAction() then
+        -- 动作中，缓存输入
+        jumpBufferTimer_ = inputBufferDuration_
+        return
+    end
     actionState_ = "jump"
     actionTimer_ = 0.0
+    jumpBufferTimer_ = 0.0
+    slideBufferTimer_ = 0.0
 end
 
 local function TrySlide()
-    if not CanDoAction() then return end
+    if not CanDoAction() then
+        -- 动作中，缓存输入
+        slideBufferTimer_ = inputBufferDuration_
+        return
+    end
     actionState_ = "slide"
     actionTimer_ = 0.0
+    jumpBufferTimer_ = 0.0
+    slideBufferTimer_ = 0.0
 end
 
 local function UpdateAction(dt)
+    -- 递减输入缓冲计时器
+    if jumpBufferTimer_ > 0 then
+        jumpBufferTimer_ = jumpBufferTimer_ - dt
+    end
+    if slideBufferTimer_ > 0 then
+        slideBufferTimer_ = slideBufferTimer_ - dt
+    end
+
     if actionState_ == "jump" then
         actionTimer_ = actionTimer_ + dt
         if actionTimer_ >= JUMP_DURATION then
@@ -1670,6 +1699,21 @@ local function UpdateAction(dt)
         if actionTimer_ >= SLIDE_DURATION then
             actionState_ = "run"
             actionTimer_ = 0.0
+        end
+    end
+
+    -- 动作刚结束回到 run，消费缓冲（跳跃优先级 > 滑铲）
+    if actionState_ == "run" then
+        if jumpBufferTimer_ > 0 then
+            actionState_ = "jump"
+            actionTimer_ = 0.0
+            jumpBufferTimer_ = 0.0
+            slideBufferTimer_ = 0.0
+        elseif slideBufferTimer_ > 0 then
+            actionState_ = "slide"
+            actionTimer_ = 0.0
+            jumpBufferTimer_ = 0.0
+            slideBufferTimer_ = 0.0
         end
     end
 end
