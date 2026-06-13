@@ -1,5 +1,5 @@
 -- ============================================================================
--- 外卖冲冲冲 - 阶段 2.1：携带容量 HUD 与订单数量状态
+-- 外卖冲冲冲 - 阶段 2.2：允许取第二单
 -- 竖屏跑酷游戏原型
 -- 风格：积木阳光城（浅色道路、蓝绿城市基底、大块面、强轮廓）
 -- ============================================================================
@@ -174,7 +174,7 @@ function Start()
 
     SubscribeToEvent("Update", "HandleUpdate")
 
-    print("=== 外卖冲冲冲 - 阶段 2.1：携带容量 HUD 与订单数量状态 ===")
+    print("=== 外卖冲冲冲 - 阶段 2.2：允许取第二单 ===")
     print("操作: 左右滑动=变道, 上滑/空格=跳跃, 下滑/S=下滑")
     print("闭环: 未取餐→经过橙色取餐点→送餐中→经过绿色送餐点→循环")
 end
@@ -594,8 +594,8 @@ end
 
 --- 尝试生成取餐点
 local function TrySpawnPickup(playerZ)
-    -- 仅在未取餐且当前无活跃取餐点时生成
-    if orderState_ ~= "none" or pickupActive_ then return end
+    -- 携带已满或当前已有活跃取餐点时不生成
+    if carriedOrderCount_ >= maxCarryOrders_ or pickupActive_ then return end
 
     -- 只在玩家接近 nextPickupZ_ 时生成（提前 60m 内）
     if nextPickupZ_ > playerZ + 60.0 then return end
@@ -633,15 +633,24 @@ local function CheckPickup(playerZ)
     local pickZ = pickupNode_.position.z
     if math.abs(playerZ - pickZ) < 1.0 then
         -- 取餐成功
+        carriedOrderCount_ = math.min(carriedOrderCount_ + 1, maxCarryOrders_)
         orderState_ = "carrying"
-        carriedOrderCount_ = 1
-        deliveryTimer_ = deliveryTimeLimit_
+        deliveryTimer_ = deliveryTimeLimit_  -- 每次取餐重置倒计时
         pickupActive_ = false
         pickupNode_.enabled = false
         pickupNode_.position = Vector3(0, -100, -100)
-        -- 设置送餐点生成位置
-        nextDeliveryZ_ = playerZ + 45.0 + math.random() * 25.0
-        print(string.format("[取餐点] 取餐成功！倒计时 %.1fs，送餐点 Z=%.1f", deliveryTimer_, nextDeliveryZ_))
+
+        -- 如果当前没有活跃送餐点，设置送餐点生成位置
+        if not deliveryActive_ then
+            nextDeliveryZ_ = playerZ + 45.0 + math.random() * 25.0
+        end
+
+        -- 如果还没满载，安排下一个取餐点
+        if carriedOrderCount_ < maxCarryOrders_ then
+            nextPickupZ_ = playerZ + 35.0 + math.random() * 20.0
+        end
+
+        print(string.format("[取餐点] 取餐成功！订单 %d/%d，倒计时 %.1fs", carriedOrderCount_, maxCarryOrders_, deliveryTimer_))
     end
 end
 
@@ -724,8 +733,8 @@ end
 
 --- 尝试生成送餐点
 local function TrySpawnDelivery(playerZ)
-    -- 仅在已取餐且当前无活跃送餐点时生成
-    if orderState_ ~= "carrying" or deliveryActive_ then return end
+    -- 仅在有订单且当前无活跃送餐点时生成
+    if carriedOrderCount_ <= 0 or deliveryActive_ then return end
 
     -- 只在玩家接近 nextDeliveryZ_ 时生成（提前 80m 内）
     if nextDeliveryZ_ > playerZ + 80.0 then return end
@@ -763,16 +772,29 @@ local function CheckDelivery(playerZ)
     local delZ = deliveryNode_.position.z
     if math.abs(playerZ - delZ) < 1.0 then
         -- 送达成功
-        orderState_ = "none"
-        carriedOrderCount_ = 0
-        deliveryActive_ = false
-        deliveryTimer_ = 0.0
         currentIncome_ = currentIncome_ + deliveryReward_
+        carriedOrderCount_ = math.max(carriedOrderCount_ - 1, 0)
+        deliveryActive_ = false
         deliveryNode_.enabled = false
         deliveryNode_.position = Vector3(0, -100, -100)
-        -- 设置新的取餐点位置，形成闭环
-        nextPickupZ_ = playerZ + 35.0 + math.random() * 20.0
-        print(string.format("[送餐点] 送达成功！收入 +%d，累计 ¥%d，下一个取餐点 Z=%.1f", deliveryReward_, currentIncome_, nextPickupZ_))
+
+        if carriedOrderCount_ > 0 then
+            -- 还有剩余订单，继续送餐中
+            orderState_ = "carrying"
+            deliveryTimer_ = deliveryTimeLimit_  -- 送达后重置倒计时
+            nextDeliveryZ_ = playerZ + 45.0 + math.random() * 25.0
+            -- 允许继续生成取餐点
+            if carriedOrderCount_ < maxCarryOrders_ and not pickupActive_ then
+                nextPickupZ_ = playerZ + 35.0 + math.random() * 20.0
+            end
+            print(string.format("[送餐点] 送达成功！收入 +%d，累计 ¥%d，剩余订单 %d/%d", deliveryReward_, currentIncome_, carriedOrderCount_, maxCarryOrders_))
+        else
+            -- 全部送完，回到未取餐
+            orderState_ = "none"
+            deliveryTimer_ = 0.0
+            nextPickupZ_ = playerZ + 35.0 + math.random() * 20.0
+            print(string.format("[送餐点] 送达成功！收入 +%d，累计 ¥%d，全部送完", deliveryReward_, currentIncome_))
+        end
     end
 end
 
