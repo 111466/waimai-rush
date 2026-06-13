@@ -1,5 +1,5 @@
 -- ============================================================================
--- 外卖冲冲冲 - 阶段 3.5：移动手感微调与输入容错
+-- 外卖冲冲冲 - 阶段 3.6：失败原因与教学反馈强化
 -- 竖屏跑酷游戏原型
 -- 风格：积木阳光城（浅色道路、蓝绿城市基底、大块面、强轮廓）
 -- ============================================================================
@@ -205,7 +205,7 @@ function Start()
 
     SubscribeToEvent("Update", "HandleUpdate")
 
-    print("=== 外卖冲冲冲 - 阶段 3.5：移动手感微调与输入容错 ===")
+    print("=== 外卖冲冲冲 - 阶段 3.6：失败原因与教学反馈强化 ===")
     print("操作: 左右滑动=变道, 上滑/空格=跳跃, 下滑/S=下滑")
     print("新增: 三道封死检测 + 同车道过密检测 + 公平性前推机制")
 end
@@ -1155,6 +1155,20 @@ end
 
 --- 触发游戏结束
 ---@param reason string 失败原因
+local function GetFailureTip(reason)
+    if reason == "撞上路障" then
+        return "左右变道避开红色路障"
+    elseif reason == "没有跳过低矮障碍" then
+        return "上滑或空格跳过低矮障碍"
+    elseif reason == "没有下滑躲过高位障碍" then
+        return "下滑或 S 键躲过高位障碍"
+    elseif reason == "送餐超时" then
+        return "优先看目标提示，满载时先送餐"
+    else
+        return "观察前方目标，保持节奏"
+    end
+end
+
 local function TriggerGameOver(reason)
     gameState_ = "gameOver"
 
@@ -1220,7 +1234,16 @@ local function TriggerGameOver(reason)
             end
             rankLabel:SetText(rankText)
         end
+
+        -- 失败建议
+        local tipLabel = UI.FindById("go_tip")
+        if tipLabel then
+            tipLabel:SetText("提示：" .. GetFailureTip(reason))
+        end
     end
+
+    -- 失败 Toast
+    ShowToast(GetFailureTip(reason))
 end
 
 --- 重置游戏（再来一局）
@@ -1494,6 +1517,13 @@ function CreateUI()
                         fontSize = 16,
                         fontColor = { 80, 200, 120, 255 },
                         marginTop = 8,
+                    },
+                    UI.Label {
+                        id = "go_tip",
+                        text = "",
+                        fontSize = 13,
+                        fontColor = { 60, 120, 200, 255 },
+                        marginTop = 10,
                     },
                     UI.Button {
                         text = "再来一局 (空格/R)",
