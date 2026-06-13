@@ -1,5 +1,5 @@
 -- ============================================================================
--- 外卖冲冲冲 - 阶段 3.2：首分钟节奏保底
+-- 外卖冲冲冲 - 阶段 3.3：难度曲线与压力节奏
 -- 竖屏跑酷游戏原型
 -- 风格：积木阳光城（浅色道路、蓝绿城市基底、大块面、强轮廓）
 -- ============================================================================
@@ -169,6 +169,9 @@ local startToastPending_ = true
 local firstDeliveryInRun_ = true       -- 第一次送餐点使用更近间距
 local lastOrderPointSeenTime_ = 0.0    -- 最近一次订单相关事件的 runTime_
 
+-- 难度曲线
+local highPressureToastShown_ = false  -- 高压期提示是否已显示
+
 -- ============================================================================
 -- 生命周期
 -- ============================================================================
@@ -197,9 +200,9 @@ function Start()
 
     SubscribeToEvent("Update", "HandleUpdate")
 
-    print("=== 外卖冲冲冲 - 阶段 3.2：首分钟节奏保底 ===")
+    print("=== 外卖冲冲冲 - 阶段 3.3：难度曲线与压力节奏 ===")
     print("操作: 左右滑动=变道, 上滑/空格=跳跃, 下滑/S=下滑")
-    print("新增: 首分钟节奏保底 + 更早首个取餐点 + 8秒空窗强制触发")
+    print("新增: 三阶段难度曲线(教学/正常/高压) + 障碍间距按阶段修正 + HUD阶段标签")
 end
 
 function Stop()
@@ -513,11 +516,37 @@ local function DeactivateObstacle(obs)
     obs.node.position = Vector3(0, -100, -100)
 end
 
---- 计算当前进度下的障碍间距范围
+--- 获取当前难度阶段（1=教学期, 2=正常期, 3=高压期）
+---@return integer
+local function GetDifficultyPhase()
+    if distanceTraveled_ < 150 then
+        return 1
+    elseif distanceTraveled_ < 500 then
+        return 2
+    else
+        return 3
+    end
+end
+
+--- 计算当前进度下的障碍间距范围（按难度阶段修正）
 local function GetCurrentSpacingRange()
     local progress = math.min(distanceTraveled_ / CONFIG.SPACING_RAMP_DISTANCE, 1.0)
     local spacingMin = CONFIG.SPACING_MIN_START + (CONFIG.SPACING_MIN_END - CONFIG.SPACING_MIN_START) * progress
     local spacingMax = CONFIG.SPACING_MAX_START + (CONFIG.SPACING_MAX_END - CONFIG.SPACING_MAX_START) * progress
+
+    -- 按阶段修正间距
+    local phase = GetDifficultyPhase()
+    if phase == 1 then
+        -- 教学期：更稀疏，最小间距不低于 16m
+        spacingMin = math.max(spacingMin, 16.0)
+        spacingMax = math.max(spacingMax, spacingMin + 4.0)
+    elseif phase == 3 then
+        -- 高压期：略密，最小间距可降到 9m
+        spacingMin = math.max(spacingMin * 0.85, 9.0)
+        spacingMax = math.max(spacingMax * 0.88, spacingMin + 3.0)
+    end
+    -- phase 2：使用当前正常逻辑，不做修正
+
     return spacingMin, spacingMax
 end
 
@@ -1186,6 +1215,7 @@ local function RestartGame()
     boostTimer_ = 0.0
     firstDeliveryInRun_ = true
     lastOrderPointSeenTime_ = 0.0
+    highPressureToastShown_ = false
     if deliveryNode_ then
         deliveryNode_.enabled = false
         deliveryNode_.position = Vector3(0, -100, -100)
@@ -1760,6 +1790,13 @@ function HandleUpdate(eventType, eventData)
     -- 更新距离
     distanceTraveled_ = distanceTraveled_ + currentSpeed_ * dt
 
+    -- 高压期首次进入提示
+    if not highPressureToastShown_ and GetDifficultyPhase() == 3 then
+        highPressureToastShown_ = true
+        ShowToast("高压路段！")
+        print("[难度] 进入高压期，距离=" .. math.floor(distanceTraveled_))
+    end
+
     -- 角色姿态
     UpdatePlayerPose(dt)
 
@@ -1882,8 +1919,10 @@ function HandleUpdate(eventType, eventData)
             if orderState_ == "carrying" and deliveryTimer_ <= 3.0 then
                 orderTag = orderTag .. " 紧急"
             end
-            hudLabel:SetText(string.format("%d m | %s | %s | ¥%d | 连送 %d | 已送 %d",
-                math.floor(distanceTraveled_), speedTag, orderTag, currentIncome_, comboCount_, deliveredOrderCount_))
+            local phaseNames = { "热身", "冲刺", "高压" }
+            local phaseTag = phaseNames[GetDifficultyPhase()] or ""
+            hudLabel:SetText(string.format("%d m | %s | %s | ¥%d | 连送 %d | 已送 %d | %s",
+                math.floor(distanceTraveled_), speedTag, orderTag, currentIncome_, comboCount_, deliveredOrderCount_, phaseTag))
         end
         UpdateTargetHint(newZ)
     end
