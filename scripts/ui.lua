@@ -4,7 +4,7 @@
 
 local UI = require("urhox-libs/UI")
 local cfg = require("config")
-local PATH = cfg.PATH
+local CONFIG = cfg.CONFIG
 
 local M = {}
 

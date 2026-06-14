@@ -1,29 +1,36 @@
 -- ============================================================================
--- 外卖冲冲冲 - 取件/送件模块
+-- 外卖冲冲冲 - 取件/送件模块（基于 RoadGraph）
+-- ============================================================================
+-- 取件/送件点绑定到真实 edge 上，根据 edgeProgress 生成
 -- ============================================================================
 
 local cfg = require("config")
 local CONFIG = cfg.CONFIG
 local path = require("path")
+local rn = require("road_network")
 local mats = require("materials")
 
 local M = {}
 
--- 状态
+-- 取件点状态
 M.pickupNode = nil
 M.pickupActive = false
-M.pickupPathDist = 0.0
+M.pickupEdgeId = 0
+M.pickupEdgeProgress = 0.0
 M.pickupLane = 2
-M.lastPickupDist = 0.0
-M.nextPickupDist = 0.0
+M.lastPickupEdgeId = 0
+M.nextPickupDistance = 0.0  -- 走多远后才能再生成下一个
 
+-- 送件点状态
 M.deliveryNode = nil
 M.deliveryActive = false
-M.deliveryPathDist = 0.0
+M.deliveryEdgeId = 0
+M.deliveryEdgeProgress = 0.0
 M.deliveryLane = 2
-M.lastDeliveryDist = 0.0
-M.nextDeliveryDist = 0.0
+M.lastDeliveryEdgeId = 0
+M.nextDeliveryDistance = 0.0
 
+-- 游戏状态
 M.hasPackage = false
 M.packageVisualNode = nil
 
@@ -31,6 +38,10 @@ M.packageVisualNode = nil
 M.timeRemaining = 30.0
 M.totalIncome = 0
 M.comboCount = 0
+
+-- ============================================================================
+-- 创建视觉节点
+-- ============================================================================
 
 function M.CreatePickupNode(scene)
     local node = scene:CreateChild("Pickup")
@@ -54,77 +65,149 @@ function M.CreateDeliveryNode(scene)
     return node
 end
 
+-- ============================================================================
+-- 生成取件点（edge-based）
+-- ============================================================================
+
 function M.TrySpawnPickup()
     local s = path.state
     if s.turnExecuting then return end
     if M.pickupActive or M.hasPackage then return end
-    if s.routeDistance < M.nextPickupDist then return end
+    if not s.currentEdge then return end
 
-    local spawnDist = s.routeDistance + CONFIG.PICKUP_SPAWN_AHEAD
-    if path.IsInSafeZone(spawnDist) then return end
+    -- 检查走过的距离是否满足间隔要求
+    if s.totalDistance < M.nextPickupDistance then return end
+
+    -- 生成位置：当前 edge 上玩家前方
+    local spawnProgress = s.edgeProgress + CONFIG.PICKUP_SPAWN_AHEAD / s.currentEdge.length
+    if spawnProgress >= 0.85 then return end  -- 太靠近末端不生成
+
+    -- 安全区检测
+    local distFromStart = spawnProgress * s.currentEdge.length
+    local distFromEnd = (1.0 - spawnProgress) * s.currentEdge.length
+    if distFromStart < CONFIG.SAFE_ZONE_DIST or distFromEnd < CONFIG.SAFE_ZONE_DIST then
+        return
+    end
 
     local lane = math.random(1, 3)
-    M.pickupPathDist = spawnDist
+    M.pickupEdgeId = s.currentEdge.id
+    M.pickupEdgeProgress = spawnProgress
     M.pickupLane = lane
     M.pickupActive = true
 
+    -- 计算世界位置
     local laneX = CONFIG.LANE_X[lane]
-    local worldPos = path.GetWorldPosForObject(spawnDist, laneX)
+    local worldPos = rn.GetPositionOnEdge(s.currentEdge, spawnProgress, laneX)
     M.pickupNode.position = Vector3(worldPos.x, 0.6, worldPos.z)
-    M.pickupNode.rotation = Quaternion(path.HeadingToYaw(s.currentHeading), Vector3.UP)
+    M.pickupNode.rotation = Quaternion(rn.HeadingToYaw(s.currentEdge.heading), Vector3.UP)
 
-    M.lastPickupDist = spawnDist
-    M.nextPickupDist = spawnDist + CONFIG.PICKUP_INTERVAL_MIN + math.random() * (CONFIG.PICKUP_INTERVAL_MAX - CONFIG.PICKUP_INTERVAL_MIN)
+    M.lastPickupEdgeId = s.currentEdge.id
+    M.nextPickupDistance = s.totalDistance + CONFIG.PICKUP_INTERVAL_MIN + math.random() * (CONFIG.PICKUP_INTERVAL_MAX - CONFIG.PICKUP_INTERVAL_MIN)
+
+    print("[Pickup] Spawned at edge " .. s.currentEdge.id .. " progress " .. string.format("%.2f", spawnProgress))
 end
+
+-- ============================================================================
+-- 取件碰撞检测
+-- ============================================================================
 
 function M.CheckPickup()
     if not M.pickupActive then return end
     local s = path.state
-    local distDiff = s.routeDistance - M.pickupPathDist
+    if not s.currentEdge then return end
+
+    -- 只有在同一条边上才检测
+    if M.pickupEdgeId ~= s.currentEdge.id then
+        -- 玩家已离开该边，取件点消失
+        M.pickupActive = false
+        M.pickupNode.position = Vector3(0, -100, 0)
+        return
+    end
+
+    local distDiff = (s.edgeProgress - M.pickupEdgeProgress) * s.currentEdge.length
     if math.abs(distDiff) < CONFIG.COLLISION_Z_THRESHOLD and CONFIG.currentLane == M.pickupLane then
+        -- 成功取件
         M.hasPackage = true
         M.pickupActive = false
         M.pickupNode.position = Vector3(0, -100, 0)
         if M.packageVisualNode then
             M.packageVisualNode.enabled = true
         end
-        M.nextDeliveryDist = s.routeDistance + CONFIG.DELIVERY_INTERVAL_MIN * 0.5
+        M.nextDeliveryDistance = s.totalDistance + CONFIG.DELIVERY_INTERVAL_MIN * 0.5
+        print("[Pickup] Package collected!")
     elseif distDiff > 3.0 then
+        -- 错过了
         M.pickupActive = false
         M.pickupNode.position = Vector3(0, -100, 0)
     end
 end
 
+-- ============================================================================
+-- 生成送件点（edge-based）
+-- ============================================================================
+
 function M.TrySpawnDelivery()
     local s = path.state
     if s.turnExecuting then return end
     if M.deliveryActive or not M.hasPackage then return end
-    if s.routeDistance < M.nextDeliveryDist then return end
+    if not s.currentEdge then return end
 
-    local spawnDist = s.routeDistance + CONFIG.DELIVERY_SPAWN_AHEAD
-    if path.IsInSafeZone(spawnDist) then return end
+    -- 检查距离间隔
+    if s.totalDistance < M.nextDeliveryDistance then return end
+
+    -- 生成位置
+    local spawnProgress = s.edgeProgress + CONFIG.DELIVERY_SPAWN_AHEAD / s.currentEdge.length
+    if spawnProgress >= 0.85 then return end
+
+    -- 安全区检测
+    local distFromStart = spawnProgress * s.currentEdge.length
+    local distFromEnd = (1.0 - spawnProgress) * s.currentEdge.length
+    if distFromStart < CONFIG.SAFE_ZONE_DIST or distFromEnd < CONFIG.SAFE_ZONE_DIST then
+        return
+    end
 
     local lane = math.random(1, 3)
-    M.deliveryPathDist = spawnDist
+    M.deliveryEdgeId = s.currentEdge.id
+    M.deliveryEdgeProgress = spawnProgress
     M.deliveryLane = lane
     M.deliveryActive = true
 
+    -- 计算世界位置
     local laneX = CONFIG.LANE_X[lane]
-    local worldPos = path.GetWorldPosForObject(spawnDist, laneX)
+    local worldPos = rn.GetPositionOnEdge(s.currentEdge, spawnProgress, laneX)
     M.deliveryNode.position = Vector3(worldPos.x, 0.15, worldPos.z)
-    M.deliveryNode.rotation = Quaternion(path.HeadingToYaw(s.currentHeading), Vector3.UP)
+    M.deliveryNode.rotation = Quaternion(rn.HeadingToYaw(s.currentEdge.heading), Vector3.UP)
 
-    M.lastDeliveryDist = spawnDist
-    M.nextDeliveryDist = spawnDist + CONFIG.DELIVERY_INTERVAL_MIN + math.random() * (CONFIG.DELIVERY_INTERVAL_MAX - CONFIG.DELIVERY_INTERVAL_MIN)
+    M.lastDeliveryEdgeId = s.currentEdge.id
+    M.nextDeliveryDistance = s.totalDistance + CONFIG.DELIVERY_INTERVAL_MIN + math.random() * (CONFIG.DELIVERY_INTERVAL_MAX - CONFIG.DELIVERY_INTERVAL_MIN)
 
-    s.intersectionCorrectDir = (lane <= 1) and -1 or ((lane >= 3) and 1 or 0)
+    -- 设置推荐方向（lane 偏左→推荐左转，偏右→推荐右转）
+    path.state.intersectionHintDir = (lane <= 1) and -1 or ((lane >= 3) and 1 or 0)
+
+    print("[Delivery] Spawned at edge " .. s.currentEdge.id .. " progress " .. string.format("%.2f", spawnProgress))
 end
+
+-- ============================================================================
+-- 送件碰撞检测
+-- ============================================================================
 
 function M.CheckDelivery()
     if not M.deliveryActive then return end
     local s = path.state
-    local distDiff = s.routeDistance - M.deliveryPathDist
+    if not s.currentEdge then return end
+
+    -- 只有在同一条边上才检测
+    if M.deliveryEdgeId ~= s.currentEdge.id then
+        -- 玩家已离开该边，送件点消失，连击中断
+        M.comboCount = 0
+        M.deliveryActive = false
+        M.deliveryNode.position = Vector3(0, -100, 0)
+        return
+    end
+
+    local distDiff = (s.edgeProgress - M.deliveryEdgeProgress) * s.currentEdge.length
     if math.abs(distDiff) < CONFIG.COLLISION_Z_THRESHOLD and CONFIG.currentLane == M.deliveryLane then
+        -- 成功送达
         M.comboCount = M.comboCount + 1
         local baseReward = 10
         local comboBonus = math.floor(M.comboCount * CONFIG.DELIVERY_COMBO_MULTIPLIER)
@@ -138,34 +221,47 @@ function M.CheckDelivery()
         if M.packageVisualNode then
             M.packageVisualNode.enabled = false
         end
+        print("[Delivery] Delivered! Income +" .. reward .. " (combo x" .. M.comboCount .. ")")
     elseif distDiff > 3.0 then
+        -- 错过了
         M.comboCount = 0
         M.deliveryActive = false
         M.deliveryNode.position = Vector3(0, -100, 0)
     end
 end
 
+-- ============================================================================
+-- 浮动动画
+-- ============================================================================
+
 function M.UpdateAnimation()
     if M.pickupActive and M.pickupNode then
-        M.pickupNode.position = Vector3(M.pickupNode.position.x, 0.6 + math.sin(time.elapsedTime * 3.0) * 0.2, M.pickupNode.position.z)
+        local pos = M.pickupNode.position
+        M.pickupNode.position = Vector3(pos.x, 0.6 + math.sin(time.elapsedTime * 3.0) * 0.2, pos.z)
     end
     if M.deliveryActive and M.deliveryNode then
-        M.deliveryNode.position = Vector3(M.deliveryNode.position.x, 0.15 + math.sin(time.elapsedTime * 2.5) * 0.1, M.deliveryNode.position.z)
+        local pos = M.deliveryNode.position
+        M.deliveryNode.position = Vector3(pos.x, 0.15 + math.sin(time.elapsedTime * 2.5) * 0.1, pos.z)
     end
 end
 
+-- ============================================================================
+-- 重置
+-- ============================================================================
+
 function M.Reset()
-    local s = path.state
     M.pickupActive = false
     M.pickupNode.position = Vector3(0, -100, 0)
+    M.pickupEdgeId = 0
+    M.pickupEdgeProgress = 0.0
     M.deliveryActive = false
     M.deliveryNode.position = Vector3(0, -100, 0)
+    M.deliveryEdgeId = 0
+    M.deliveryEdgeProgress = 0.0
     M.hasPackage = false
     if M.packageVisualNode then M.packageVisualNode.enabled = false end
-    M.lastPickupDist = 0.0
-    M.nextPickupDist = 30.0
-    M.lastDeliveryDist = 0.0
-    M.nextDeliveryDist = 100.0
+    M.nextPickupDistance = 30.0
+    M.nextDeliveryDistance = 100.0
     M.timeRemaining = 30.0
     M.totalIncome = 0
     M.comboCount = 0

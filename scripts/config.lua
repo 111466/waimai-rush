@@ -15,18 +15,18 @@ M.CONFIG = {
 
     -- 跑道参数
     ROAD_WIDTH = 7.0,
-    ROAD_SEGMENT_LENGTH = 40.0,
-    ROAD_SEGMENTS = 8,
+    ROAD_SEGMENT_LENGTH = 10.0,  -- 每段道路长度（用于铺路段贴片）
+    ROAD_SEGMENTS_PER_EDGE = 8,  -- 每条边上铺多少段道路
 
     -- 车道线参数
     LINE_SPACING = 3.0,
     LINE_LENGTH = 1.5,
-    LINE_POOL_SIZE = 40,
+    LINES_PER_EDGE = 26,  -- 每条边上车道线数量
 
     -- 建筑参数
-    BUILDING_ZONE_START = 4.5,
-    BUILDING_ZONE_END = 15.0,
-    BUILDING_POOL_SIZE = 40,
+    BUILDING_ZONE_START = 5.5,
+    BUILDING_ZONE_END = 18.0,
+    BUILDINGS_PER_EDGE = 8,  -- 每条边上两侧建筑数
 
     -- 速度参数
     BASE_SPEED = 8.0,
@@ -44,23 +44,23 @@ M.CONFIG = {
     CAM_TILT_FACTOR = 1.5,
 
     -- 障碍物
-    OBSTACLE_POOL_PER_TYPE = 8,
-    OBSTACLE_SPAWN_AHEAD = 80.0,
+    OBSTACLE_POOL_PER_TYPE = 10,
+    OBSTACLE_SPAWN_AHEAD = 60.0,
     OBSTACLE_MIN_SPACING = 12.0,
     OBSTACLE_MAX_PER_ROW = 2,
-    COLLISION_Z_THRESHOLD = 0.8,
+    COLLISION_Z_THRESHOLD = 1.0,
 
     -- 难度渐进
     DIFFICULTY_START_DISTANCE = 50.0,
     DIFFICULTY_RAMP_DISTANCE = 400.0,
-    OBSTACLE_SPACING_MIN = 8.0,
-    OBSTACLE_SPACING_MAX = 18.0,
+    OBSTACLE_SPACING_MIN = 10.0,
+    OBSTACLE_SPACING_MAX = 20.0,
 
     -- 取件/送件
-    PICKUP_SPAWN_AHEAD = 70.0,
+    PICKUP_SPAWN_AHEAD = 50.0,
     PICKUP_INTERVAL_MIN = 40.0,
     PICKUP_INTERVAL_MAX = 70.0,
-    DELIVERY_SPAWN_AHEAD = 70.0,
+    DELIVERY_SPAWN_AHEAD = 50.0,
     DELIVERY_INTERVAL_MIN = 50.0,
     DELIVERY_INTERVAL_MAX = 80.0,
     DELIVERY_COMBO_MULTIPLIER = 0.5,
@@ -72,48 +72,25 @@ M.CONFIG = {
 
     -- 变道平滑
     LANE_CHANGE_DURATION = 0.18,
-}
 
--- ============================================================================
--- 路径系统配置（真实转弯）
--- ============================================================================
-M.PATH = {
-    -- 方向枚举: 0=+Z, 1=+X, 2=-Z, 3=-X
-    HEADING_POS_Z = 0,
-    HEADING_POS_X = 1,
-    HEADING_NEG_Z = 2,
-    HEADING_NEG_X = 3,
+    -- 路口接近提示距离（进度百分比）
+    INTERSECTION_HINT_PROGRESS = 0.7,  -- 到达边的 70% 时提示
+    -- 转弯执行距离（进度百分比）
+    INTERSECTION_EXECUTE_PROGRESS = 0.92,  -- 到达边的 92% 时执行转弯
 
-    -- 路口参数
-    FIRST_INTERSECTION_DIST = 120.0,
-    INTERVAL_MIN = 150.0,
-    INTERVAL_MAX = 220.0,
+    -- 路口安全区（距离路口中心的 pathDistance）
+    SAFE_ZONE_DIST = 15.0,
 
-    -- 转弯输入窗口
-    TURN_INPUT_WINDOW = 45.0,
-    TURN_EXECUTE_DIST = 0.0,
-
-    -- 弯道几何
-    TURN_RADIUS = 14.0,
-    TURN_ARC_LENGTH = 14.0 * math.pi * 0.5,
-    TURN_VISUAL_SEGMENTS = 9,
-    TURN_EXIT_PREVIEW_LENGTH = 24.0,
-
-    -- 动画
-    TURN_ANIM_DURATION = 0.40,
-    CAM_TURN_DURATION = 0.45,
-
-    -- 安全区
-    SAFE_ZONE_BEFORE = 25.0,
-    SAFE_ZONE_AFTER = 35.0,
+    -- 转弯动画
+    TURN_ANIM_SPEED = 1.8,  -- 转弯时速度系数(较快通过弧线)
+    CAM_TURN_DURATION = 0.4,
 
     -- 奖惩
     CORRECT_TURN_BONUS = 2.0,
     WRONG_TURN_PENALTY = 3.0,
 
-    -- 视觉
-    CROSSROADS_SIZE = 8.0,
-    PREVIEW_ROAD_LENGTH = 6.0,
+    -- 路网可见范围（显示玩家附近多远的道路）
+    VISIBLE_RANGE = 120.0,
 }
 
 return M

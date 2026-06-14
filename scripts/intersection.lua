@@ -1,48 +1,28 @@
 -- ============================================================================
--- 外卖冲冲冲 - 路口系统模块
+-- 外卖冲冲冲 - 路口系统模块（基于 RoadGraph）
+-- ============================================================================
+-- 路口逻辑：检测玩家接近真实路口节点 → 显示方向提示 → 执行转弯
 -- ============================================================================
 
 local cfg = require("config")
 local CONFIG = cfg.CONFIG
-local PATH = cfg.PATH
 local path = require("path")
-local mats = require("materials")
-local pools = require("pools")
+local rn = require("road_network")
 local obstacles = require("obstacles")
 local pickup = require("pickup_delivery")
 
 local M = {}
 
--- 路口视觉节点
-M.crossroadsNode = nil
-M.previewRoadNodes = {}
+-- 方向箭头视觉节点
 M.arrowNodes = {}
-
--- 前向声明
-local ApplyForwardRoadPreview
+M.arrowsVisible = false
 
 -- ============================================================================
--- 创建路口视觉
+-- 创建方向箭头视觉（3个: 左/直/右）
 -- ============================================================================
 
 function M.CreateVisuals(scene)
-    M.crossroadsNode = scene:CreateChild("Crossroads")
-    local model = M.crossroadsNode:CreateComponent("StaticModel")
-    model.model = cache:GetResource("Model", "Models/Box.mdl")
-    model.material = mats.crossroads
-    M.crossroadsNode.scale = Vector3(CONFIG.ROAD_WIDTH, 0.16, PATH.CROSSROADS_SIZE)
-    M.crossroadsNode.position = Vector3(0, -100, 0)
-
-    for i = 1, PATH.TURN_VISUAL_SEGMENTS + 2 do
-        local pNode = scene:CreateChild("PreviewRoad" .. i)
-        local pm = pNode:CreateComponent("StaticModel")
-        pm.model = cache:GetResource("Model", "Models/Box.mdl")
-        pm.material = mats.road
-        pNode.scale = Vector3(CONFIG.ROAD_WIDTH, 0.14, PATH.PREVIEW_ROAD_LENGTH)
-        pNode.position = Vector3(0, -100, 0)
-        M.previewRoadNodes[i] = pNode
-    end
-
+    local mats = require("materials")
     for i = 1, 3 do
         local aNode = scene:CreateChild("Arrow" .. i)
         local am = aNode:CreateComponent("StaticModel")
@@ -55,229 +35,144 @@ function M.CreateVisuals(scene)
 end
 
 -- ============================================================================
--- 显示/隐藏路口
+-- 显示/隐藏方向箭头
 -- ============================================================================
 
-ApplyForwardRoadPreview = function(displayDir)
+function M.ShowArrows()
     local s = path.state
-    local cutoff = s.nextIntersectionDist + PATH.CROSSROADS_SIZE * 0.25
-    for _, seg in ipairs(pools.roadPool) do
-        if displayDir ~= 0 and seg.pathDist >= cutoff then
-            pools.HideRoadSegment(seg)
-        else
-            pools.PositionRoadSegment(seg, seg.pathDist)
-        end
-    end
+    if not s.currentEdge then return end
 
-    for _, item in ipairs(pools.linePool) do
-        if displayDir ~= 0 and item.pathDist >= cutoff then
-            pools.HideLaneLine(item)
-        else
-            pools.PositionLaneLine(item, item.pathDist)
-        end
-    end
-end
+    local targetNodeId = s.currentEdge.toNode
+    local targetNode = rn.nodes[targetNodeId]
+    if not targetNode then return end
 
-function M.Show()
-    local s = path.state
-    if not M.crossroadsNode then return end
+    local nodePos = Vector3(targetNode.worldX, 0, targetNode.worldZ)
+    local arrivalHeading = s.currentHeading
 
-    local intLocalDist = s.nextIntersectionDist - s.currentSegmentStartDist
-    local fwd = path.GetForwardVector(s.currentHeading)
-    local intX = s.currentSegmentOrigin.x + fwd.x * intLocalDist
-    local intZ = s.currentSegmentOrigin.z + fwd.z * intLocalDist
-
-    s.turnWorldPos = Vector3(intX, 0, intZ)
-
-    M.crossroadsNode.position = Vector3(intX, 0.08, intZ)
-    M.crossroadsNode.rotation = Quaternion(path.HeadingToYaw(s.currentHeading), Vector3.UP)
-
-    local displayDir = s.turnChoice
-    if displayDir == nil then displayDir = s.intersectionHintDir end
-    ApplyForwardRoadPreview(displayDir)
-
-    for _, node in ipairs(M.previewRoadNodes) do
-        node.position = Vector3(0, -100, 0)
-    end
+    -- 隐藏所有箭头先
     for _, node in ipairs(M.arrowNodes) do
         node.position = Vector3(0, -100, 0)
     end
 
-    if displayDir == 0 then
-        for i = 1, math.min(#M.previewRoadNodes, 5) do
-            local dist = PATH.CROSSROADS_SIZE * 0.5 + PATH.PREVIEW_ROAD_LENGTH * (i - 0.5)
-            local node = M.previewRoadNodes[i]
-            node.position = Vector3(intX + fwd.x * dist, 0.07, intZ + fwd.z * dist)
-            node.rotation = Quaternion(path.HeadingToYaw(s.currentHeading), Vector3.UP)
+    -- 为每个可用方向放置箭头
+    for _, turn in ipairs(s.availableTurns) do
+        local arrowIdx = 0
+        if turn.direction == "left" then arrowIdx = 1
+        elseif turn.direction == "straight" then arrowIdx = 2
+        elseif turn.direction == "right" then arrowIdx = 3
         end
-        M.arrowNodes[1].position = Vector3(intX + fwd.x * 3.5, 0.5, intZ + fwd.z * 3.5)
-        M.arrowNodes[1].rotation = Quaternion(path.HeadingToYaw(s.currentHeading) - 90, Vector3.UP)
-        return
+
+        if arrowIdx > 0 and M.arrowNodes[arrowIdx] then
+            local exitFwd = rn.HeadingToForward(turn.heading)
+            local arrowDist = 4.0
+            local arrowPos = Vector3(
+                nodePos.x + exitFwd.x * arrowDist,
+                0.8,
+                nodePos.z + exitFwd.z * arrowDist
+            )
+            M.arrowNodes[arrowIdx].position = arrowPos
+            M.arrowNodes[arrowIdx].rotation = Quaternion(rn.HeadingToYaw(turn.heading) - 90, Vector3.UP)
+        end
     end
 
-    local startOrigin = Vector3(intX, 0, intZ)
-    for i = 1, PATH.TURN_VISUAL_SEGMENTS do
-        local arcDist = (i - 0.35) / PATH.TURN_VISUAL_SEGMENTS * PATH.TURN_ARC_LENGTH
-        local pos = path.GetTurnPoint(startOrigin, s.currentHeading, displayDir, arcDist, 0.0)
-        local yaw = path.HeadingToYaw(s.currentHeading) + displayDir * math.deg(arcDist / PATH.TURN_RADIUS)
-        local node = M.previewRoadNodes[i]
-        node.position = Vector3(pos.x, 0.07, pos.z)
-        node.rotation = Quaternion(yaw, Vector3.UP)
+    -- 高亮当前选择的箭头（通过Y偏移）
+    local choiceIdx = 2  -- 默认直走
+    if s.turnChoice == -1 then choiceIdx = 1
+    elseif s.turnChoice == 1 then choiceIdx = 3
+    end
+    if M.arrowNodes[choiceIdx] then
+        local pos = M.arrowNodes[choiceIdx].position
+        if pos.y > 0 then
+            M.arrowNodes[choiceIdx].position = Vector3(pos.x, 1.2, pos.z)
+            M.arrowNodes[choiceIdx].scale = Vector3(1.4, 0.4, 2.0)
+        end
     end
 
-    local exitHeading = path.GetTurnEndHeading(s.currentHeading, displayDir)
-    local exitFwd = path.GetForwardVector(exitHeading)
-    local exitPos = path.GetTurnPoint(startOrigin, s.currentHeading, displayDir, PATH.TURN_ARC_LENGTH, 0.0)
-    for i = 1, 2 do
-        local node = M.previewRoadNodes[PATH.TURN_VISUAL_SEGMENTS + i]
-        local dist = PATH.PREVIEW_ROAD_LENGTH * (i - 0.5)
-        node.position = Vector3(exitPos.x + exitFwd.x * dist, 0.07, exitPos.z + exitFwd.z * dist)
-        node.rotation = Quaternion(path.HeadingToYaw(exitHeading), Vector3.UP)
-    end
-
-    local arrowIdx = displayDir < 0 and 2 or 3
-    local arrowPos = path.GetTurnPoint(startOrigin, s.currentHeading, displayDir, PATH.TURN_ARC_LENGTH * 0.45, 0.0)
-    M.arrowNodes[arrowIdx].position = Vector3(arrowPos.x, 0.5, arrowPos.z)
-    M.arrowNodes[arrowIdx].rotation = Quaternion(path.HeadingToYaw(exitHeading) - 90, Vector3.UP)
+    M.arrowsVisible = true
 end
 
-function M.Hide()
-    if M.crossroadsNode then
-        M.crossroadsNode.position = Vector3(0, -100, 0)
+function M.HideArrows()
+    for _, node in ipairs(M.arrowNodes) do
+        node.position = Vector3(0, -100, 0)
+        node.scale = Vector3(1.0, 0.3, 1.5)
     end
-    for i = 1, #M.previewRoadNodes do
-        if M.previewRoadNodes[i] then
-            M.previewRoadNodes[i].position = Vector3(0, -100, 0)
-        end
-    end
-    for i = 1, #M.arrowNodes do
-        if M.arrowNodes[i] then
-            M.arrowNodes[i].position = Vector3(0, -100, 0)
-        end
-    end
+    M.arrowsVisible = false
 end
 
 -- ============================================================================
--- 路口逻辑
+-- 路口逻辑更新
 -- ============================================================================
-
-function M.ScheduleNext()
-    local s = path.state
-    local interval = PATH.INTERVAL_MIN + math.random() * (PATH.INTERVAL_MAX - PATH.INTERVAL_MIN)
-    s.nextIntersectionDist = s.routeDistance + interval
-    s.intersectionActive = false
-    s.turnChoice = 0
-end
-
-function M.ExecuteTurn(turnDir)
-    local s = path.state
-
-    if turnDir == 0 then
-        M.Hide()
-        M.ScheduleNext()
-        if pickup.hasPackage and s.intersectionCorrectDir == 0 then
-            pickup.timeRemaining = pickup.timeRemaining + PATH.CORRECT_TURN_BONUS
-        elseif pickup.hasPackage then
-            pickup.timeRemaining = math.max(2.0, pickup.timeRemaining - PATH.WRONG_TURN_PENALTY)
-        end
-        return
-    end
-
-    s.turnFromHeading = s.currentHeading
-    s.turnToHeading = path.GetTurnEndHeading(s.currentHeading, turnDir)
-    s.turnDir = turnDir
-
-    local intLocalDist = s.nextIntersectionDist - s.currentSegmentStartDist
-    local fwd = path.GetForwardVector(s.currentHeading)
-    local intX = s.currentSegmentOrigin.x + fwd.x * intLocalDist
-    local intZ = s.currentSegmentOrigin.z + fwd.z * intLocalDist
-    s.turnWorldPos = Vector3(intX, 0, intZ)
-    s.turnStartOrigin = Vector3(intX, 0, intZ)
-    s.turnStartDist = s.nextIntersectionDist
-    s.turnEndDist = s.turnStartDist + PATH.TURN_ARC_LENGTH
-    s.turnEndOrigin = path.GetTurnPoint(s.turnStartOrigin, s.turnFromHeading, turnDir, PATH.TURN_ARC_LENGTH, 0.0)
-
-    s.turnExecuting = true
-    s.turnAnimTime = 0.0
-    s.camTurning = false
-
-    -- 清场
-    obstacles.ClearAll()
-    obstacles.lastSpawnDist = s.turnEndDist + PATH.SAFE_ZONE_AFTER
-
-    pickup.pickupActive = false
-    pickup.pickupNode.position = Vector3(0, -100, 0)
-    pickup.deliveryActive = false
-    pickup.deliveryNode.position = Vector3(0, -100, 0)
-
-    -- 奖惩
-    if pickup.hasPackage and s.intersectionCorrectDir == turnDir then
-        pickup.timeRemaining = pickup.timeRemaining + PATH.CORRECT_TURN_BONUS
-    elseif pickup.hasPackage then
-        pickup.timeRemaining = math.max(2.0, pickup.timeRemaining - PATH.WRONG_TURN_PENALTY)
-    end
-end
 
 function M.Update()
     local s = path.state
-    if s.turnExecuting then return end
-    if s.nextIntersectionDist <= 0 then return end
 
-    local distToInt = s.nextIntersectionDist - s.routeDistance
+    -- 检测是否到达路口提示区域
+    path.CheckIntersection()
 
-    if distToInt < PATH.TURN_INPUT_WINDOW and distToInt > 0 and not s.intersectionActive then
-        s.intersectionActive = true
-        local r = math.random()
-        if r < 0.33 then s.intersectionHintDir = -1
-        elseif r < 0.66 then s.intersectionHintDir = 1
-        else s.intersectionHintDir = 0 end
-        s.turnChoice = s.intersectionHintDir
-        M.Show()
+    -- 如果路口激活且到达执行点
+    if path.CheckExecutePoint() then
+        M.ExecuteTurn()
+        return
     end
 
-    if distToInt <= PATH.TURN_EXECUTE_DIST and s.intersectionActive then
-        s.intersectionActive = false
-        M.ExecuteTurn(s.turnChoice)
-        s.turnChoice = 0
+    -- 更新箭头显示
+    if s.intersectionActive and not s.turnExecuting then
+        M.ShowArrows()
+    elseif M.arrowsVisible then
+        M.HideArrows()
     end
 end
 
-function M.UpdateTurnAnimation(dt, playerNode)
+-- ============================================================================
+-- 执行转弯
+-- ============================================================================
+
+function M.ExecuteTurn()
     local s = path.state
-    if not s.turnExecuting then return end
 
-    s.turnAnimTime = s.turnAnimTime + dt
+    -- 清除前方障碍物
+    obstacles.ClearAll()
 
-    if s.routeDistance >= s.turnEndDist then
-        s.turnExecuting = false
-        s.currentHeading = s.turnToHeading
-        s.currentSegmentOrigin = Vector3(s.turnEndOrigin.x, 0, s.turnEndOrigin.z)
-        s.currentSegmentStartDist = s.turnEndDist
-        playerNode.rotation = Quaternion(path.HeadingToYaw(s.currentHeading), Vector3.UP)
-
-        -- 重新铺设对象池
-        for i = 1, CONFIG.ROAD_SEGMENTS do
-            local dist = s.currentSegmentStartDist + (i - 1) * CONFIG.ROAD_SEGMENT_LENGTH
-            pools.PositionRoadSegment(pools.roadPool[i], dist)
-        end
-        for i = 1, CONFIG.LINE_POOL_SIZE do
-            local dist = s.currentSegmentStartDist + (i - 1) * CONFIG.LINE_SPACING
-            pools.PositionLaneLine(pools.linePool[i], dist)
-        end
-        for i = 1, CONFIG.BUILDING_POOL_SIZE do
-            local item = pools.buildingPool[i]
-            local dist = s.currentSegmentStartDist + (i - 1) * 8.0
-            local side = (i % 2 == 0) and 1 or -1
-            local lateral = CONFIG.BUILDING_ZONE_START + math.random() * (CONFIG.BUILDING_ZONE_END - CONFIG.BUILDING_ZONE_START)
-            pools.PositionBuilding(item, dist, side, lateral)
-        end
-
-        obstacles.lastSpawnDist = s.currentSegmentStartDist + PATH.SAFE_ZONE_AFTER
-        pickup.nextPickupDist = s.routeDistance + 30.0
-        pickup.nextDeliveryDist = s.routeDistance + 50.0
-        M.Hide()
-        M.ScheduleNext()
+    -- 清除取件/送件
+    pickup.pickupActive = false
+    if pickup.pickupNode then
+        pickup.pickupNode.position = Vector3(0, -100, 0)
     end
+    pickup.deliveryActive = false
+    if pickup.deliveryNode then
+        pickup.deliveryNode.position = Vector3(0, -100, 0)
+    end
+
+    -- 奖惩逻辑
+    if pickup.hasPackage then
+        local correctDir = s.intersectionHintDir
+        if s.turnChoice == correctDir then
+            pickup.timeRemaining = pickup.timeRemaining + CONFIG.CORRECT_TURN_BONUS
+        else
+            pickup.timeRemaining = math.max(2.0, pickup.timeRemaining - CONFIG.WRONG_TURN_PENALTY)
+        end
+    end
+
+    -- 设置 edge progress 到末端，触发 path 的转弯逻辑
+    s.edgeProgress = 1.0
+    s.edgeDistance = s.currentEdge.length
+    path.ExecuteTurnAtNode()
+
+    -- 隐藏箭头
+    M.HideArrows()
+end
+
+-- ============================================================================
+-- 隐藏（重置用）
+-- ============================================================================
+
+function M.Hide()
+    M.HideArrows()
+end
+
+-- 兼容接口（input.lua 调用 intersection.Show()）
+function M.Show()
+    M.ShowArrows()
 end
 
 return M

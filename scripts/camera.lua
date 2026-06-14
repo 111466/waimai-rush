@@ -1,11 +1,11 @@
 -- ============================================================================
--- 外卖冲冲冲 - 摄像机模块
+-- 外卖冲冲冲 - 摄像机模块（基于 RoadGraph）
 -- ============================================================================
 
 local cfg = require("config")
 local CONFIG = cfg.CONFIG
-local PATH = cfg.PATH
 local path = require("path")
+local rn = require("road_network")
 
 local M = {}
 
@@ -18,7 +18,7 @@ function M.Setup(scene, playerNode)
     local camera = M.node:CreateComponent("Camera")
     camera.fov = CONFIG.CAM_FOV_BASE
     camera.nearClip = 0.5
-    camera.farClip = 200.0
+    camera.farClip = 250.0
 
     renderer:SetViewport(0, Viewport:new(scene, camera))
 
@@ -33,12 +33,14 @@ function M.Update(dt, playerNode, currentSpeed)
     local s = path.state
 
     local pp = playerNode.position
-    local targetYaw = path.GetTrackYawAt(s.routeDistance)
+
+    -- 计算当前摄像机 yaw（跟随路径方向，转弯时平滑过渡）
+    local targetYaw = path.GetCurrentYaw()
     local currentYaw = targetYaw
 
     if s.camTurning then
         s.camTurnAnimTime = s.camTurnAnimTime + dt
-        local t = math.min(1.0, s.camTurnAnimTime / PATH.CAM_TURN_DURATION)
+        local t = math.min(1.0, s.camTurnAnimTime / CONFIG.CAM_TURN_DURATION)
         local smoothT = t * t * (3.0 - 2.0 * t)
         currentYaw = s.camTurnFrom + (s.camTurnTo - s.camTurnFrom) * smoothT
         if t >= 1.0 then
@@ -47,6 +49,7 @@ function M.Update(dt, playerNode, currentSpeed)
         end
     end
 
+    -- 根据 yaw 计算摄像机位置
     local yawRad = math.rad(currentYaw)
     local camFwdX = math.sin(yawRad)
     local camFwdZ = math.cos(yawRad)
@@ -55,6 +58,7 @@ function M.Update(dt, playerNode, currentSpeed)
     local camTargetZ = pp.z - camFwdZ * (-CONFIG.CAM_OFFSET_Z)
     local camTargetY = pp.y + CONFIG.CAM_OFFSET_Y
 
+    -- 平滑跟随
     local camPos = M.node.position
     local lerpFactor = math.min(1.0, dt * CONFIG.CAM_SMOOTH)
     local newX = camPos.x + (camTargetX - camPos.x) * lerpFactor
@@ -62,13 +66,16 @@ function M.Update(dt, playerNode, currentSpeed)
     local newZ = camPos.z + (camTargetZ - camPos.z) * lerpFactor
     M.node.position = Vector3(newX, newY, newZ)
 
+    -- 摄像机看向玩家前方
     local lookX = pp.x + camFwdX * CONFIG.CAM_LOOK_AHEAD
     local lookZ = pp.z + camFwdZ * CONFIG.CAM_LOOK_AHEAD
     M.node:LookAt(Vector3(lookX, pp.y + 0.5, lookZ))
 
+    -- FOV 随速度变化
     local camera = M.node:GetComponent("Camera")
     if camera then
         local speedFactor = (currentSpeed - CONFIG.BASE_SPEED) / (CONFIG.MAX_SPEED - CONFIG.BASE_SPEED)
+        speedFactor = math.max(0, math.min(1, speedFactor))
         local targetFov = CONFIG.CAM_FOV_BASE + (CONFIG.CAM_FOV_MAX - CONFIG.CAM_FOV_BASE) * speedFactor * CONFIG.CAM_FOV_SPEED_FACTOR
         camera.fov = camera.fov + (targetFov - camera.fov) * lerpFactor
     end

@@ -1,5 +1,5 @@
 -- ============================================================================
--- 外卖冲冲冲 - 玩家模块（创建/跳跃/下滑/变道）
+-- 外卖冲冲冲 - 玩家模块（基于 RoadGraph）
 -- ============================================================================
 
 local cfg = require("config")
@@ -92,13 +92,6 @@ function M.UpdateLaneChange(dt)
 
     M.laneChangeTime = M.laneChangeTime + dt
     local t = math.min(1.0, M.laneChangeTime / CONFIG.LANE_CHANGE_DURATION)
-    local smoothT = t * t * (3.0 - 2.0 * t)
-
-    local currentX = M.laneChangeFrom + (M.laneChangeTo - M.laneChangeFrom) * smoothT
-    local s = path.state
-    local worldPos = path.GetWorldPosOnTrack(s.routeDistance, currentX)
-    local pp = M.node.position
-    M.node.position = Vector3(worldPos.x, pp.y, worldPos.z)
 
     if t >= 1.0 then
         M.laneChanging = false
@@ -181,11 +174,30 @@ function M.UpdateSpeed()
 end
 
 -- ============================================================================
+-- 更新玩家世界位置（每帧调用）
+-- ============================================================================
+
+function M.UpdatePosition(jumpY)
+    local laneX = CONFIG.LANE_X[CONFIG.currentLane]
+    if M.laneChanging then
+        local t = math.min(1.0, M.laneChangeTime / CONFIG.LANE_CHANGE_DURATION)
+        local smoothT = t * t * (3.0 - 2.0 * t)
+        laneX = M.laneChangeFrom + (M.laneChangeTo - M.laneChangeFrom) * smoothT
+    end
+
+    local worldPos = path.GetWorldPosition(laneX)
+    M.node.position = Vector3(worldPos.x, jumpY, worldPos.z)
+
+    -- 朝向跟随道路方向
+    local yaw = path.GetCurrentYaw()
+    M.node.rotation = Quaternion(yaw, Vector3.UP)
+end
+
+-- ============================================================================
 -- 重置
 -- ============================================================================
 
 function M.Reset()
-    local s = path.state
     M.distanceTraveled = 0.0
     M.currentSpeed = CONFIG.BASE_SPEED
     CONFIG.currentLane = 2

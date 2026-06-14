@@ -1,10 +1,13 @@
 -- ============================================================================
--- 外卖冲冲冲 - 障碍物模块
+-- 外卖冲冲冲 - 障碍物模块（基于 RoadGraph）
+-- ============================================================================
+-- 障碍物绑定到真实 edge，根据 edgeProgress 生成/回收
 -- ============================================================================
 
 local cfg = require("config")
 local CONFIG = cfg.CONFIG
 local path = require("path")
+local rn = require("road_network")
 local mats = require("materials")
 
 local M = {}
@@ -19,7 +22,8 @@ M.types = {
 -- 对象池和活跃列表
 M.pool = {}
 M.active = {}
-M.lastSpawnDist = 0.0
+M.lastSpawnEdgeId = 0
+M.lastSpawnProgress = 0.0
 M.distanceTraveled = 0.0
 
 function M.CreateOne(scene, typeIdx)
@@ -39,7 +43,8 @@ function M.CreateOne(scene, typeIdx)
         node = node,
         typeIdx = typeIdx,
         info = info,
-        pathDist = 0.0,
+        edgeId = 0,
+        edgeProgress = 0.0,
         lane = 2,
         active = false,
     }
@@ -63,25 +68,6 @@ local function GetInactive(typeIdx)
     return nil
 end
 
-local function CountNearDist(pathDist, range)
-    local count = 0
-    for _, obs in ipairs(M.active) do
-        if math.abs(obs.pathDist - pathDist) < range then
-            count = count + 1
-        end
-    end
-    return count
-end
-
-local function IsLaneTooDense(lane, pathDist)
-    for _, obs in ipairs(M.active) do
-        if obs.lane == lane and math.abs(obs.pathDist - pathDist) < CONFIG.OBSTACLE_MIN_SPACING * 0.6 then
-            return true
-        end
-    end
-    return false
-end
-
 local function GetDifficultyFactor()
     local d = math.max(0, M.distanceTraveled - CONFIG.DIFFICULTY_START_DISTANCE)
     return math.min(1.0, d / CONFIG.DIFFICULTY_RAMP_DISTANCE)
@@ -92,37 +78,53 @@ local function GetCurrentSpacing()
     return CONFIG.OBSTACLE_SPACING_MAX - (CONFIG.OBSTACLE_SPACING_MAX - CONFIG.OBSTACLE_SPACING_MIN) * factor
 end
 
-local function PositionObstacle(obs, pathDist, lane)
-    local s = path.state
-    obs.pathDist = pathDist
+--- 在指定边上指定位置放置障碍物
+local function PositionObstacle(obs, edge, progress, lane)
+    obs.edgeId = edge.id
+    obs.edgeProgress = progress
     obs.lane = lane
     obs.active = true
 
     local laneX = CONFIG.LANE_X[lane]
-    local worldPos = path.GetWorldPosForObject(pathDist, laneX)
+    local worldPos = rn.GetPositionOnEdge(edge, progress, laneX)
     obs.node.position = Vector3(worldPos.x, obs.info.offsetY, worldPos.z)
-    obs.node.rotation = Quaternion(path.HeadingToYaw(s.currentHeading), Vector3.UP)
+    obs.node.rotation = Quaternion(rn.HeadingToYaw(edge.heading), Vector3.UP)
 end
 
+--- 生成障碍物（在当前边的前方）
 function M.Spawn()
     local s = path.state
     if s.turnExecuting then return end
+    if not s.currentEdge then return end
 
-    local spawnAhead = s.routeDistance + CONFIG.OBSTACLE_SPAWN_AHEAD
+    local edge = s.currentEdge
+    local playerProgress = s.edgeProgress
+    local edgeLength = edge.length
     local spacing = GetCurrentSpacing()
+    local spacingProgress = spacing / edgeLength
 
-    while M.lastSpawnDist + spacing < spawnAhead do
-        local spawnDist = M.lastSpawnDist + spacing
-        M.lastSpawnDist = spawnDist
+    -- 计算生成范围（玩家前方）
+    local spawnAheadProgress = math.min(1.0, playerProgress + CONFIG.OBSTACLE_SPAWN_AHEAD / edgeLength)
 
-        if path.IsInSafeZone(spawnDist) then
+    -- 确定下次生成的位置
+    if M.lastSpawnEdgeId ~= edge.id then
+        -- 进入新边，从安全区之后开始
+        M.lastSpawnEdgeId = edge.id
+        M.lastSpawnProgress = CONFIG.SAFE_ZONE_DIST / edgeLength
+    end
+
+    while M.lastSpawnProgress + spacingProgress < spawnAheadProgress do
+        local spawnProgress = M.lastSpawnProgress + spacingProgress
+        M.lastSpawnProgress = spawnProgress
+
+        -- 跳过安全区
+        local distFromStart = spawnProgress * edgeLength
+        local distFromEnd = (1.0 - spawnProgress) * edgeLength
+        if distFromStart < CONFIG.SAFE_ZONE_DIST or distFromEnd < CONFIG.SAFE_ZONE_DIST then
             goto continue_spawn
         end
 
-        if CountNearDist(spawnDist, spacing * 0.7) >= CONFIG.OBSTACLE_MAX_PER_ROW then
-            goto continue_spawn
-        end
-
+        -- 生成 1-2 个障碍物
         local numObs = 1
         if GetDifficultyFactor() > 0.3 and math.random() < 0.4 then
             numObs = 2
@@ -137,7 +139,6 @@ function M.Spawn()
         local placed = 0
         for _, lane in ipairs(lanes) do
             if placed >= numObs then break end
-            if IsLaneTooDense(lane, spawnDist) then goto next_lane end
 
             local typeIdx = math.random(1, #M.types)
             local obs = GetInactive(typeIdx)
@@ -145,47 +146,59 @@ function M.Spawn()
                 obs = GetInactive(1) or GetInactive(2) or GetInactive(3)
             end
             if obs then
-                PositionObstacle(obs, spawnDist, lane)
+                PositionObstacle(obs, edge, spawnProgress, lane)
                 table.insert(M.active, obs)
                 placed = placed + 1
             end
-
-            ::next_lane::
         end
 
         ::continue_spawn::
     end
 end
 
+--- 碰撞检测
 function M.CheckCollisions(playerLane, isJumping, jumpTime, isSliding, slideTime)
     local s = path.state
+    if not s.currentEdge then return false end
+
     for idx = #M.active, 1, -1 do
         local obs = M.active[idx]
-        local distDiff = math.abs(s.routeDistance - obs.pathDist)
-
-        if distDiff < CONFIG.COLLISION_Z_THRESHOLD and obs.lane == playerLane then
-            local canPass = false
-            if obs.info.jumpable and isJumping and jumpTime > 0.1 then
-                canPass = true
-            end
-            if obs.info.slidable and isSliding and slideTime > 0.05 then
-                canPass = true
-            end
-
-            if not canPass then
-                return true
+        -- 只检测同一条边上的障碍物
+        if obs.edgeId == s.currentEdge.id then
+            local distDiff = math.abs(s.edgeProgress - obs.edgeProgress) * s.currentEdge.length
+            if distDiff < CONFIG.COLLISION_Z_THRESHOLD and obs.lane == playerLane then
+                local canPass = false
+                if obs.info.jumpable and isJumping and jumpTime > 0.1 then
+                    canPass = true
+                end
+                if obs.info.slidable and isSliding and slideTime > 0.05 then
+                    canPass = true
+                end
+                if not canPass then
+                    return true
+                end
             end
         end
     end
     return false
 end
 
+--- 回收已过的障碍物
 function M.Recycle()
     local s = path.state
-    local obsBehind = s.routeDistance - 10.0
+    if not s.currentEdge then return end
+
     for idx = #M.active, 1, -1 do
         local obs = M.active[idx]
-        if obs.pathDist < obsBehind then
+        -- 不在当前边上，或者已经在玩家后面很远
+        local shouldRemove = false
+        if obs.edgeId ~= s.currentEdge.id then
+            shouldRemove = true
+        elseif obs.edgeProgress < s.edgeProgress - 0.15 then
+            shouldRemove = true
+        end
+
+        if shouldRemove then
             obs.active = false
             obs.node.position = Vector3(0, -100, 0)
             table.remove(M.active, idx)
@@ -199,6 +212,7 @@ function M.ClearAll()
         obs.node.position = Vector3(0, -100, 0)
     end
     M.active = {}
+    M.lastSpawnProgress = 0.0
 end
 
 return M
