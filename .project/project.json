@@ -1,0 +1,25 @@
+{
+  "$schema": "../schemas/project.schema.json",
+  "project_id": "p_99rc",
+  "author": {
+    "id": "1199079994"
+  },
+  "entry": "main.lua",
+  "version": "1.0.0",
+  "taptap_publish": {
+    "title": "外卖冲冲冲",
+    "description": "竖屏跑酷游戏原型",
+    "category": "action",
+    "developer_id": 402551,
+    "screen_orientation": "portrait",
+    "collection_type": "sce",
+    "trial_note": "阶段0.1：基础场景与三车道",
+    "transparent": false,
+    "app_platforms": "1,2"
+  },
+  "assets": {
+    "icon": "",
+    "screenshots": [],
+    "promotional_image": ""
+  }
+}
