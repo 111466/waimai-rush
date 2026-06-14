@@ -172,17 +172,20 @@ local function CreateIntersection(scene, node)
     local model = iNode:CreateComponent("StaticModel")
     model.model = cache:GetResource("Model", "Models/Box.mdl")
     model.material = mats.crossroads
-    -- 3x3 路口区域：尺寸 = INTERSECTION_HALF_SIZE * 2 + 道路宽度余量
-    local areaSize = rn.INTERSECTION_HALF_SIZE * 2.0 + CONFIG.ROAD_WIDTH * 0.5
+    -- 路口地面尺寸与普通道路宽度一致
+    local areaSize = CONFIG.ROAD_WIDTH
     iNode.scale = Vector3(areaSize, 0.16, areaSize)
     iNode.position = Vector3(node.worldX, 0.08, node.worldZ)
     table.insert(M.intersectionNodes, iNode)
 
+    if not CONFIG.DEBUG_INTERSECTION_BORDER then
+        return
+    end
+
     -- =========================================
-    -- 调试：可视化转向选择窗口区域边界（精确 9x9m）
-    -- 用 4 条蓝色细边框标识 INTERSECTION_HALF_SIZE 范围
+    -- 调试：可视化转向选择窗口区域边界
     -- =========================================
-    local halfSize = rn.INTERSECTION_HALF_SIZE  -- 4.5m
+    local halfSize = rn.INTERSECTION_HALF_SIZE
     local cx, cz = node.worldX, node.worldZ
     local borderH = 0.5    -- 边框高度
     local borderW = 0.15   -- 边框粗细
@@ -228,6 +231,35 @@ local function CreateIntersection(scene, node)
     table.insert(M.intersectionNodes, borderW_node)
 end
 
+local function CreateEntryLine(scene, pos, yaw)
+    local node = scene:CreateChild("IntersectionEntryLine")
+    local model = node:CreateComponent("StaticModel")
+    model.model = cache:GetResource("Model", "Models/Box.mdl")
+    model.material = mats.laneLine
+    node.scale = Vector3(CONFIG.ROAD_WIDTH * 0.85, 0.04, 0.28)
+    node.position = Vector3(pos.x, 0.18, pos.z)
+    node.rotation = Quaternion(yaw, Vector3.UP)
+    table.insert(M.lineNodes, node)
+end
+
+local function CreateClosedExitMarker(scene, node, heading)
+    local fwd = rn.HeadingToForward(heading)
+    local pos = Vector3(
+        node.worldX + fwd.x * (rn.INTERSECTION_HALF_SIZE + 0.25),
+        0.35,
+        node.worldZ + fwd.z * (rn.INTERSECTION_HALF_SIZE + 0.25)
+    )
+
+    local marker = scene:CreateChild("ClosedExit")
+    local model = marker:CreateComponent("StaticModel")
+    model.model = cache:GetResource("Model", "Models/Box.mdl")
+    model.material = mats.obstacleBlock
+    marker.scale = Vector3(CONFIG.ROAD_WIDTH * 0.75, 0.38, 0.35)
+    marker.position = pos
+    marker.rotation = Quaternion(rn.HeadingToYaw(heading), Vector3.UP)
+    table.insert(M.intersectionNodes, marker)
+end
+
 -- ============================================================================
 -- 初始化：根据路网生成全部道路视觉
 -- ============================================================================
@@ -238,6 +270,13 @@ function M.Init(scene)
     -- 渲染所有路口
     for _, node in pairs(rn.nodes) do
         CreateIntersection(scene, node)
+        if CONFIG.SHOW_INTERSECTION_CLOSED_MARKERS then
+            for heading = 0, 3 do
+                if not rn.GetEdgeByHeading(node.id, heading) then
+                    CreateClosedExitMarker(scene, node, heading)
+                end
+            end
+        end
     end
 
     -- 渲染所有边（只渲染正向避免重复：heading 0 或 1）
@@ -259,8 +298,8 @@ function M.Init(scene)
             local segLen = length / numSegs
             local yaw = rn.HeadingToYaw(heading)
 
-            -- 缩短道路段，避免与路口区域重叠
-            local shrink = rn.INTERSECTION_HALF_SIZE + 0.5
+            -- 缩短道路段，让道路边缘和路口区域边缘对齐
+            local shrink = rn.INTERSECTION_HALF_SIZE
             local effectiveStart = Vector3(
                 start.x + rn.HeadingToForward(heading).x * shrink,
                 0,
@@ -284,6 +323,12 @@ function M.Init(scene)
 
                 -- 车道线
                 CreateLaneLines(scene, effectiveStart, effectiveEnd, heading, effectiveLength)
+
+                if CONFIG.SHOW_INTERSECTION_ENTRY_LINES then
+                    local yaw = rn.HeadingToYaw(heading)
+                    CreateEntryLine(scene, effectiveStart, yaw)
+                    CreateEntryLine(scene, effectiveEnd, yaw)
+                end
             end
 
             -- 建筑

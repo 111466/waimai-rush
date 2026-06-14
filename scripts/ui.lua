@@ -101,7 +101,33 @@ function M.Create(onRestart)
     M.lblFinalDist = root:FindById("finalDist")
 end
 
-function M.UpdateHUD(timeRemaining, totalIncome, comboCount, currentSpeed, intersectionActive, intersectionHintDir, turnChoice, hasTurnChoice)
+local function BuildAvailableTurnsText(availableTurns)
+    local hasLeft = false
+    local hasStraight = false
+    local hasRight = false
+
+    for _, turn in ipairs(availableTurns or {}) do
+        if turn.direction == "left" then
+            hasLeft = true
+        elseif turn.direction == "straight" then
+            hasStraight = true
+        elseif turn.direction == "right" then
+            hasRight = true
+        end
+    end
+
+    local parts = {}
+    if hasLeft then table.insert(parts, "←左转") end
+    if hasStraight then table.insert(parts, "↑直走") end
+    if hasRight then table.insert(parts, "→右转") end
+
+    if #parts == 0 then
+        return "路口"
+    end
+    return "路口: " .. table.concat(parts, "  ")
+end
+
+function M.UpdateHUD(timeRemaining, totalIncome, comboCount, currentSpeed, intersectionActive, turnChoice, hasTurnChoice, availableTurns)
     if M.lblTimer then
         M.lblTimer:SetText(string.format("⏱ %.0fs", timeRemaining))
     end
@@ -131,14 +157,7 @@ function M.UpdateHUD(timeRemaining, totalIncome, comboCount, currentSpeed, inter
                     hintText = "↑ 已选: 直走"
                 end
             else
-                -- 未选择，显示推荐方向
-                if intersectionHintDir == -1 then
-                    hintText = "← 左转推荐"
-                elseif intersectionHintDir == 1 then
-                    hintText = "→ 右转推荐"
-                else
-                    hintText = "↑ 直走推荐"
-                end
+                hintText = BuildAvailableTurnsText(availableTurns)
             end
             M.lblHint:SetText(hintText)
         else

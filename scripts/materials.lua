@@ -39,7 +39,7 @@ function M.Init()
     M.pickup = M.CreatePBRMaterial(Color(0.3, 0.9, 0.4, 1.0), 0.2, 0.5)
     M.delivery = M.CreatePBRMaterial(Color(1.0, 0.85, 0.2, 1.0), 0.3, 0.4)
     M.arrow = M.CreatePBRMaterial(Color(0.2, 0.9, 1.0, 1.0), 0.3, 0.4)
-    M.crossroads = M.CreatePBRMaterial(Color(0.78, 0.80, 0.76, 1.0), 0.0, 0.85)
+    M.crossroads = M.CreatePBRMaterial(Color(0.85, 0.85, 0.82, 1.0), 0.0, 0.9)
 end
 
 return M

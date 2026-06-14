@@ -81,10 +81,10 @@ function M.TrySpawnPickup()
     -- 生成位置：当前 edge 有效区段上玩家前方
     local effectiveLen = rn.GetEdgeEffectiveLength()
     local spawnDist = s.edgeDistance + CONFIG.PICKUP_SPAWN_AHEAD
-    if spawnDist >= effectiveLen - CONFIG.SAFE_ZONE_DIST then return end  -- 太靠近末端不生成
+    if spawnDist >= effectiveLen - CONFIG.ORDER_EDGE_END_BUFFER then return end  -- 太靠近末端不生成
 
     -- 安全区检测
-    if spawnDist < CONFIG.SAFE_ZONE_DIST then return end
+    if spawnDist < CONFIG.ORDER_EDGE_START_BUFFER then return end
 
     local lane = math.random(1, 3)
     M.pickupEdgeId = s.currentEdge.id
@@ -155,10 +155,10 @@ function M.TrySpawnDelivery()
     -- 生成位置
     local effectiveLen = rn.GetEdgeEffectiveLength()
     local spawnDist = s.edgeDistance + CONFIG.DELIVERY_SPAWN_AHEAD
-    if spawnDist >= effectiveLen - CONFIG.SAFE_ZONE_DIST then return end
+    if spawnDist >= effectiveLen - CONFIG.ORDER_EDGE_END_BUFFER then return end
 
     -- 安全区检测
-    if spawnDist < CONFIG.SAFE_ZONE_DIST then return end
+    if spawnDist < CONFIG.ORDER_EDGE_START_BUFFER then return end
 
     local lane = math.random(1, 3)
     M.deliveryEdgeId = s.currentEdge.id
@@ -175,12 +175,7 @@ function M.TrySpawnDelivery()
     M.lastDeliveryEdgeId = s.currentEdge.id
     M.nextDeliveryDistance = s.totalDistance + CONFIG.DELIVERY_INTERVAL_MIN + math.random() * (CONFIG.DELIVERY_INTERVAL_MAX - CONFIG.DELIVERY_INTERVAL_MIN)
 
-    -- 设置送件推荐方向（优先级高于随机推荐）
-    -- lane 偏左→推荐左转，偏右→推荐右转，中间→随机
-    local hint = (lane <= 1) and -1 or ((lane >= 3) and 1 or 0)
-    path.state.deliveryHintDir = hint
-
-    print("[Delivery] Spawned at edge " .. s.currentEdge.id .. " dist " .. string.format("%.1f", spawnDist) .. " hint=" .. hint)
+    print("[Delivery] Spawned at edge " .. s.currentEdge.id .. " dist " .. string.format("%.1f", spawnDist))
 end
 
 -- ============================================================================
@@ -217,16 +212,12 @@ function M.CheckDelivery()
         if M.packageVisualNode then
             M.packageVisualNode.enabled = false
         end
-        -- 清除送件推荐方向
-        path.state.deliveryHintDir = nil
         print("[Delivery] Delivered! Income +" .. reward .. " (combo x" .. M.comboCount .. ")")
     elseif distDiff > 3.0 then
         -- 错过了
         M.comboCount = 0
         M.deliveryActive = false
         M.deliveryNode.position = Vector3(0, -100, 0)
-        -- 清除送件推荐方向
-        path.state.deliveryHintDir = nil
     end
 end
 
@@ -265,8 +256,6 @@ function M.Reset()
     M.timeRemaining = 30.0
     M.totalIncome = 0
     M.comboCount = 0
-    -- 清除送件推荐
-    path.state.deliveryHintDir = nil
 end
 
 return M

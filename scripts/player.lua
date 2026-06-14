@@ -39,7 +39,7 @@ M.distanceTraveled = 0.0
 
 function M.Create(scene)
     M.node = scene:CreateChild("Player")
-    M.node.position = Vector3(0, 0, 0)
+    M.node.position = Vector3(0, CONFIG.PLAYER_GROUND_Y, 0)
 
     local body = M.node:CreateChild("Body")
     local bm = body:CreateComponent("StaticModel")
@@ -214,7 +214,7 @@ function M.UpdatePosition(jumpY)
     end
 
     local worldPos = path.GetWorldPosition(laneX)
-    M.node.position = Vector3(worldPos.x, jumpY, worldPos.z)
+    M.node.position = Vector3(worldPos.x, CONFIG.PLAYER_GROUND_Y + jumpY, worldPos.z)
 
     -- 朝向跟随道路方向
     local yaw = path.GetCurrentYaw()
@@ -236,7 +236,7 @@ function M.Reset()
     M.isSliding = false
     M.slideTime = 0.0
     M.slideBuffered = false
-    M.node.position = Vector3(0, 0, 0)
+    M.node.position = Vector3(0, CONFIG.PLAYER_GROUND_Y, 0)
     M.node.rotation = Quaternion(0, Vector3.UP)
 end
 

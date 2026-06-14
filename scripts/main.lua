@@ -122,27 +122,6 @@ local function HandleUpdate(eventType, eventData)
             obstacles.ClearAll()
         end
 
-        -- 奖惩逻辑（持有包裹时，按推荐方向给奖惩，每路口只结算一次）
-        if not s.turnSettled and pickup.hasPackage then
-            local correctDir = s.intersectionHintDir
-            local actualDir = 0
-            local leftH = rn.TurnLeft(s.turnArrivalHeading)
-            local rightH = rn.TurnRight(s.turnArrivalHeading)
-            if s.turnExitHeading == leftH then
-                actualDir = -1
-            elseif s.turnExitHeading == rightH then
-                actualDir = 1
-            end
-            if actualDir == correctDir then
-                pickup.timeRemaining = pickup.timeRemaining + CONFIG.CORRECT_TURN_BONUS
-                print("[Game] Correct turn! +" .. CONFIG.CORRECT_TURN_BONUS .. "s")
-            else
-                pickup.timeRemaining = math.max(2.0, pickup.timeRemaining - CONFIG.WRONG_TURN_PENALTY)
-                print("[Game] Wrong turn! -" .. CONFIG.WRONG_TURN_PENALTY .. "s")
-            end
-            -- 标记当前路口已结算奖惩
-            s.turnSettled = true
-        end
     end
 
     -- 路口逻辑（检测、显示箭头）
@@ -157,6 +136,10 @@ local function HandleUpdate(eventType, eventData)
     -- 计算玩家世界位置（使用 path 模块）
     player.UpdatePosition(jumpY)
 
+    -- 先生成取件/送件点，障碍物生成时会避让订单点
+    pickup.TrySpawnPickup()
+    pickup.TrySpawnDelivery()
+
     -- 生成障碍物
     obstacles.Spawn()
 
@@ -170,9 +153,7 @@ local function HandleUpdate(eventType, eventData)
     obstacles.Recycle()
 
     -- 取件/送件
-    pickup.TrySpawnPickup()
     pickup.CheckPickup()
-    pickup.TrySpawnDelivery()
     pickup.CheckDelivery()
 
     -- 摄像机跟随
@@ -193,9 +174,9 @@ local function HandleUpdate(eventType, eventData)
         pickup.comboCount,
         player.currentSpeed,
         s.intersectionActive,
-        s.intersectionHintDir,
         s.turnChoice,
-        s.hasTurnChoice
+        s.hasTurnChoice,
+        s.availableTurns
     )
 
     -- 取件/送件浮动动画

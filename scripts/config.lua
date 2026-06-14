@@ -12,6 +12,8 @@ M.CONFIG = {
     LANE_X = { -2.0, 0.0, 2.0 },
     -- 玩家当前车道索引（1=左, 2=中, 3=右）
     currentLane = 2,
+    -- 玩家根节点站立高度，对齐道路/路口地面顶面
+    PLAYER_GROUND_Y = 0.16,
 
     -- 跑道参数
     ROAD_WIDTH = 7.0,
@@ -44,11 +46,17 @@ M.CONFIG = {
     CAM_TILT_FACTOR = 1.5,
 
     -- 障碍物
-    OBSTACLE_POOL_PER_TYPE = 10,
-    OBSTACLE_SPAWN_AHEAD = 60.0,
+    OBSTACLE_POOL_PER_TYPE = 16,
+    OBSTACLE_SPAWN_AHEAD = 65.0,
     OBSTACLE_MIN_SPACING = 12.0,
     OBSTACLE_MAX_PER_ROW = 2,
     COLLISION_Z_THRESHOLD = 1.0,
+    OBSTACLE_EDGE_START_BUFFER = 18.0,
+    OBSTACLE_EDGE_END_BUFFER = 22.0,
+    OBSTACLE_ORDER_CLEARANCE = 10.0,
+    OBSTACLE_SEQUENCE_GAP = 12.0,
+    OBSTACLE_COMPLEX_START_DISTANCE = 100.0,
+    OBSTACLE_ADVANCED_START_DISTANCE = 400.0,
 
     -- 难度渐进
     DIFFICULTY_START_DISTANCE = 50.0,
@@ -64,6 +72,8 @@ M.CONFIG = {
     DELIVERY_INTERVAL_MIN = 50.0,
     DELIVERY_INTERVAL_MAX = 80.0,
     DELIVERY_COMBO_MULTIPLIER = 0.5,
+    ORDER_EDGE_START_BUFFER = 18.0,
+    ORDER_EDGE_END_BUFFER = 18.0,
 
     -- 跳跃与下滑
     JUMP_DURATION = 0.6,
@@ -81,8 +91,11 @@ M.CONFIG = {
     -- 路口转向输入窗口（基于距路口中心的距离，单位：米）
     TURN_INPUT_START_DIST = 12.0,  -- 距路口 <= 12m 时左右滑动变为转向选择
 
-    -- 3x3 复合路口区域参数
-    INTERSECTION_HALF_SIZE = 4.5,  -- 路口区域半径（总区域 9m × 9m）
+    -- 路口区域参数
+    INTERSECTION_HALF_SIZE = 3.5,  -- 路口区域半径（总区域 7m × 7m）
+    DEBUG_INTERSECTION_BORDER = false,
+    SHOW_INTERSECTION_ENTRY_LINES = true,
+    SHOW_INTERSECTION_CLOSED_MARKERS = true,
     -- 玩家进入路口区域后，根据位置确定出口车道：
     --   转弯时：前进方向进度 → 出口车道 (后1/3→lane1, 中1/3→lane2, 前1/3→lane3)
     --   直行时：横向位置 → 出口车道 (当前lane直接映射)
@@ -93,10 +106,6 @@ M.CONFIG = {
     -- 转弯动画
     TURN_ANIM_SPEED = 1.8,  -- 转弯时速度系数(较快通过弧线)
     CAM_TURN_DURATION = 0.4,
-
-    -- 奖惩
-    CORRECT_TURN_BONUS = 2.0,
-    WRONG_TURN_PENALTY = 3.0,
 
     -- 路网可见范围（显示玩家附近多远的道路）
     VISIBLE_RANGE = 120.0,
