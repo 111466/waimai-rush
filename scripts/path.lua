@@ -316,8 +316,10 @@ function M.FinishTurn(overshootDist)
     s.lastNodeId = s.turnNextEdge.fromNode
     s.turnNextEdge = nil
 
-    -- 从新边起点开始 + 多余距离
-    s.edgeDistance = overshootDist or 0
+    -- 弧线结束时角色已在新边离路口中心 TURN_RADIUS 处
+    -- 所以新边起始 edgeDistance = TURN_RADIUS + overshoot
+    local startDist = rn.TURN_RADIUS + (overshootDist or 0)
+    s.edgeDistance = math.min(startDist, s.currentEdge.length * 0.95)  -- clamp 防溢
     s.edgeProgress = s.edgeDistance / s.currentEdge.length
 
     print("[Path] Entered edge " .. s.currentEdge.id .. " heading " .. s.currentHeading)

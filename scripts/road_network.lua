@@ -336,15 +336,15 @@ function M.GetTurnPosition(nodeWorldPos, arrivalHeading, exitHeading, arcProgres
     )
 
     -- 切线方向（用于车道偏移）
+    -- tangent 是沿弧线前进方向的切线向量
     local tangent = Vector3(
         -radialStart.x * sinA + fwd.x * cosA,
         0,
         -radialStart.z * sinA + fwd.z * cosA
     )
+    -- tangentRight 始终是切线方向的右侧，不因转弯方向反转
+    -- 这样左/中/右车道偏移在整个弧线中保持连续
     local tangentRight = Vector3(tangent.z, 0, -tangent.x)
-    if turnDir == -1 then
-        tangentRight = Vector3(-tangent.z, 0, tangent.x)
-    end
 
     local pos = Vector3(
         center.x + radial.x * radius + tangentRight.x * laneOffset,

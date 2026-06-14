@@ -95,34 +95,26 @@ local function HandleUpdate(eventType, eventData)
     -- 推进路径（沿边前进 / 弧线过渡）
     path.Advance(moveDist)
 
-    -- 转弯刚开始时的清理逻辑（之前在 intersection.ExecuteTurn 里）
+    -- 转弯刚开始时的逻辑（仅在实际转向时清理，直行不清）
     if s.turnJustStarted then
-        -- 清除前方障碍物
-        obstacles.ClearAll()
+        local actuallyTurning = (s.turnArrivalHeading ~= s.turnExitHeading)
 
-        -- 清除取件/送件
-        pickup.pickupActive = false
-        if pickup.pickupNode then
-            pickup.pickupNode.position = Vector3(0, -100, 0)
-        end
-        pickup.deliveryActive = false
-        if pickup.deliveryNode then
-            pickup.deliveryNode.position = Vector3(0, -100, 0)
+        if actuallyTurning then
+            -- 只有实际转弯（左/右）时才清除旧边上的障碍物
+            -- 直行通过路口时障碍物自然由 Recycle() 回收
+            obstacles.ClearAll()
         end
 
         -- 奖惩逻辑（持有包裹时，按推荐方向给奖惩）
-        if pickup.hasPackage then
+        if pickup.hasPackage and actuallyTurning then
             local correctDir = s.intersectionHintDir
-            -- 判断玩家实际转弯方向和推荐方向是否一致
             local actualDir = 0
-            if s.turnArrivalHeading ~= s.turnExitHeading then
-                local leftH = rn.TurnLeft(s.turnArrivalHeading)
-                local rightH = rn.TurnRight(s.turnArrivalHeading)
-                if s.turnExitHeading == leftH then
-                    actualDir = -1
-                elseif s.turnExitHeading == rightH then
-                    actualDir = 1
-                end
+            local leftH = rn.TurnLeft(s.turnArrivalHeading)
+            local rightH = rn.TurnRight(s.turnArrivalHeading)
+            if s.turnExitHeading == leftH then
+                actualDir = -1
+            elseif s.turnExitHeading == rightH then
+                actualDir = 1
             end
             if actualDir == correctDir then
                 pickup.timeRemaining = pickup.timeRemaining + CONFIG.CORRECT_TURN_BONUS
