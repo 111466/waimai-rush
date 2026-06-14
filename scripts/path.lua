@@ -53,9 +53,13 @@ M.state = {
     availableTurns = {},          -- 当前路口可用转向列表
 
     -- 转弯记录（用于外部奖惩逻辑）
-    turnJustCommitted = false,    -- 本帧刚确定出口
+    turnJustCommitted = false,    -- 本帧刚确定出口（玩家做出选择时触发）
     turnArrivalHeading = 0,       -- 记录（供外部读取）
     turnExitHeading = 0,          -- 记录（供外部读取）
+    turnSettled = false,          -- 当前路口是否已结算奖惩（每个路口只结算一次）
+
+    -- 送件推荐方向（优先级高于随机推荐）
+    deliveryHintDir = nil,        -- nil=无送件推荐, -1/0/1=送件推荐方向
 
     -- 全局里程（用于计分/难度等）
     totalDistance = 0.0,
@@ -100,6 +104,8 @@ function M.Init()
     s.turnJustCommitted = false
     s.turnArrivalHeading = 0
     s.turnExitHeading = 0
+    s.turnSettled = false
+    s.deliveryHintDir = nil
 
     print("[Path] Initialized on edge " .. startEdge.id .. " heading " .. startEdge.heading)
 end
@@ -215,8 +221,7 @@ function M.Advance(moveDist)
 
     if s.routeBlocked then return end
 
-    -- 清除上一帧的标记
-    s.turnJustCommitted = false
+    -- 注意：turnJustCommitted 由外部（main.lua）在奖惩处理后清除，不在此处清除
 
     s.totalDistance = s.totalDistance + moveDist
 
@@ -281,6 +286,7 @@ function M.EnterIntersection(overshoot)
     s.hasTurnChoice = false
     s.turnChoiceProgress = 0.5
     s.exitLaneOffset = CONFIG.LANE_X[CONFIG.currentLane]  -- 默认直走保持当前车道
+    s.turnSettled = false  -- 新路口，重置结算标记
 
     -- 检查出口方向是否有效
     local exitEdge = rn.GetEdgeByHeading(targetNodeId, s.intersectionExitHeading)
@@ -291,10 +297,14 @@ function M.EnterIntersection(overshoot)
         return
     end
 
-    -- 激活 UI 提示
+    -- 激活 UI 提示：优先使用送件推荐方向
     s.availableTurns = rn.GetAvailableTurns(targetNodeId, s.currentHeading)
     s.intersectionActive = true
-    if #s.availableTurns > 0 then
+    if s.deliveryHintDir ~= nil then
+        -- 有送件推荐方向，优先使用
+        s.intersectionHintDir = s.deliveryHintDir
+    elseif #s.availableTurns > 0 then
+        -- 无送件推荐，随机推荐
         local r = math.random(1, #s.availableTurns)
         local recommended = s.availableTurns[r]
         if recommended.direction == "left" then
@@ -306,8 +316,7 @@ function M.EnterIntersection(overshoot)
         end
     end
 
-    -- 记录（供外部奖惩用）
-    s.turnJustCommitted = true
+    -- 记录到达方向（供外部奖惩用，不在此处触发 turnJustCommitted）
     s.turnArrivalHeading = s.currentHeading
     s.turnExitHeading = s.intersectionExitHeading
 
@@ -411,6 +420,10 @@ function M.UpdateExitChoice()
                 s.intersectionProgress, CONFIG.currentLane
             )
             s.exitLaneOffset = CONFIG.LANE_X[exitLane]
+
+            -- 触发转向确认标记（供外部奖惩逻辑使用，每次选择都触发）
+            s.turnJustCommitted = true
+            s.turnExitHeading = newExitHeading
         else
             -- 新方向无路 → 死路
             print("[Path] DEAD END (in-area choice): heading " .. newExitHeading)
@@ -438,14 +451,19 @@ function M.CheckIntersection()
         s.availableTurns = rn.GetAvailableTurns(targetNodeId, s.currentHeading)
         if #s.availableTurns > 0 then
             s.intersectionActive = true
-            local r = math.random(1, #s.availableTurns)
-            local recommended = s.availableTurns[r]
-            if recommended.direction == "left" then
-                s.intersectionHintDir = -1
-            elseif recommended.direction == "right" then
-                s.intersectionHintDir = 1
+            -- 优先使用送件推荐方向
+            if s.deliveryHintDir ~= nil then
+                s.intersectionHintDir = s.deliveryHintDir
             else
-                s.intersectionHintDir = 0
+                local r = math.random(1, #s.availableTurns)
+                local recommended = s.availableTurns[r]
+                if recommended.direction == "left" then
+                    s.intersectionHintDir = -1
+                elseif recommended.direction == "right" then
+                    s.intersectionHintDir = 1
+                else
+                    s.intersectionHintDir = 0
+                end
             end
         end
     end

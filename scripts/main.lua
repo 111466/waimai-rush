@@ -81,6 +81,9 @@ local function HandleUpdate(eventType, eventData)
 
     local s = path.state
 
+    -- 清除上一帧的转向确认标记（在本帧输入处理之前）
+    s.turnJustCommitted = false
+
     -- 更新输入状态机（在处理输入之前）
     path.UpdateInputState()
 
@@ -110,17 +113,17 @@ local function HandleUpdate(eventType, eventData)
         return
     end
 
-    -- 刚确定路口出口时的逻辑（仅在实际转向时清理，直行不清）
+    -- 玩家在路口区域内确认方向时的逻辑
     if s.turnJustCommitted then
         local actuallyTurning = (s.turnArrivalHeading ~= s.turnExitHeading)
 
         if actuallyTurning then
-            -- 只有实际转弯（左/右）时才清除旧边上的障碍物
+            -- 实际转弯（左/右）时清除旧边上的障碍物（每次改方向都可触发）
             obstacles.ClearAll()
         end
 
-        -- 奖惩逻辑（持有包裹时，按推荐方向给奖惩）
-        if pickup.hasPackage and actuallyTurning then
+        -- 奖惩逻辑（持有包裹时，按推荐方向给奖惩，每路口只结算一次）
+        if not s.turnSettled and pickup.hasPackage then
             local correctDir = s.intersectionHintDir
             local actualDir = 0
             local leftH = rn.TurnLeft(s.turnArrivalHeading)
@@ -132,9 +135,13 @@ local function HandleUpdate(eventType, eventData)
             end
             if actualDir == correctDir then
                 pickup.timeRemaining = pickup.timeRemaining + CONFIG.CORRECT_TURN_BONUS
+                print("[Game] Correct turn! +" .. CONFIG.CORRECT_TURN_BONUS .. "s")
             else
                 pickup.timeRemaining = math.max(2.0, pickup.timeRemaining - CONFIG.WRONG_TURN_PENALTY)
+                print("[Game] Wrong turn! -" .. CONFIG.WRONG_TURN_PENALTY .. "s")
             end
+            -- 标记当前路口已结算奖惩
+            s.turnSettled = true
         end
     end
 
@@ -187,7 +194,8 @@ local function HandleUpdate(eventType, eventData)
         player.currentSpeed,
         s.intersectionActive,
         s.intersectionHintDir,
-        s.turnChoice
+        s.turnChoice,
+        s.hasTurnChoice
     )
 
     -- 取件/送件浮动动画

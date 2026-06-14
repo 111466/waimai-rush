@@ -50,16 +50,10 @@ function M.Create(onRestart)
             },
         },
     }
-    UI.SetRoot(hud)
-
-    M.lblTimer = hud:FindById("timer")
-    M.lblIncome = hud:FindById("income")
-    M.lblCombo = hud:FindById("combo")
-    M.lblSpeed = hud:FindById("speed")
-    M.lblHint = hud:FindById("hint")
-
     M.gameOverPanel = UI.Panel {
+        id = "gameOverPanel",
         width = "100%", height = "100%",
+        position = "absolute",
         justifyContent = "center",
         alignItems = "center",
         backgroundColor = "rgba(0,0,0,0.7)",
@@ -86,14 +80,28 @@ function M.Create(onRestart)
             },
         },
     }
-    UI.SetRoot(M.gameOverPanel)
     M.gameOverPanel:SetVisible(false)
 
-    M.lblFinalIncome = M.gameOverPanel:FindById("finalIncome")
-    M.lblFinalDist = M.gameOverPanel:FindById("finalDist")
+    -- 将 HUD 和 gameOverPanel 合并到同一个根面板
+    local root = UI.Panel {
+        width = "100%", height = "100%",
+        children = {
+            hud,
+            M.gameOverPanel,
+        },
+    }
+    UI.SetRoot(root)
+
+    M.lblTimer = root:FindById("timer")
+    M.lblIncome = root:FindById("income")
+    M.lblCombo = root:FindById("combo")
+    M.lblSpeed = root:FindById("speed")
+    M.lblHint = root:FindById("hint")
+    M.lblFinalIncome = root:FindById("finalIncome")
+    M.lblFinalDist = root:FindById("finalDist")
 end
 
-function M.UpdateHUD(timeRemaining, totalIncome, comboCount, currentSpeed, intersectionActive, intersectionHintDir, turnChoice)
+function M.UpdateHUD(timeRemaining, totalIncome, comboCount, currentSpeed, intersectionActive, intersectionHintDir, turnChoice, hasTurnChoice)
     if M.lblTimer then
         M.lblTimer:SetText(string.format("⏱ %.0fs", timeRemaining))
     end
@@ -113,12 +121,25 @@ function M.UpdateHUD(timeRemaining, totalIncome, comboCount, currentSpeed, inter
     if M.lblHint then
         if intersectionActive then
             local hintText = ""
-            if intersectionHintDir == -1 then hintText = "← 左转推荐"
-            elseif intersectionHintDir == 1 then hintText = "→ 右转推荐"
-            else hintText = "↑ 直走推荐" end
-            if turnChoice == -1 then hintText = "← 已选: 左转"
-            elseif turnChoice == 1 then hintText = "→ 已选: 右转"
-            elseif turnChoice ~= 0 then hintText = "↑ 已选: 直走" end
+            if hasTurnChoice then
+                -- 玩家已做出选择
+                if turnChoice == -1 then
+                    hintText = "← 已选: 左转"
+                elseif turnChoice == 1 then
+                    hintText = "→ 已选: 右转"
+                else
+                    hintText = "↑ 已选: 直走"
+                end
+            else
+                -- 未选择，显示推荐方向
+                if intersectionHintDir == -1 then
+                    hintText = "← 左转推荐"
+                elseif intersectionHintDir == 1 then
+                    hintText = "→ 右转推荐"
+                else
+                    hintText = "↑ 直走推荐"
+                end
+            end
             M.lblHint:SetText(hintText)
         else
             M.lblHint:SetText("")
