@@ -311,6 +311,36 @@ function M.CheckPickup()
     end
 end
 
+function M.GetMinimapData()
+    if not M.pickupActive then
+        return {
+            active = false,
+            slot = nil,
+        }
+    end
+
+    local edge = rn.edges[M.pickupEdgeId]
+    if not edge then
+        return {
+            active = false,
+            slot = nil,
+        }
+    end
+
+    local slot = nav.MakeEdgeSlot(edge)
+    if not slot then
+        return {
+            active = false,
+            slot = nil,
+        }
+    end
+
+    return {
+        active = true,
+        slot = slot,
+    }
+end
+
 -- ============================================================================
 -- 生成送件点（edge-based）
 -- ============================================================================

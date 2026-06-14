@@ -180,6 +180,7 @@ local function HandleUpdate(eventType, eventData)
     cam.Update(dt, player.node, player.currentSpeed)
 
     local navData = nav.GetMinimapData(s)
+    local pickupMiniData = pickup.GetMinimapData()
 
     -- 更新 HUD
     ui.UpdateHUD(
@@ -193,7 +194,7 @@ local function HandleUpdate(eventType, eventData)
         s.availableTurns,
         navData
     )
-    ui.UpdateMinimap(navData)
+    ui.UpdateMinimap(navData, pickupMiniData)
 
     -- 取件/送件浮动动画
     pickup.UpdateAnimation()

@@ -27,6 +27,7 @@ M.lblMiniStatus = nil
 M.minimapRouteSegments = {}
 M.minimapPlayerMarkers = {}
 M.minimapTargetMarkers = {}
+M.minimapPickupMarkers = {}
 
 local MINI_PANEL_W = 132
 local MINI_PANEL_H = 154
@@ -102,7 +103,7 @@ local function AddMiniPlayerProgressMarkers(children, key, edge)
         local t = step / nav.MINIMAP_PLAYER_EDGE_STEPS
         local x = x1 + (x2 - x1) * t
         local y = y1 + (y2 - y1) * t
-        AddMiniMarker(children, "mini_player_p" .. key .. "_" .. step, x, y, 8, "#00D7FF", 4)
+        AddMiniMarker(children, "mini_player_p" .. key .. "_" .. step, x, y, 8, "#8A5CFF", 4)
     end
 end
 
@@ -154,6 +155,16 @@ local function BuildMinimap()
     end
 
     for key, edge in pairs(segmentPositions) do
+        local fromNode = rn.nodes[edge.fromNode]
+        local toNode = rn.nodes[edge.toNode]
+        local x1, y1 = MiniPoint(fromNode)
+        local x2, y2 = MiniPoint(toNode)
+        local x = (x1 + x2) * 0.5
+        local y = (y1 + y2) * 0.5
+        AddMiniMarker(children, "mini_pickup_" .. key, x, y, 9, "#FF5AA5", 5)
+    end
+
+    for key, edge in pairs(segmentPositions) do
         AddMiniPlayerProgressMarkers(children, key, edge)
     end
 
@@ -161,7 +172,7 @@ local function BuildMinimap()
         local node = rn.nodes[nodeId]
         if node then
             local x, y = MiniPoint(node)
-            AddMiniMarker(children, "mini_player_n" .. nodeId, x, y, 8, "#00D7FF", 4)
+            AddMiniMarker(children, "mini_player_n" .. nodeId, x, y, 8, "#8A5CFF", 4)
         end
     end
 
@@ -319,6 +330,7 @@ function M.Create(onRestart)
     M.minimapRouteSegments = {}
     M.minimapPlayerMarkers = {}
     M.minimapTargetMarkers = {}
+    M.minimapPickupMarkers = {}
     for edgeId = 1, #rn.edges do
         local edge = rn.edges[edgeId]
         if edge then
@@ -326,6 +338,7 @@ function M.Create(onRestart)
             if key and not M.minimapRouteSegments[key] then
                 M.minimapRouteSegments[key] = root:FindById("mini_route_" .. key)
                 M.minimapTargetMarkers[key] = root:FindById("mini_target_" .. key)
+                M.minimapPickupMarkers[key] = root:FindById("mini_pickup_" .. key)
                 for step = 0, nav.MINIMAP_PLAYER_EDGE_STEPS do
                     local playerKey = "p" .. key .. "_" .. step
                     M.minimapPlayerMarkers[playerKey] = root:FindById("mini_player_" .. playerKey)
@@ -473,7 +486,7 @@ local function SetOnlyVisible(markers, activeKey)
     end
 end
 
-function M.UpdateMinimap(navData)
+function M.UpdateMinimap(navData, pickupMiniData)
     if M.lblMiniStatus then
         if navData and navData.message then
             M.lblMiniStatus:SetText(navData.message)
@@ -489,6 +502,7 @@ function M.UpdateMinimap(navData)
         end
     end
 
+    SetOnlyVisible(M.minimapPickupMarkers, pickupMiniData and pickupMiniData.active and pickupMiniData.slot or nil)
     SetOnlyVisible(M.minimapPlayerMarkers, navData and navData.playerSlot or nil)
     SetOnlyVisible(M.minimapTargetMarkers, navData and navData.active and navData.targetSlot or nil)
 end
