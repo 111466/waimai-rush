@@ -12,6 +12,7 @@ local mats = require("materials")
 local pools = require("pools")
 local obstacles = require("obstacles")
 local pickup = require("pickup_delivery")
+local nav = require("route_navigation")
 local intersection = require("intersection")
 local player = require("player")
 local cam = require("camera")
@@ -58,6 +59,7 @@ local function RestartGame()
 
     -- 重置取件/送件
     pickup.Reset()
+    nav.Reset()
 
     -- 重置路口
     intersection.Hide()
@@ -138,7 +140,7 @@ local function HandleUpdate(eventType, eventData)
 
     -- 先生成取件/送件点，障碍物生成时会避让订单点
     pickup.TrySpawnPickup()
-    pickup.TrySpawnDelivery()
+    pickup.TrySpawnDelivery(player.currentSpeed)
 
     -- 生成障碍物
     obstacles.Spawn()
@@ -156,28 +158,32 @@ local function HandleUpdate(eventType, eventData)
     pickup.CheckPickup()
     pickup.CheckDelivery()
 
+    -- 配送导航：偏离推荐路线后自动重规划，不额外扣时间。
+    nav.Update(s, dt)
+    if nav.NeedsNewTarget() then
+        pickup.ReselectDeliveryTarget(player.currentSpeed)
+        nav.Update(s, 0.0)
+    end
+    pickup.UpdateOrderTimer(dt)
+
     -- 摄像机跟随
     cam.Update(dt, player.node, player.currentSpeed)
 
-    -- 计时器
-    pickup.timeRemaining = pickup.timeRemaining - dt
-    if pickup.timeRemaining <= 0 then
-        pickup.timeRemaining = 0
-        GameOver()
-        return
-    end
+    local navData = nav.GetMinimapData(s)
 
     -- 更新 HUD
     ui.UpdateHUD(
-        pickup.timeRemaining,
+        pickup.GetOrderTimerData(),
         pickup.totalIncome,
         pickup.comboCount,
         player.currentSpeed,
         s.intersectionActive,
         s.turnChoice,
         s.hasTurnChoice,
-        s.availableTurns
+        s.availableTurns,
+        navData
     )
+    ui.UpdateMinimap(navData)
 
     -- 取件/送件浮动动画
     pickup.UpdateAnimation()
@@ -245,6 +251,7 @@ function CreateGameContent()
 
     -- 初始化路径系统（生成路网 + 选择起始边）
     path.Init()
+    nav.Reset()
 
     -- 创建场景
     CreateScene()
