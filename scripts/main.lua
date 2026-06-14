@@ -1,5 +1,5 @@
 -- ============================================================================
--- 外卖冲冲冲 - 阶段 4.2-5.1：反馈、UI收紧与试玩平衡
+-- 外卖冲冲冲 - 真实转弯跑酷（Temple Run 式 90° 转向）
 -- 竖屏跑酷游戏原型
 -- 风格：积木阳光城（浅色道路、蓝绿城市基底、大块面、强轮廓）
 -- ============================================================================
@@ -19,7 +19,9 @@ local playerNode_ = nil
 -- 游戏状态: "running" / "gameOver"
 local gameState_ = "running"
 
+-- ============================================================================
 -- 游戏配置
+-- ============================================================================
 local CONFIG = {
     -- 三车道横向坐标（左、中、右）
     LANE_X = { -2.0, 0.0, 2.0 },
@@ -42,1552 +44,1392 @@ local CONFIG = {
     BUILDING_POOL_SIZE = 40,
 
     -- 速度参数
-    BASE_SPEED = 8.0,            -- 初始速度（米/秒）
-    MAX_SPEED = 14.0,            -- 最高速度（米/秒）
-    SPEED_DISTANCE_FACTOR = 100.0, -- 每跑多少米增加 1 点速度
+    BASE_SPEED = 8.0,
+    MAX_SPEED = 14.0,
+    SPEED_DISTANCE_FACTOR = 100.0,
 
     -- 摄像机跟随参数（竖屏跑酷视角）
     CAM_OFFSET_Y = 6.0,
     CAM_OFFSET_Z = -7.0,
     CAM_LOOK_AHEAD = 5.0,
+    CAM_SMOOTH = 8.0,
+    CAM_FOV_BASE = 50.0,
+    CAM_FOV_MAX = 58.0,
+    CAM_FOV_SPEED_FACTOR = 0.5,
+    CAM_TILT_FACTOR = 1.5,
 
-    -- 障碍物参数（每种类型独立池，各 8 个）
+    -- 障碍物
     OBSTACLE_POOL_PER_TYPE = 8,
     OBSTACLE_SPAWN_AHEAD = 80.0,
-    OBSTACLE_RECYCLE_BEHIND = 10.0,
-
-    -- 障碍间距（会随进度缩短）
-    SPACING_MIN_START = 14.0,   -- 初期最小间距
-    SPACING_MAX_START = 22.0,   -- 初期最大间距
-    SPACING_MIN_END = 10.0,     -- 后期最小间距
-    SPACING_MAX_END = 15.0,     -- 后期最大间距
-    SPACING_RAMP_DISTANCE = 600.0, -- 间距从起始缩短到结束所需距离
-
-    -- 碰撞参数
+    OBSTACLE_MIN_SPACING = 12.0,
+    OBSTACLE_MAX_PER_ROW = 2,
     COLLISION_Z_THRESHOLD = 0.8,
+
+    -- 难度渐进
+    DIFFICULTY_START_DISTANCE = 50.0,
+    DIFFICULTY_RAMP_DISTANCE = 400.0,
+    OBSTACLE_SPACING_MIN = 8.0,
+    OBSTACLE_SPACING_MAX = 18.0,
+
+    -- 取件/送件
+    PICKUP_SPAWN_AHEAD = 70.0,
+    PICKUP_INTERVAL_MIN = 40.0,
+    PICKUP_INTERVAL_MAX = 70.0,
+    DELIVERY_SPAWN_AHEAD = 70.0,
+    DELIVERY_INTERVAL_MIN = 50.0,
+    DELIVERY_INTERVAL_MAX = 80.0,
+    DELIVERY_COMBO_MULTIPLIER = 0.5,
+
+    -- 跳跃与下滑
+    JUMP_DURATION = 0.6,
+    JUMP_HEIGHT = 1.5,
+    SLIDE_DURATION = 0.5,
+
+    -- 变道平滑
+    LANE_CHANGE_DURATION = 0.18,
 }
 
--- 变道参数
-local LANE_CHANGE_DURATION = 0.18
-local SWIPE_THRESHOLD = 40.0
+-- ============================================================================
+-- 路径系统配置（真实转弯）
+-- ============================================================================
+local PATH = {
+    -- 方向枚举: 0=+Z, 1=+X, 2=-Z, 3=-X
+    HEADING_POS_Z = 0,
+    HEADING_POS_X = 1,
+    HEADING_NEG_Z = 2,
+    HEADING_NEG_X = 3,
 
--- 变道状态
-local laneChangeTimer_ = 0.0
-local laneChangeFromX_ = 0.0
-local laneChangeToX_ = 0.0
+    -- 路口参数
+    FIRST_INTERSECTION_DIST = 120.0,
+    INTERVAL_MIN = 150.0,
+    INTERVAL_MAX = 220.0,
 
--- 跳跃与下滑参数
-local JUMP_DURATION = 0.6
-local JUMP_HEIGHT = 1.5
-local SLIDE_DURATION = 0.5
+    -- 转弯输入窗口
+    TURN_INPUT_WINDOW = 20.0,       -- 路口前多少米开始接受转弯输入
+    TURN_EXECUTE_DIST = 2.0,        -- 到路口多近时执行转弯
 
--- 动作状态: "run" / "jump" / "slide"
-local actionState_ = "run"
-local actionTimer_ = 0.0
+    -- 动画
+    TURN_ANIM_DURATION = 0.40,      -- 转弯动画时长(秒)
+    CAM_TURN_DURATION = 0.45,       -- 摄像机转弯动画时长
 
--- 输入缓冲（动作容错）
-local jumpBufferTimer_ = 0.0
-local slideBufferTimer_ = 0.0
-local inputBufferDuration_ = 0.12
+    -- 安全区
+    SAFE_ZONE_BEFORE = 25.0,        -- 路口前安全区（无障碍）
+    SAFE_ZONE_AFTER = 35.0,         -- 路口后安全区（无障碍）
 
--- 触摸滑动检测
-local touchStartX_ = nil
-local touchStartY_ = nil
-local touchId_ = -1
-local touchConsumed_ = false
+    -- 奖惩
+    CORRECT_TURN_BONUS = 2.0,       -- 正确转弯 +2秒
+    WRONG_TURN_PENALTY = 3.0,       -- 错误转弯 -3秒（最低2秒）
 
--- 运行追踪
+    -- 视觉
+    CROSSROADS_SIZE = 12.0,         -- 十字路口平台尺寸
+    PREVIEW_ROAD_LENGTH = 30.0,     -- 预览路段长度
+}
+
+-- ============================================================================
+-- 路径系统运行时状态
+-- ============================================================================
+local routeDistance_ = 0.0              -- 已跑总路程
+local currentHeading_ = 0              -- 当前朝向（0=+Z, 1=+X, 2=-Z, 3=-X）
+local currentSegmentOrigin_ = nil      -- 当前直道段起点世界坐标 Vector3
+local currentSegmentStartDist_ = 0.0   -- 当前段开始时的 routeDistance_
+
+-- 转弯状态
+local nextIntersectionDist_ = 0.0      -- 下一个路口的 routeDistance
+local intersectionActive_ = false      -- 是否在路口输入窗口内
+local turnChoice_ = 0                  -- 0=直走, -1=左转, 1=右转
+local turnExecuting_ = false           -- 正在执行转弯动画
+local turnAnimTime_ = 0.0              -- 转弯动画已用时间
+local turnFromHeading_ = 0             -- 转弯前朝向
+local turnToHeading_ = 0               -- 转弯后朝向
+local turnWorldPos_ = nil              -- 转弯点世界坐标
+
+-- 摄像机转弯
+local camTurnAnimTime_ = 0.0
+local camTurnFrom_ = 0.0               -- 起始 yaw 角度
+local camTurnTo_ = 0.0                 -- 目标 yaw 角度
+local camTurning_ = false
+
+-- 路口视觉节点
+local crossroadsNode_ = nil
+local previewRoadNodes_ = {}
+local arrowNodes_ = {}
+
+-- 路口方向提示
+local intersectionHintDir_ = 0         -- 推荐方向 -1=左, 1=右, 0=直
+local intersectionCorrectDir_ = 0      -- 正确方向(送件点方向)
+
+-- ============================================================================
+-- 前向声明（解决定义顺序问题）
+-- ============================================================================
+local IsInSafeZone
+local GetForwardVector
+local GetRightVector
+local GetWorldPosOnTrack
+local HeadingToYaw
+
+-- ============================================================================
+-- 其他运行时状态
+-- ============================================================================
 local distanceTraveled_ = 0.0
-local currentSpeed_ = CONFIG.BASE_SPEED   -- 当前速度（随距离递增）
-local runTime_ = 0.0                       -- 本次运行时间（秒）
-local bestDistance_ = 0                    -- 最高距离（内存保存）
+local currentSpeed_ = CONFIG.BASE_SPEED
+local lastObstacleSpawnDist_ = 0.0
 
--- 道路循环池
-local roadSegments_ = {}
-local nextSegmentZ_ = 0.0
+-- 变道动画
+local laneChanging_ = false
+local laneChangeFrom_ = 0.0
+local laneChangeTo_ = 0.0
+local laneChangeTime_ = 0.0
 
--- 车道线池
-local laneLines_ = {}
-local nextLineZ_ = 0.0
+-- 跳跃
+local isJumping_ = false
+local jumpTime_ = 0.0
+local jumpBuffered_ = false
 
--- 建筑池
-local buildings_ = {}
-local nextBuildingZ_ = 0.0
+-- 下滑
+local isSliding_ = false
+local slideTime_ = 0.0
+local slideBuffered_ = false
 
--- 障碍物池
-local obstacles_ = {}
-local nextObstacleZ_ = 30.0
-
--- 共享材质
-local mat_ = {}
-
--- 取餐点状态
-local orderState_ = "none"         -- "none" = 未取餐, "carrying" = 已取餐（送餐中）
----@type Node
+-- 取件/送件
 local pickupNode_ = nil
-local pickupLane_ = 0
 local pickupActive_ = false
-local nextPickupZ_ = 35.0
+local pickupPathDist_ = 0.0
+local pickupLane_ = 2
+local lastPickupDist_ = 0.0
+local nextPickupDist_ = 0.0
 
--- 送餐点状态
----@type Node
 local deliveryNode_ = nil
-local deliveryLane_ = 0
 local deliveryActive_ = false
-local nextDeliveryZ_ = 0.0
+local deliveryPathDist_ = 0.0
+local deliveryLane_ = 2
+local lastDeliveryDist_ = 0.0
+local nextDeliveryDist_ = 0.0
 
--- 送餐倒计时
-local deliveryTimeLimit_ = 12.0    -- 送餐限时（秒）
-local deliveryTimer_ = 0.0         -- 当前剩余时间
+local hasPackage_ = false
+local packageVisualNode_ = nil
 
--- 收入
-local deliveryReward_ = 8          -- 每次送达收益
-local currentIncome_ = 0           -- 本局累计收入
+-- 计时器/收入/连击
+local timeRemaining_ = 30.0
+local totalIncome_ = 0
+local comboCount_ = 0
 
--- 携带容量
-local maxCarryOrders_ = 2          -- 最多可携带订单数
-local carriedOrderCount_ = 0       -- 当前携带订单数
-local deliveredOrderCount_ = 0     -- 本局已送达订单数
+-- 对象池
+local roadPool_ = {}
+local linePool_ = {}
+local buildingPool_ = {}
+local obstaclePool_ = {}
+local activeObstacles_ = {}
 
--- Toast 提示
-local toastTimer_ = 0.0            -- Toast 剩余显示时间
+-- 材质缓存
+local mat_road_, mat_laneLine_, mat_sidewalk_, mat_curb_
+local mat_building_base_
+local mat_obstacle_block_, mat_obstacle_low_, mat_obstacle_high_
+local mat_pickup_, mat_delivery_, mat_arrow_
+local mat_crossroads_
 
--- 连送系统
-local comboCount_ = 0              -- 当前连续送达次数
-local maxComboCount_ = 0           -- 本局最高连送
-
--- 超时警告
-local lowTimeWarningShown_ = false -- 本轮倒计时是否已显示快超时提示
-
--- 送达加速
-local boostTimer_ = 0.0            -- 加速剩余时间
-local boostDuration_ = 1.5         -- 加速持续时长(秒)
-local boostSpeedBonus_ = 2.0       -- 加速额外速度(m/s)
-
--- 游戏结束 UI 引用
-local gameOverPanel_ = nil
-
--- 开局提示标记（第一帧显示）
-local startToastPending_ = true
-
--- 首分钟节奏保底
-local firstDeliveryInRun_ = true       -- 第一次送餐点使用更近间距
-local lastOrderPointSeenTime_ = 0.0    -- 最近一次订单相关事件的 runTime_
-
--- 难度曲线
-local highPressureToastShown_ = false  -- 高压期提示是否已显示
-
--- 镜头反馈
-local baseCameraFov_ = 60.0
-local boostCameraFov_ = 66.0
-local highPressureCameraFov_ = 63.0
-local currentCameraFov_ = 60.0       -- 当前实际 FOV（平滑插值用）
-local cameraTilt_ = 0.0              -- 当前镜头倾斜角度（度）
+-- UI 引用
+local lblTimer_, lblIncome_, lblCombo_, lblSpeed_, lblHint_
+local gameOverPanel_, lblFinalIncome_, lblFinalDist_
 
 -- ============================================================================
--- 生命周期
+-- 路径系统辅助函数
 -- ============================================================================
 
-function Start()
-    UI.Init({
-        fonts = {
-            { family = "sans", weights = {
-                normal = "Fonts/MiSans-Regular.ttf",
-            } }
-        },
-        scale = UI.Scale.DEFAULT,
-    })
-
-    CreateScene()
-    CreateMaterials()
-    CreateRoadPool()
-    CreateLaneLinePool()
-    CreateBuildingPool()
-    CreatePlayer()
-    CreateObstaclePool()
-    CreatePickupPoint()
-    CreateDeliveryPoint()
-    SetupCamera()
-    CreateUI()
-
-    SubscribeToEvent("Update", "HandleUpdate")
-
-    print("=== 外卖冲冲冲 - 阶段 4.2-5.1：反馈、UI收紧与试玩平衡 ===")
-    print("操作: 左右滑动=变道, 上滑/空格=跳跃, 下滑/S=下滑")
-    print("新增: 三道封死检测 + 同车道过密检测 + 公平性前推机制")
-end
-
-function Stop()
-    UI.Shutdown()
-end
-
--- ============================================================================
--- 场景创建
--- ============================================================================
-
-function CreateScene()
-    scene_ = Scene()
-    scene_:CreateComponent("Octree")
-
-    local lightGroupFile = cache:GetResource("XMLFile", "LightGroup/Daytime.xml")
-    local lightGroup = scene_:CreateChild("LightGroup")
-    lightGroup:LoadXML(lightGroupFile:GetRoot())
-
-    local zone = lightGroup:GetComponent("Zone", true)
-    if zone then
-        zone.fogColor = Color(0.75, 0.88, 0.95)
-        zone.fogStart = 60.0
-        zone.fogEnd = 200.0
+--- 朝向 → 前进方向向量
+GetForwardVector = function(heading)
+    if heading == 0 then return Vector3(0, 0, 1)
+    elseif heading == 1 then return Vector3(1, 0, 0)
+    elseif heading == 2 then return Vector3(0, 0, -1)
+    elseif heading == 3 then return Vector3(-1, 0, 0)
     end
+    return Vector3(0, 0, 1)
+end
 
-    local light = lightGroup:GetComponent("Light", true)
-    if light then
-        light.color = Color(1.0, 0.95, 0.85)
-        light.brightness = 3.5
+--- 朝向 → 右侧方向向量
+GetRightVector = function(heading)
+    if heading == 0 then return Vector3(1, 0, 0)
+    elseif heading == 1 then return Vector3(0, 0, -1)
+    elseif heading == 2 then return Vector3(-1, 0, 0)
+    elseif heading == 3 then return Vector3(0, 0, 1)
     end
+    return Vector3(1, 0, 0)
+end
+
+--- 朝向 → 摄像机 yaw 角(度)
+HeadingToYaw = function(heading)
+    -- heading 0=+Z → yaw=0, 1=+X → yaw=90, 2=-Z → yaw=180, 3=-X → yaw=270
+    return heading * 90.0
+end
+
+--- 根据路程和车道偏移计算世界坐标
+GetWorldPosOnTrack = function(pathDist, laneOffset)
+    local localDist = pathDist - currentSegmentStartDist_
+    local fwd = GetForwardVector(currentHeading_)
+    local right = GetRightVector(currentHeading_)
+    local pos = Vector3(
+        currentSegmentOrigin_.x + fwd.x * localDist + right.x * laneOffset,
+        0,
+        currentSegmentOrigin_.z + fwd.z * localDist + right.z * laneOffset
+    )
+    return pos
+end
+
+--- 检查某个路程距离是否在安全区内（路口前后不生成障碍）
+IsInSafeZone = function(pathDist)
+    if nextIntersectionDist_ <= 0 then return false end
+    local distToIntersection = nextIntersectionDist_ - pathDist
+    if distToIntersection > 0 and distToIntersection < PATH.SAFE_ZONE_BEFORE then
+        return true
+    end
+    if distToIntersection <= 0 and distToIntersection > -PATH.SAFE_ZONE_AFTER then
+        return true
+    end
+    return false
+end
+
+--- 根据路程距离计算世界坐标（通用版，考虑转弯点）
+local function GetWorldPosForObject(pathDist, laneOffset)
+    -- 如果对象在当前段，直接计算
+    local localDist = pathDist - currentSegmentStartDist_
+    local fwd = GetForwardVector(currentHeading_)
+    local right = GetRightVector(currentHeading_)
+    return Vector3(
+        currentSegmentOrigin_.x + fwd.x * localDist + right.x * laneOffset,
+        0,
+        currentSegmentOrigin_.z + fwd.z * localDist + right.z * laneOffset
+    )
 end
 
 -- ============================================================================
--- 材质
+-- 材质工具
 -- ============================================================================
 
----@param diffuse Color
----@param metallic number
----@param roughness number
----@return Material
-local function CreatePBRMaterial(diffuse, metallic, roughness)
-    local m = Material:new()
-    m:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
-    m:SetShaderParameter("MatDiffColor", Variant(diffuse))
-    m:SetShaderParameter("MatSpecColor", Variant(Color(0.4, 0.4, 0.4, 1.0)))
-    m:SetShaderParameter("Metallic", Variant(metallic))
-    m:SetShaderParameter("Roughness", Variant(roughness))
-    return m
+local function CreatePBRMaterial(diffuseColor, metallic, roughness)
+    local mat = Material:new()
+    mat:SetTechnique(0, cache:GetResource("Technique", "Techniques/PBR/PBRNoTexture.xml"))
+    mat:SetShaderParameter("MatDiffColor", diffuseColor)
+    mat:SetShaderParameter("Metallic", Variant(metallic or 0.0))
+    mat:SetShaderParameter("Roughness", Variant(roughness or 0.8))
+    return mat
 end
 
-function CreateMaterials()
-    mat_.road = CreatePBRMaterial(Color(0.88, 0.88, 0.85, 1.0), 0.0, 0.8)
-    mat_.laneLine = CreatePBRMaterial(Color(1.0, 1.0, 1.0, 1.0), 0.0, 0.9)
-    mat_.sidewalk = CreatePBRMaterial(Color(0.72, 0.82, 0.78, 1.0), 0.0, 0.7)
-    mat_.curb = CreatePBRMaterial(Color(0.6, 0.7, 0.65, 1.0), 0.0, 0.6)
-
-    mat_.buildings = {
-        CreatePBRMaterial(Color(0.55, 0.82, 0.78, 1.0), 0.0, 0.7),
-        CreatePBRMaterial(Color(0.65, 0.80, 0.90, 1.0), 0.0, 0.7),
-        CreatePBRMaterial(Color(0.92, 0.85, 0.65, 1.0), 0.0, 0.7),
-        CreatePBRMaterial(Color(0.88, 0.70, 0.60, 1.0), 0.0, 0.7),
-        CreatePBRMaterial(Color(0.80, 0.75, 0.90, 1.0), 0.0, 0.7),
-        CreatePBRMaterial(Color(0.95, 0.92, 0.82, 1.0), 0.0, 0.7),
-    }
-
-    mat_.obstacleBlock = CreatePBRMaterial(Color(0.9, 0.25, 0.2, 1.0), 0.0, 0.5)
-    mat_.obstacleLow = CreatePBRMaterial(Color(0.2, 0.75, 0.3, 1.0), 0.0, 0.5)
-    mat_.obstacleHigh = CreatePBRMaterial(Color(0.6, 0.25, 0.8, 1.0), 0.0, 0.5)
-
-    -- 取餐点材质（橙色，醒目）
-    mat_.pickupBase = CreatePBRMaterial(Color(1.0, 0.6, 0.1, 1.0), 0.0, 0.4)
-    mat_.pickupTop = CreatePBRMaterial(Color(1.0, 0.85, 0.2, 1.0), 0.0, 0.4)
-
-    -- 取餐点柱子材质（明亮橙黄渐变标识柱）
-    mat_.pickupPillar = CreatePBRMaterial(Color(1.0, 0.75, 0.15, 1.0), 0.0, 0.3)
-
-    -- 送餐点材质（蓝绿色，和取餐点区分）
-    mat_.deliveryBase = CreatePBRMaterial(Color(0.1, 0.75, 0.65, 1.0), 0.0, 0.4)
-    mat_.deliveryTop = CreatePBRMaterial(Color(0.2, 0.9, 0.8, 1.0), 0.0, 0.4)
-    -- 送餐点柱子材质
-    mat_.deliveryPillar = CreatePBRMaterial(Color(0.15, 0.85, 0.75, 1.0), 0.0, 0.3)
+local function InitMaterials()
+    -- 道路 - 浅灰白
+    mat_road_ = CreatePBRMaterial(Color(0.85, 0.85, 0.82, 1.0), 0.0, 0.9)
+    -- 车道线 - 淡蓝
+    mat_laneLine_ = CreatePBRMaterial(Color(0.6, 0.75, 0.88, 1.0), 0.0, 0.7)
+    -- 人行道 - 暖米色
+    mat_sidewalk_ = CreatePBRMaterial(Color(0.92, 0.88, 0.78, 1.0), 0.0, 0.85)
+    -- 路缘石 - 中灰绿
+    mat_curb_ = CreatePBRMaterial(Color(0.65, 0.72, 0.68, 1.0), 0.0, 0.75)
+    -- 建筑基础色
+    mat_building_base_ = CreatePBRMaterial(Color(0.55, 0.78, 0.82, 1.0), 0.0, 0.7)
+    -- 障碍物
+    mat_obstacle_block_ = CreatePBRMaterial(Color(0.95, 0.45, 0.35, 1.0), 0.1, 0.6)
+    mat_obstacle_low_   = CreatePBRMaterial(Color(0.95, 0.75, 0.25, 1.0), 0.0, 0.7)
+    mat_obstacle_high_  = CreatePBRMaterial(Color(0.85, 0.35, 0.75, 1.0), 0.1, 0.6)
+    -- 取件点 - 绿色
+    mat_pickup_ = CreatePBRMaterial(Color(0.3, 0.9, 0.4, 1.0), 0.2, 0.5)
+    -- 送件点 - 金色
+    mat_delivery_ = CreatePBRMaterial(Color(1.0, 0.85, 0.2, 1.0), 0.3, 0.4)
+    -- 方向箭头
+    mat_arrow_ = CreatePBRMaterial(Color(0.2, 0.9, 1.0, 1.0), 0.3, 0.4)
+    -- 十字路口平台
+    mat_crossroads_ = CreatePBRMaterial(Color(0.78, 0.80, 0.76, 1.0), 0.0, 0.85)
 end
 
 -- ============================================================================
--- 道路循环池
+-- 道路池（朝向感知）
 -- ============================================================================
 
-local function CreateOneRoadSegment(zCenter)
-    local segLen = CONFIG.ROAD_SEGMENT_LENGTH
-    local boxMdl = cache:GetResource("Model", "Models/Box.mdl")
+local function CreateOneRoadSegment()
+    local seg = {}
+    -- 主路面
+    local roadNode = scene_:CreateChild("Road")
+    local model = roadNode:CreateComponent("StaticModel")
+    model.model = cache:GetResource("Model", "Models/Box.mdl")
+    model.material = mat_road_
+    roadNode.scale = Vector3(CONFIG.ROAD_WIDTH, 0.15, CONFIG.ROAD_SEGMENT_LENGTH)
+    seg.road = roadNode
 
-    local road = scene_:CreateChild("Road")
-    road.position = Vector3(0, -0.05, zCenter)
-    road.scale = Vector3(CONFIG.ROAD_WIDTH, 0.1, segLen)
-    local rm = road:CreateComponent("StaticModel")
-    rm:SetModel(boxMdl)
-    rm:SetMaterial(mat_.road)
-
+    -- 路缘石左
     local curbL = scene_:CreateChild("CurbL")
-    curbL.position = Vector3(-CONFIG.ROAD_WIDTH / 2 - 0.15, 0.05, zCenter)
-    curbL.scale = Vector3(0.3, 0.3, segLen)
-    local clm = curbL:CreateComponent("StaticModel")
-    clm:SetModel(boxMdl)
-    clm:SetMaterial(mat_.curb)
+    local cm = curbL:CreateComponent("StaticModel")
+    cm.model = cache:GetResource("Model", "Models/Box.mdl")
+    cm.material = mat_curb_
+    curbL.scale = Vector3(0.3, 0.35, CONFIG.ROAD_SEGMENT_LENGTH)
+    seg.curbL = curbL
 
+    -- 路缘石右
     local curbR = scene_:CreateChild("CurbR")
-    curbR.position = Vector3(CONFIG.ROAD_WIDTH / 2 + 0.15, 0.05, zCenter)
-    curbR.scale = Vector3(0.3, 0.3, segLen)
-    local crm = curbR:CreateComponent("StaticModel")
-    crm:SetModel(boxMdl)
-    crm:SetMaterial(mat_.curb)
+    local cm2 = curbR:CreateComponent("StaticModel")
+    cm2.model = cache:GetResource("Model", "Models/Box.mdl")
+    cm2.material = mat_curb_
+    curbR.scale = Vector3(0.3, 0.35, CONFIG.ROAD_SEGMENT_LENGTH)
+    seg.curbR = curbR
 
+    -- 人行道左
     local swL = scene_:CreateChild("SidewalkL")
-    swL.position = Vector3(-CONFIG.ROAD_WIDTH / 2 - 1.5, -0.02, zCenter)
-    swL.scale = Vector3(2.5, 0.1, segLen)
-    local slm = swL:CreateComponent("StaticModel")
-    slm:SetModel(boxMdl)
-    slm:SetMaterial(mat_.sidewalk)
+    local sm = swL:CreateComponent("StaticModel")
+    sm.model = cache:GetResource("Model", "Models/Box.mdl")
+    sm.material = mat_sidewalk_
+    swL.scale = Vector3(2.5, 0.12, CONFIG.ROAD_SEGMENT_LENGTH)
+    seg.swL = swL
 
+    -- 人行道右
     local swR = scene_:CreateChild("SidewalkR")
-    swR.position = Vector3(CONFIG.ROAD_WIDTH / 2 + 1.5, -0.02, zCenter)
-    swR.scale = Vector3(2.5, 0.1, segLen)
-    local srm = swR:CreateComponent("StaticModel")
-    srm:SetModel(boxMdl)
-    srm:SetMaterial(mat_.sidewalk)
+    local sm2 = swR:CreateComponent("StaticModel")
+    sm2.model = cache:GetResource("Model", "Models/Box.mdl")
+    sm2.material = mat_sidewalk_
+    swR.scale = Vector3(2.5, 0.12, CONFIG.ROAD_SEGMENT_LENGTH)
+    seg.swR = swR
 
-    return { road = road, curbL = curbL, curbR = curbR, swL = swL, swR = swR }
+    -- 存储路段的路程距离（中心点对应的 pathDist）
+    seg.pathDist = 0.0
+    seg.active = false
+
+    return seg
 end
 
-local function MoveRoadSegment(seg, zCenter)
-    seg.road.position = Vector3(0, -0.05, zCenter)
-    seg.curbL.position = Vector3(-CONFIG.ROAD_WIDTH / 2 - 0.15, 0.05, zCenter)
-    seg.curbR.position = Vector3(CONFIG.ROAD_WIDTH / 2 + 0.15, 0.05, zCenter)
-    seg.swL.position = Vector3(-CONFIG.ROAD_WIDTH / 2 - 1.5, -0.02, zCenter)
-    seg.swR.position = Vector3(CONFIG.ROAD_WIDTH / 2 + 1.5, -0.02, zCenter)
+--- 将路段移动到指定路程距离的世界位置
+local function PositionRoadSegment(seg, pathDist)
+    seg.pathDist = pathDist
+    seg.active = true
+    local fwd = GetForwardVector(currentHeading_)
+    local right = GetRightVector(currentHeading_)
+    local localDist = pathDist - currentSegmentStartDist_
+    local cx = currentSegmentOrigin_.x + fwd.x * localDist
+    local cz = currentSegmentOrigin_.z + fwd.z * localDist
+
+    -- 根据朝向设置路段旋转
+    local yaw = HeadingToYaw(currentHeading_)
+
+    seg.road.position = Vector3(cx, 0.075, cz)
+    seg.road.rotation = Quaternion(yaw, Vector3.UP)
+
+    local halfRoad = CONFIG.ROAD_WIDTH * 0.5
+    seg.curbL.position = Vector3(cx + right.x * (halfRoad + 0.15), 0.175, cz + right.z * (halfRoad + 0.15))
+    seg.curbL.rotation = Quaternion(yaw, Vector3.UP)
+    seg.curbR.position = Vector3(cx - right.x * (halfRoad + 0.15), 0.175, cz - right.z * (halfRoad + 0.15))
+    seg.curbR.rotation = Quaternion(yaw, Vector3.UP)
+
+    seg.swL.position = Vector3(cx + right.x * (halfRoad + 1.55), 0.06, cz + right.z * (halfRoad + 1.55))
+    seg.swL.rotation = Quaternion(yaw, Vector3.UP)
+    seg.swR.position = Vector3(cx - right.x * (halfRoad + 1.55), 0.06, cz - right.z * (halfRoad + 1.55))
+    seg.swR.rotation = Quaternion(yaw, Vector3.UP)
 end
 
-function CreateRoadPool()
-    local segLen = CONFIG.ROAD_SEGMENT_LENGTH
+local function InitRoadPool()
     for i = 1, CONFIG.ROAD_SEGMENTS do
-        local zCenter = (i - 1) * segLen + segLen / 2
-        roadSegments_[i] = CreateOneRoadSegment(zCenter)
+        local seg = CreateOneRoadSegment()
+        local dist = (i - 1) * CONFIG.ROAD_SEGMENT_LENGTH
+        PositionRoadSegment(seg, dist)
+        roadPool_[i] = seg
     end
-    nextSegmentZ_ = CONFIG.ROAD_SEGMENTS * segLen
 end
 
 -- ============================================================================
--- 车道线循环池
+-- 车道线池
 -- ============================================================================
 
-local function CreateOneLaneLine(z)
-    local boxMdl = cache:GetResource("Model", "Models/Box.mdl")
-    local lineLen = CONFIG.LINE_LENGTH
+local function CreateOneLaneLine()
+    local item = {}
+    -- 左车道线（X=-1.0 相对于道路中心）
+    local nodeL = scene_:CreateChild("LineL")
+    local mL = nodeL:CreateComponent("StaticModel")
+    mL.model = cache:GetResource("Model", "Models/Box.mdl")
+    mL.material = mat_laneLine_
+    nodeL.scale = Vector3(0.12, 0.05, CONFIG.LINE_LENGTH)
+    item.nodeL = nodeL
 
-    local lineL = scene_:CreateChild("LineL")
-    lineL.position = Vector3(-1.0, 0.01, z)
-    lineL.scale = Vector3(0.1, 0.02, lineLen)
-    local lm = lineL:CreateComponent("StaticModel")
-    lm:SetModel(boxMdl)
-    lm:SetMaterial(mat_.laneLine)
+    -- 右车道线（X=+1.0 相对于道路中心）
+    local nodeR = scene_:CreateChild("LineR")
+    local mR = nodeR:CreateComponent("StaticModel")
+    mR.model = cache:GetResource("Model", "Models/Box.mdl")
+    mR.material = mat_laneLine_
+    nodeR.scale = Vector3(0.12, 0.05, CONFIG.LINE_LENGTH)
+    item.nodeR = nodeR
 
-    local lineR = scene_:CreateChild("LineR")
-    lineR.position = Vector3(1.0, 0.01, z)
-    lineR.scale = Vector3(0.1, 0.02, lineLen)
-    local rm = lineR:CreateComponent("StaticModel")
-    rm:SetModel(boxMdl)
-    rm:SetMaterial(mat_.laneLine)
-
-    return { lineL = lineL, lineR = lineR }
+    item.pathDist = 0.0
+    item.active = false
+    return item
 end
 
-function CreateLaneLinePool()
-    local spacing = CONFIG.LINE_SPACING
+local function PositionLaneLine(item, pathDist)
+    item.pathDist = pathDist
+    item.active = true
+    local fwd = GetForwardVector(currentHeading_)
+    local right = GetRightVector(currentHeading_)
+    local localDist = pathDist - currentSegmentStartDist_
+    local cx = currentSegmentOrigin_.x + fwd.x * localDist
+    local cz = currentSegmentOrigin_.z + fwd.z * localDist
+    local yaw = HeadingToYaw(currentHeading_)
+
+    -- 左线偏移 -1.0（相对右方向取反）
+    item.nodeL.position = Vector3(cx - right.x * 1.0, 0.16, cz - right.z * 1.0)
+    item.nodeL.rotation = Quaternion(yaw, Vector3.UP)
+    -- 右线偏移 +1.0
+    item.nodeR.position = Vector3(cx + right.x * 1.0, 0.16, cz + right.z * 1.0)
+    item.nodeR.rotation = Quaternion(yaw, Vector3.UP)
+end
+
+local function InitLinePool()
     for i = 1, CONFIG.LINE_POOL_SIZE do
-        local z = (i - 1) * spacing + CONFIG.LINE_LENGTH / 2
-        laneLines_[i] = CreateOneLaneLine(z)
+        local item = CreateOneLaneLine()
+        local dist = (i - 1) * CONFIG.LINE_SPACING
+        PositionLaneLine(item, dist)
+        linePool_[i] = item
     end
-    nextLineZ_ = CONFIG.LINE_POOL_SIZE * spacing + CONFIG.LINE_LENGTH / 2
 end
 
 -- ============================================================================
--- 建筑循环池
+-- 建筑池
 -- ============================================================================
 
-local function RandomBuildingProps(z)
-    local side = (math.random() > 0.5) and 1 or -1
-    local xDist = CONFIG.BUILDING_ZONE_START + math.random() * (CONFIG.BUILDING_ZONE_END - CONFIG.BUILDING_ZONE_START)
-    local x = side * xDist
-    local width = 1.5 + math.random() * 2.5
-    local height = 2.0 + math.random() * 8.0
-    local depth = 1.5 + math.random() * 2.5
-    local matIdx = math.random(1, #mat_.buildings)
-    return x, width, height, depth, matIdx
+local buildingColors_ = {
+    Color(0.55, 0.78, 0.82, 1.0),  -- 蓝绿
+    Color(0.75, 0.85, 0.60, 1.0),  -- 黄绿
+    Color(0.90, 0.75, 0.55, 1.0),  -- 暖橙
+    Color(0.70, 0.65, 0.85, 1.0),  -- 淡紫
+    Color(0.85, 0.60, 0.65, 1.0),  -- 粉红
+    Color(0.60, 0.80, 0.70, 1.0),  -- 薄荷
+}
+
+local function CreateOneBuilding()
+    local item = {}
+    local node = scene_:CreateChild("Building")
+    local model = node:CreateComponent("StaticModel")
+    model.model = cache:GetResource("Model", "Models/Box.mdl")
+
+    local colorIdx = math.random(1, #buildingColors_)
+    local mat = CreatePBRMaterial(buildingColors_[colorIdx], 0.0, 0.7)
+    model.material = mat
+
+    local h = math.random() * 8 + 3
+    local w = math.random() * 2 + 1.5
+    local d = math.random() * 2 + 1.5
+    node.scale = Vector3(w, h, d)
+
+    item.node = node
+    item.height = h
+    item.pathDist = 0.0
+    item.side = 1  -- 1=右侧, -1=左侧
+    item.lateralOffset = 0.0
+    item.active = false
+    return item
 end
 
-local function PlaceBuilding(node, z)
-    local x, width, height, depth, matIdx = RandomBuildingProps(z)
-    node.position = Vector3(x, height / 2, z)
-    node.scale = Vector3(width, height, depth)
-    local model = node:GetComponent("StaticModel")
-    model:SetMaterial(mat_.buildings[matIdx])
+local function PositionBuilding(item, pathDist, side, lateralOffset)
+    item.pathDist = pathDist
+    item.side = side
+    item.lateralOffset = lateralOffset
+    item.active = true
+
+    local fwd = GetForwardVector(currentHeading_)
+    local right = GetRightVector(currentHeading_)
+    local localDist = pathDist - currentSegmentStartDist_
+    local cx = currentSegmentOrigin_.x + fwd.x * localDist
+    local cz = currentSegmentOrigin_.z + fwd.z * localDist
+    local yaw = HeadingToYaw(currentHeading_)
+
+    local offset = side * lateralOffset
+    local px = cx + right.x * offset
+    local pz = cz + right.z * offset
+
+    item.node.position = Vector3(px, item.height * 0.5, pz)
+    item.node.rotation = Quaternion(yaw + math.random(-10, 10), Vector3.UP)
 end
 
-function CreateBuildingPool()
-    math.randomseed(42)
-    local totalVisibleLength = CONFIG.ROAD_SEGMENTS * CONFIG.ROAD_SEGMENT_LENGTH
-    local spacing = totalVisibleLength / CONFIG.BUILDING_POOL_SIZE
-    local boxMdl = cache:GetResource("Model", "Models/Box.mdl")
-
+local function InitBuildingPool()
     for i = 1, CONFIG.BUILDING_POOL_SIZE do
-        local z = (i - 1) * spacing + math.random() * spacing
-        local x, width, height, depth, matIdx = RandomBuildingProps(z)
-
-        local node = scene_:CreateChild("Building")
-        node.position = Vector3(x, height / 2, z)
-        node.scale = Vector3(width, height, depth)
-        local model = node:CreateComponent("StaticModel")
-        model:SetModel(boxMdl)
-        model:SetMaterial(mat_.buildings[matIdx])
-        model.castShadows = true
-
-        buildings_[i] = node
+        local item = CreateOneBuilding()
+        local dist = (i - 1) * 8.0
+        local side = (i % 2 == 0) and 1 or -1
+        local lateral = CONFIG.BUILDING_ZONE_START + math.random() * (CONFIG.BUILDING_ZONE_END - CONFIG.BUILDING_ZONE_START)
+        PositionBuilding(item, dist, side, lateral)
+        buildingPool_[i] = item
     end
-    nextBuildingZ_ = totalVisibleLength
 end
 
 -- ============================================================================
--- 障碍物对象池
+-- 障碍物池
 -- ============================================================================
 
---- 创建单个障碍物节点（初始隐藏）
-local function CreateObstacleNode(obstacleType)
-    local node = scene_:CreateChild("Obstacle")
-    local boxMdl = cache:GetResource("Model", "Models/Box.mdl")
+local obstacleTypes_ = {
+    { name = "block", scaleY = 1.2, offsetY = 0.6, jumpable = false, slidable = false },
+    { name = "low",   scaleY = 0.4, offsetY = 0.2, jumpable = true,  slidable = false },
+    { name = "high",  scaleY = 1.0, offsetY = 1.5, jumpable = false, slidable = true  },
+}
 
-    if obstacleType == "block" then
-        node.scale = Vector3(1.0, 1.2, 1.0)
-        local model = node:CreateComponent("StaticModel")
-        model:SetModel(boxMdl)
-        model:SetMaterial(mat_.obstacleBlock)
-        model.castShadows = true
-    elseif obstacleType == "low" then
-        node.scale = Vector3(1.5, 0.6, 0.3)
-        local model = node:CreateComponent("StaticModel")
-        model:SetModel(boxMdl)
-        model:SetMaterial(mat_.obstacleLow)
-        model.castShadows = true
-    elseif obstacleType == "high" then
-        node.scale = Vector3(1.2, 0.4, 0.3)
-        local model = node:CreateComponent("StaticModel")
-        model:SetModel(boxMdl)
-        model:SetMaterial(mat_.obstacleHigh)
-        model.castShadows = true
-    end
+local function CreateOneObstacle(typeIdx)
+    local info = obstacleTypes_[typeIdx]
+    local node = scene_:CreateChild("Obstacle_" .. info.name)
+    local model = node:CreateComponent("StaticModel")
+    model.model = cache:GetResource("Model", "Models/Box.mdl")
 
-    node.position = Vector3(0, -100, -100)
-    node.enabled = false
-    return node
+    if typeIdx == 1 then model.material = mat_obstacle_block_
+    elseif typeIdx == 2 then model.material = mat_obstacle_low_
+    else model.material = mat_obstacle_high_ end
+
+    node.scale = Vector3(1.4, info.scaleY, 0.6)
+    node.position = Vector3(0, -100, 0) -- 隐藏
+
+    return {
+        node = node,
+        typeIdx = typeIdx,
+        info = info,
+        pathDist = 0.0,
+        lane = 2,
+        active = false,
+    }
 end
 
-function CreateObstaclePool()
-    local types = { "block", "low", "high" }
-    local idx = 0
-    for _, obstType in ipairs(types) do
-        for _ = 1, CONFIG.OBSTACLE_POOL_PER_TYPE do
-            idx = idx + 1
-            local node = CreateObstacleNode(obstType)
-            obstacles_[idx] = {
-                node = node,
-                type = obstType,
-                lane = 0,
-                active = false,
-            }
+local function InitObstaclePool()
+    for t = 1, #obstacleTypes_ do
+        for i = 1, CONFIG.OBSTACLE_POOL_PER_TYPE do
+            local obs = CreateOneObstacle(t)
+            table.insert(obstaclePool_, obs)
         end
     end
-    print(string.format("[障碍物] 对象池: 每类型=%d, 总共=%d", CONFIG.OBSTACLE_POOL_PER_TYPE, idx))
 end
 
-local function GetFreeObstacle(desiredType)
-    for i = 1, #obstacles_ do
-        local obs = obstacles_[i]
-        if not obs.active and obs.type == desiredType then
+local function GetInactiveObstacle(typeIdx)
+    for _, obs in ipairs(obstaclePool_) do
+        if not obs.active and obs.typeIdx == typeIdx then
             return obs
         end
     end
     return nil
 end
 
-local function ActivateObstacle(obs, lane, z)
-    obs.active = true
-    obs.lane = lane
-
-    local laneX = CONFIG.LANE_X[lane]
-    local y = 0
-    if obs.type == "block" then
-        y = 0.6
-    elseif obs.type == "low" then
-        y = 0.3
-    elseif obs.type == "high" then
-        y = 1.2
-    end
-
-    obs.node.position = Vector3(laneX, y, z)
-    obs.node.enabled = true
-end
-
-local function DeactivateObstacle(obs)
-    obs.active = false
-    obs.lane = 0
-    obs.node.enabled = false
-    obs.node.position = Vector3(0, -100, -100)
-end
-
---- 获取当前难度阶段（1=教学期, 2=正常期, 3=高压期）
----@return integer
-local function GetDifficultyPhase()
-    if distanceTraveled_ < 150 then
-        return 1
-    elseif distanceTraveled_ < 500 then
-        return 2
-    else
-        return 3
-    end
-end
-
---- 计算当前进度下的障碍间距范围（按难度阶段修正）
-local function GetCurrentSpacingRange()
-    local progress = math.min(distanceTraveled_ / CONFIG.SPACING_RAMP_DISTANCE, 1.0)
-    local spacingMin = CONFIG.SPACING_MIN_START + (CONFIG.SPACING_MIN_END - CONFIG.SPACING_MIN_START) * progress
-    local spacingMax = CONFIG.SPACING_MAX_START + (CONFIG.SPACING_MAX_END - CONFIG.SPACING_MAX_START) * progress
-
-    -- 按阶段修正间距
-    local phase = GetDifficultyPhase()
-    if phase == 1 then
-        -- 教学期：更稀疏，最小间距不低于 16m
-        spacingMin = math.max(spacingMin, 16.0)
-        spacingMax = math.max(spacingMax, spacingMin + 4.0)
-    elseif phase == 3 then
-        -- 高压期：略密，最小间距可降到 9m
-        spacingMin = math.max(spacingMin * 0.85, 9.0)
-        spacingMax = math.max(spacingMax * 0.88, spacingMin + 3.0)
-    end
-    -- phase 2：使用当前正常逻辑，不做修正
-
-    return spacingMin, spacingMax
-end
-
---- 统计某个 z 附近活跃障碍数量（用于避免三道封死）
----@param z number
----@param threshold number
----@return integer
-local function CountObstaclesNearZ(z, threshold)
+--- 计算某个路程距离附近的障碍物密度（公平性检测）
+local function CountObstaclesNearDist(pathDist, range)
     local count = 0
-    for i = 1, #obstacles_ do
-        local obs = obstacles_[i]
-        if obs.active and math.abs(obs.node.position.z - z) < threshold then
+    for _, obs in ipairs(activeObstacles_) do
+        if math.abs(obs.pathDist - pathDist) < range then
             count = count + 1
         end
     end
     return count
 end
 
---- 判断某车道在 z 附近是否过密（前后 10m 内已有活跃障碍）
----@param lane integer
----@param z number
----@return boolean
-local function IsLaneTooDense(lane, z)
-    for i = 1, #obstacles_ do
-        local obs = obstacles_[i]
-        if obs.active and obs.lane == lane and math.abs(obs.node.position.z - z) < 10.0 then
+--- 指定车道在路程距离附近是否太密集
+local function IsLaneTooDense(lane, pathDist)
+    for _, obs in ipairs(activeObstacles_) do
+        if obs.lane == lane and math.abs(obs.pathDist - pathDist) < CONFIG.OBSTACLE_MIN_SPACING * 0.6 then
             return true
         end
     end
     return false
 end
 
---- 生成新障碍物（在玩家前方，含公平性检测）
-local function SpawnObstacles(playerZ)
-    local spawnLimit = playerZ + CONFIG.OBSTACLE_SPAWN_AHEAD
-    local types = { "block", "low", "high" }
-    local maxIterations = 60  -- 防止死循环
+--- 获取当前难度因子 [0, 1]
+local function GetDifficultyFactor()
+    local d = math.max(0, distanceTraveled_ - CONFIG.DIFFICULTY_START_DISTANCE)
+    return math.min(1.0, d / CONFIG.DIFFICULTY_RAMP_DISTANCE)
+end
 
-    local iterations = 0
-    while nextObstacleZ_ < spawnLimit do
-        iterations = iterations + 1
-        if iterations > maxIterations then break end
+--- 获取当前生成间距
+local function GetCurrentSpacing()
+    local factor = GetDifficultyFactor()
+    return CONFIG.OBSTACLE_SPACING_MAX - (CONFIG.OBSTACLE_SPACING_MAX - CONFIG.OBSTACLE_SPACING_MIN) * factor
+end
 
-        -- 公平性检测 1：避免三道封死
-        if CountObstaclesNearZ(nextObstacleZ_, 3.5) >= 2 then
-            -- 附近已有 2 个障碍，跳过此次，往前推安全间距
-            nextObstacleZ_ = nextObstacleZ_ + 5.0
-            print("[障碍公平] 避免三道封死，前推 5m")
+--- 放置障碍物到世界
+local function PositionObstacle(obs, pathDist, lane)
+    obs.pathDist = pathDist
+    obs.lane = lane
+    obs.active = true
+
+    local laneX = CONFIG.LANE_X[lane]
+    local worldPos = GetWorldPosForObject(pathDist, laneX)
+    obs.node.position = Vector3(worldPos.x, obs.info.offsetY, worldPos.z)
+    obs.node.rotation = Quaternion(HeadingToYaw(currentHeading_), Vector3.UP)
+end
+
+--- 尝试生成障碍物
+local function SpawnObstacles()
+    local spawnAhead = routeDistance_ + CONFIG.OBSTACLE_SPAWN_AHEAD
+    local spacing = GetCurrentSpacing()
+
+    while lastObstacleSpawnDist_ + spacing < spawnAhead do
+        local spawnDist = lastObstacleSpawnDist_ + spacing
+        lastObstacleSpawnDist_ = spawnDist
+
+        -- 安全区检查
+        if IsInSafeZone(spawnDist) then
             goto continue_spawn
         end
 
-        do
-            local typeRoll = math.random(1, 3)
-            local obstType = types[typeRoll]
-            local lane = math.random(1, 3)
+        -- 公平性检查
+        if CountObstaclesNearDist(spawnDist, spacing * 0.7) >= CONFIG.OBSTACLE_MAX_PER_ROW then
+            goto continue_spawn
+        end
 
-            -- 公平性检测 2：避免同车道过密，最多换 3 次车道
-            local laneAttempts = 0
-            while IsLaneTooDense(lane, nextObstacleZ_) and laneAttempts < 3 do
-                lane = math.random(1, 3)
-                laneAttempts = laneAttempts + 1
-            end
-            -- 如果 3 次都不合适，前推 5m 跳过
-            if IsLaneTooDense(lane, nextObstacleZ_) then
-                nextObstacleZ_ = nextObstacleZ_ + 5.0
-                print("[障碍公平] 同车道过密，前推 5m")
-                goto continue_spawn
-            end
+        -- 确定本行生成几个障碍（难度越高越多）
+        local numObs = 1
+        if GetDifficultyFactor() > 0.3 and math.random() < 0.4 then
+            numObs = 2
+        end
 
-            local obs = GetFreeObstacle(obstType)
+        -- 选择车道
+        local lanes = {1, 2, 3}
+        -- 打乱顺序
+        for i = #lanes, 2, -1 do
+            local j = math.random(1, i)
+            lanes[i], lanes[j] = lanes[j], lanes[i]
+        end
+
+        local placed = 0
+        for _, lane in ipairs(lanes) do
+            if placed >= numObs then break end
+            if IsLaneTooDense(lane, spawnDist) then goto next_lane end
+
+            -- 随机选类型
+            local typeIdx = math.random(1, #obstacleTypes_)
+            local obs = GetInactiveObstacle(typeIdx)
             if not obs then
-                for _, fallbackType in ipairs(types) do
-                    if fallbackType ~= obstType then
-                        obs = GetFreeObstacle(fallbackType)
-                        if obs then break end
-                    end
-                end
+                -- 任意类型
+                obs = GetInactiveObstacle(1) or GetInactiveObstacle(2) or GetInactiveObstacle(3)
+            end
+            if obs then
+                PositionObstacle(obs, spawnDist, lane)
+                table.insert(activeObstacles_, obs)
+                placed = placed + 1
             end
 
-            if obs then
-                ActivateObstacle(obs, lane, nextObstacleZ_)
-            end
+            ::next_lane::
         end
 
         ::continue_spawn::
-        local spacingMin, spacingMax = GetCurrentSpacingRange()
-        local spacing = spacingMin + math.random() * (spacingMax - spacingMin)
-        nextObstacleZ_ = nextObstacleZ_ + spacing
-    end
-end
-
-local function RecycleObstacles(playerZ)
-    for i = 1, #obstacles_ do
-        local obs = obstacles_[i]
-        if obs.active then
-            if obs.node.position.z < playerZ - CONFIG.OBSTACLE_RECYCLE_BEHIND then
-                DeactivateObstacle(obs)
-            end
-        end
     end
 end
 
 -- ============================================================================
--- 取餐点
+-- 取件点
 -- ============================================================================
 
---- 创建取餐点节点（多部件可视强化，初始隐藏）
-function CreatePickupPoint()
-    local boxMdl = cache:GetResource("Model", "Models/Box.mdl")
-    local cylMdl = cache:GetResource("Model", "Models/Cylinder.mdl")
-
-    pickupNode_ = scene_:CreateChild("PickupPoint")
-    pickupNode_.position = Vector3(0, -100, -100)
-    pickupNode_.enabled = false
-
-    -- 底座（大橙色圆盘，贴地）
-    local base = pickupNode_:CreateChild("Base")
-    base.position = Vector3(0, 0.08, 0)
-    base.scale = Vector3(1.2, 0.16, 1.2)
-    local baseModel = base:CreateComponent("StaticModel")
-    baseModel:SetModel(cylMdl)
-    baseModel:SetMaterial(mat_.pickupBase)
-    baseModel.castShadows = true
-
-    -- 竖直标识柱（细长圆柱）
-    local pillar = pickupNode_:CreateChild("Pillar")
-    pillar.position = Vector3(0, 0.9, 0)
-    pillar.scale = Vector3(0.15, 1.6, 0.15)
-    local pillarModel = pillar:CreateComponent("StaticModel")
-    pillarModel:SetModel(cylMdl)
-    pillarModel:SetMaterial(mat_.pickupPillar)
-    pillarModel.castShadows = true
-
-    -- 浮动标志容器（会上下浮动 + 旋转）
-    local floater = pickupNode_:CreateChild("Floater")
-    floater.position = Vector3(0, 2.0, 0)
-
-    -- 外卖袋主体（黄色方块）
-    local bag = floater:CreateChild("Bag")
-    bag.position = Vector3(0, 0, 0)
-    bag.scale = Vector3(0.55, 0.65, 0.45)
-    local bagModel = bag:CreateComponent("StaticModel")
-    bagModel:SetModel(boxMdl)
-    bagModel:SetMaterial(mat_.pickupTop)
-    bagModel.castShadows = true
-
-    -- 提手（橙色小方块）
-    local handle = floater:CreateChild("Handle")
-    handle.position = Vector3(0, 0.4, 0)
-    handle.scale = Vector3(0.28, 0.15, 0.12)
-    local handleModel = handle:CreateComponent("StaticModel")
-    handleModel:SetModel(boxMdl)
-    handleModel:SetMaterial(mat_.pickupBase)
-
-    print("[取餐点] 多部件节点已创建（底座+柱子+浮动标志）")
+local function CreatePickupNode()
+    local node = scene_:CreateChild("Pickup")
+    local model = node:CreateComponent("StaticModel")
+    model.model = cache:GetResource("Model", "Models/Box.mdl")
+    model.material = mat_pickup_
+    node.scale = Vector3(0.8, 0.8, 0.8)
+    node.position = Vector3(0, -100, 0)
+    return node
 end
 
---- 检查某个 z 位置是否与已有障碍物冲突（同车道距离 < 4m）
----@param lane number
----@param z number
----@return boolean
-local function IsPickupConflictWithObstacles(lane, z)
-    for i = 1, #obstacles_ do
-        local obs = obstacles_[i]
-        if obs.active and obs.lane == lane then
-            if math.abs(obs.node.position.z - z) < 5.0 then
-                return true
-            end
-        end
-    end
-    return false
-end
+local function TrySpawnPickup()
+    if pickupActive_ or hasPackage_ then return end
+    if routeDistance_ < nextPickupDist_ then return end
 
---- 判断目标点是否与另一个活跃目标点太近（同车道 z 距离 < 8m）
-local function IsOrderPointTooClose(lane, z)
-    -- 检查活跃取餐点
-    if pickupActive_ and pickupLane_ == lane then
-        if math.abs(pickupNode_.position.z - z) < 8.0 then
-            return true
-        end
-    end
-    -- 检查活跃送餐点
-    if deliveryActive_ and deliveryLane_ == lane then
-        if math.abs(deliveryNode_.position.z - z) < 8.0 then
-            return true
-        end
-    end
-    return false
-end
+    local spawnDist = routeDistance_ + CONFIG.PICKUP_SPAWN_AHEAD
+    if IsInSafeZone(spawnDist) then return end
 
---- 尝试生成取餐点
-local function TrySpawnPickup(playerZ)
-    -- 携带已满或当前已有活跃取餐点时不生成
-    if carriedOrderCount_ >= maxCarryOrders_ or pickupActive_ then return end
-
-    -- 只在玩家接近 nextPickupZ_ 时生成（提前 60m 内）
-    if nextPickupZ_ > playerZ + 60.0 then return end
-
-    -- 随机选车道
     local lane = math.random(1, 3)
-    local spawnZ = nextPickupZ_
-
-    -- 避免与障碍物重叠及目标点互近：最多尝试 6 次，每次前推 5m
-    for _ = 1, 6 do
-        if not IsPickupConflictWithObstacles(lane, spawnZ) and not IsOrderPointTooClose(lane, spawnZ) then
-            break
-        end
-        spawnZ = spawnZ + 5.0
-    end
-
-    -- 激活取餐点
+    pickupPathDist_ = spawnDist
     pickupLane_ = lane
     pickupActive_ = true
-    local laneX = CONFIG.LANE_X[lane] or 0.0
-    pickupNode_.position = Vector3(laneX, 0, spawnZ)
-    pickupNode_.enabled = true
 
-    lastOrderPointSeenTime_ = runTime_
-    print(string.format("[取餐点] 生成: 车道=%d, Z=%.1f", lane, spawnZ))
+    local laneX = CONFIG.LANE_X[lane]
+    local worldPos = GetWorldPosForObject(spawnDist, laneX)
+    pickupNode_.position = Vector3(worldPos.x, 0.6, worldPos.z)
+    pickupNode_.rotation = Quaternion(HeadingToYaw(currentHeading_), Vector3.UP)
+
+    lastPickupDist_ = spawnDist
+    nextPickupDist_ = spawnDist + CONFIG.PICKUP_INTERVAL_MIN + math.random() * (CONFIG.PICKUP_INTERVAL_MAX - CONFIG.PICKUP_INTERVAL_MIN)
 end
 
---- 根据连送计数计算本次送达奖励
----@param combo integer
----@return integer
-local function GetComboReward(combo)
-    if combo <= 1 then return 8
-    elseif combo == 2 then return 9
-    elseif combo == 3 then return 10
-    else return 12
-    end
-end
-
---- 显示 Toast 提示（短暂文字反馈）
----@param text string
-local function ShowToast(text)
-    local toastLabel = UI.FindById("toast_text")
-    if toastLabel then
-        toastLabel:SetText(text)
-        toastLabel:SetVisible(true)
-    end
-    toastTimer_ = 1.2
-end
-
---- 安全设置 Label 字体颜色（兼容 SetFontColor 不存在的情况）
----@param label any
----@param color table
-local function SafeSetLabelColor(label, color)
-    if not label then return end
-    if not label.SetFontColor then return end
-    pcall(label.SetFontColor, label, color)
-end
-
---- 获取车道名称
----@param lane integer
----@return string
-local function GetLaneName(lane)
-    if lane == 1 then return "左道"
-    elseif lane == 2 then return "中道"
-    else return "右道"
-    end
-end
-
---- 更新目标提示（距离 + 车道 + 颜色反馈）
----@param playerZ number
-local function UpdateTargetHint(playerZ)
-    local hintLabel = UI.FindById("target_hint")
-    if not hintLabel then return end
-
-    local text = ""
-    local r, g, b, a = 255, 200, 60, 255  -- 默认橙黄色
-
-    if carriedOrderCount_ <= 0 then
-        -- 未携带订单，找取餐点
-        if pickupActive_ then
-            local dist = math.max(0, math.floor(pickupNode_.position.z - playerZ))
-            text = string.format("目标：取餐点 %dm | %s", dist, GetLaneName(pickupLane_))
-        else
-            text = "目标：寻找取餐点"
+local function CheckPickup()
+    if not pickupActive_ then return end
+    local distDiff = routeDistance_ - pickupPathDist_
+    if math.abs(distDiff) < CONFIG.COLLISION_Z_THRESHOLD and CONFIG.currentLane == pickupLane_ then
+        -- 拾取成功
+        hasPackage_ = true
+        pickupActive_ = false
+        pickupNode_.position = Vector3(0, -100, 0)
+        if packageVisualNode_ then
+            packageVisualNode_.enabled = true
         end
-        -- 橙黄色
-        r, g, b = 255, 200, 60
+        -- 生成送件点
+        nextDeliveryDist_ = routeDistance_ + CONFIG.DELIVERY_INTERVAL_MIN * 0.5
+    elseif distDiff > 3.0 then
+        -- 错过了
+        pickupActive_ = false
+        pickupNode_.position = Vector3(0, -100, 0)
+    end
+end
+
+-- ============================================================================
+-- 送件点
+-- ============================================================================
+
+local function CreateDeliveryNode()
+    local node = scene_:CreateChild("Delivery")
+    local model = node:CreateComponent("StaticModel")
+    model.model = cache:GetResource("Model", "Models/Box.mdl")
+    model.material = mat_delivery_
+    node.scale = Vector3(1.0, 0.3, 1.0)
+    node.position = Vector3(0, -100, 0)
+    return node
+end
+
+local function TrySpawnDelivery()
+    if deliveryActive_ or not hasPackage_ then return end
+    if routeDistance_ < nextDeliveryDist_ then return end
+
+    local spawnDist = routeDistance_ + CONFIG.DELIVERY_SPAWN_AHEAD
+    if IsInSafeZone(spawnDist) then return end
+
+    local lane = math.random(1, 3)
+    deliveryPathDist_ = spawnDist
+    deliveryLane_ = lane
+    deliveryActive_ = true
+
+    local laneX = CONFIG.LANE_X[lane]
+    local worldPos = GetWorldPosForObject(spawnDist, laneX)
+    deliveryNode_.position = Vector3(worldPos.x, 0.15, worldPos.z)
+    deliveryNode_.rotation = Quaternion(HeadingToYaw(currentHeading_), Vector3.UP)
+
+    lastDeliveryDist_ = spawnDist
+    nextDeliveryDist_ = spawnDist + CONFIG.DELIVERY_INTERVAL_MIN + math.random() * (CONFIG.DELIVERY_INTERVAL_MAX - CONFIG.DELIVERY_INTERVAL_MIN)
+
+    -- 设置推荐方向（影响路口奖励判断）
+    intersectionCorrectDir_ = (lane <= 1) and -1 or ((lane >= 3) and 1 or 0)
+end
+
+local function CheckDelivery()
+    if not deliveryActive_ then return end
+    local distDiff = routeDistance_ - deliveryPathDist_
+    if math.abs(distDiff) < CONFIG.COLLISION_Z_THRESHOLD and CONFIG.currentLane == deliveryLane_ then
+        -- 送达成功
+        comboCount_ = comboCount_ + 1
+        local baseReward = 10
+        local comboBonus = math.floor(comboCount_ * CONFIG.DELIVERY_COMBO_MULTIPLIER)
+        local reward = baseReward + comboBonus
+        totalIncome_ = totalIncome_ + reward
+        timeRemaining_ = timeRemaining_ + 3.0
+
+        hasPackage_ = false
+        deliveryActive_ = false
+        deliveryNode_.position = Vector3(0, -100, 0)
+        if packageVisualNode_ then
+            packageVisualNode_.enabled = false
+        end
+    elseif distDiff > 3.0 then
+        -- 错过送件点
+        comboCount_ = 0
+        deliveryActive_ = false
+        deliveryNode_.position = Vector3(0, -100, 0)
+    end
+end
+
+-- ============================================================================
+-- 路口系统（真实转弯）
+-- ============================================================================
+
+--- 创建十字路口视觉节点
+local function CreateCrossroadsVisuals()
+    -- 十字路口平台
+    crossroadsNode_ = scene_:CreateChild("Crossroads")
+    local model = crossroadsNode_:CreateComponent("StaticModel")
+    model.model = cache:GetResource("Model", "Models/Box.mdl")
+    model.material = mat_crossroads_
+    crossroadsNode_.scale = Vector3(PATH.CROSSROADS_SIZE, 0.16, PATH.CROSSROADS_SIZE)
+    crossroadsNode_.position = Vector3(0, -100, 0)
+
+    -- 预览路段（左/右/直 三个方向）
+    for i = 1, 3 do
+        local pNode = scene_:CreateChild("PreviewRoad" .. i)
+        local pm = pNode:CreateComponent("StaticModel")
+        pm.model = cache:GetResource("Model", "Models/Box.mdl")
+        pm.material = mat_road_
+        pNode.scale = Vector3(CONFIG.ROAD_WIDTH, 0.14, PATH.PREVIEW_ROAD_LENGTH)
+        pNode.position = Vector3(0, -100, 0)
+        previewRoadNodes_[i] = pNode
+    end
+
+    -- 方向箭头（左/右/直）
+    for i = 1, 3 do
+        local aNode = scene_:CreateChild("Arrow" .. i)
+        local am = aNode:CreateComponent("StaticModel")
+        am.model = cache:GetResource("Model", "Models/Cone.mdl")
+        am.material = mat_arrow_
+        aNode.scale = Vector3(1.0, 0.3, 1.5)
+        aNode.position = Vector3(0, -100, 0)
+        arrowNodes_[i] = aNode
+    end
+end
+
+--- 显示路口视觉
+local function ShowIntersection()
+    if not crossroadsNode_ then return end
+
+    -- 计算路口世界位置
+    local intLocalDist = nextIntersectionDist_ - currentSegmentStartDist_
+    local fwd = GetForwardVector(currentHeading_)
+    local right = GetRightVector(currentHeading_)
+    local intX = currentSegmentOrigin_.x + fwd.x * intLocalDist
+    local intZ = currentSegmentOrigin_.z + fwd.z * intLocalDist
+
+    turnWorldPos_ = Vector3(intX, 0, intZ)
+
+    -- 十字路口平台
+    crossroadsNode_.position = Vector3(intX, 0.08, intZ)
+    crossroadsNode_.rotation = Quaternion(HeadingToYaw(currentHeading_), Vector3.UP)
+
+    -- 三个预览路段：直/左/右
+    local previewOffset = PATH.CROSSROADS_SIZE * 0.5 + PATH.PREVIEW_ROAD_LENGTH * 0.5
+
+    -- 直走
+    local straightFwd = fwd
+    previewRoadNodes_[1].position = Vector3(
+        intX + straightFwd.x * previewOffset,
+        0.07,
+        intZ + straightFwd.z * previewOffset
+    )
+    previewRoadNodes_[1].rotation = Quaternion(HeadingToYaw(currentHeading_), Vector3.UP)
+
+    -- 左转（heading - 1）
+    local leftHeading = (currentHeading_ + 3) % 4
+    local leftFwd = GetForwardVector(leftHeading)
+    previewRoadNodes_[2].position = Vector3(
+        intX + leftFwd.x * previewOffset,
+        0.07,
+        intZ + leftFwd.z * previewOffset
+    )
+    previewRoadNodes_[2].rotation = Quaternion(HeadingToYaw(leftHeading), Vector3.UP)
+
+    -- 右转（heading + 1）
+    local rightHeading = (currentHeading_ + 1) % 4
+    local rightFwd = GetForwardVector(rightHeading)
+    previewRoadNodes_[3].position = Vector3(
+        intX + rightFwd.x * previewOffset,
+        0.07,
+        intZ + rightFwd.z * previewOffset
+    )
+    previewRoadNodes_[3].rotation = Quaternion(HeadingToYaw(rightHeading), Vector3.UP)
+
+    -- 箭头
+    local arrowDist = PATH.CROSSROADS_SIZE * 0.3
+    -- 直走箭头
+    arrowNodes_[1].position = Vector3(intX + fwd.x * arrowDist, 0.5, intZ + fwd.z * arrowDist)
+    arrowNodes_[1].rotation = Quaternion(HeadingToYaw(currentHeading_) - 90, Vector3.UP)
+
+    -- 左箭头
+    arrowNodes_[2].position = Vector3(intX + leftFwd.x * arrowDist, 0.5, intZ + leftFwd.z * arrowDist)
+    arrowNodes_[2].rotation = Quaternion(HeadingToYaw(leftHeading) - 90, Vector3.UP)
+
+    -- 右箭头
+    arrowNodes_[3].position = Vector3(intX + rightFwd.x * arrowDist, 0.5, intZ + rightFwd.z * arrowDist)
+    arrowNodes_[3].rotation = Quaternion(HeadingToYaw(rightHeading) - 90, Vector3.UP)
+end
+
+--- 隐藏路口视觉
+local function HideIntersection()
+    if crossroadsNode_ then
+        crossroadsNode_.position = Vector3(0, -100, 0)
+    end
+    for i = 1, 3 do
+        if previewRoadNodes_[i] then
+            previewRoadNodes_[i].position = Vector3(0, -100, 0)
+        end
+        if arrowNodes_[i] then
+            arrowNodes_[i].position = Vector3(0, -100, 0)
+        end
+    end
+end
+
+--- 安排下一个路口
+local function ScheduleNextIntersection()
+    local interval = PATH.INTERVAL_MIN + math.random() * (PATH.INTERVAL_MAX - PATH.INTERVAL_MIN)
+    nextIntersectionDist_ = routeDistance_ + interval
+    intersectionActive_ = false
+    turnChoice_ = 0
+end
+
+--- 执行转弯：立即改变朝向，启动动画
+local function ExecuteTurn(turnDir)
+    -- turnDir: -1=左转, 1=右转, 0=直走
+    if turnDir == 0 then
+        -- 直走，不改变方向，直接继续
+        HideIntersection()
+        ScheduleNextIntersection()
+
+        -- 奖惩判断
+        if intersectionCorrectDir_ == 0 then
+            timeRemaining_ = timeRemaining_ + PATH.CORRECT_TURN_BONUS
+        else
+            timeRemaining_ = math.max(2.0, timeRemaining_ - PATH.WRONG_TURN_PENALTY)
+        end
+        return
+    end
+
+    -- 计算新朝向
+    turnFromHeading_ = currentHeading_
+    if turnDir == 1 then
+        -- 右转
+        turnToHeading_ = (currentHeading_ + 1) % 4
     else
-        -- 携带订单，送餐
-        if deliveryActive_ then
-            local dist = math.max(0, math.floor(deliveryNode_.position.z - playerZ))
-            local prefix = "目标"
-            if carriedOrderCount_ >= maxCarryOrders_ then
-                prefix = "满载"
-                r, g, b = 255, 240, 0  -- 亮黄色
-            else
-                r, g, b = 144, 238, 144  -- 浅绿色
-            end
-            text = string.format("%s：送餐点 %dm | %s | %.1fs", prefix, dist, GetLaneName(deliveryLane_), deliveryTimer_)
-        else
-            text = string.format("目标：送餐点生成中 | %.1fs", deliveryTimer_)
-            if carriedOrderCount_ >= maxCarryOrders_ then
-                r, g, b = 255, 240, 0
-            else
-                r, g, b = 144, 238, 144
-            end
-        end
-        -- 倒计时 <= 3s 时变红色
-        if deliveryTimer_ <= 3.0 then
-            r, g, b = 255, 60, 60
-        end
+        -- 左转
+        turnToHeading_ = (currentHeading_ + 3) % 4
     end
 
-    hintLabel:SetText(text)
-    SafeSetLabelColor(hintLabel, { r, g, b, a })
-end
+    -- 记录转弯点信息
+    local intLocalDist = nextIntersectionDist_ - currentSegmentStartDist_
+    local fwd = GetForwardVector(currentHeading_)
+    local intX = currentSegmentOrigin_.x + fwd.x * intLocalDist
+    local intZ = currentSegmentOrigin_.z + fwd.z * intLocalDist
+    turnWorldPos_ = Vector3(intX, 0, intZ)
 
---- 反馈占位函数（音效/震动接入点）
----@param cueName string 反馈事件名
-local function TriggerFeedback(cueName)
-    print("[反馈] " .. cueName)
-end
+    -- 立即更新路径系统
+    currentHeading_ = turnToHeading_
+    currentSegmentOrigin_ = Vector3(turnWorldPos_.x, 0, turnWorldPos_.z)
+    currentSegmentStartDist_ = nextIntersectionDist_
 
---- 检测玩家是否经过取餐点
-local function CheckPickup(playerZ)
-    if not pickupActive_ then return end
+    -- 启动转弯动画
+    turnExecuting_ = true
+    turnAnimTime_ = 0.0
 
-    -- 必须在同车道
-    if CONFIG.currentLane ~= pickupLane_ then return end
+    -- 启动摄像机转弯动画
+    camTurning_ = true
+    camTurnAnimTime_ = 0.0
+    camTurnFrom_ = HeadingToYaw(turnFromHeading_)
+    camTurnTo_ = HeadingToYaw(turnToHeading_)
 
-    -- Z 轴距离判断
-    local pickZ = pickupNode_.position.z
-    if math.abs(playerZ - pickZ) < 1.0 then
-        -- 取餐成功
-        carriedOrderCount_ = math.min(carriedOrderCount_ + 1, maxCarryOrders_)
-        orderState_ = "carrying"
-        deliveryTimer_ = deliveryTimeLimit_  -- 每次取餐重置倒计时
-        lowTimeWarningShown_ = false         -- 新倒计时，重置警告标记
+    -- 处理角度差（选最短路径）
+    local diff = camTurnTo_ - camTurnFrom_
+    if diff > 180 then camTurnTo_ = camTurnTo_ - 360
+    elseif diff < -180 then camTurnTo_ = camTurnTo_ + 360 end
+
+    -- 隐藏路口视觉
+    HideIntersection()
+
+    -- 重新定位所有已有的路段/线/建筑
+    -- 沿新方向重新铺设道路
+    for i = 1, CONFIG.ROAD_SEGMENTS do
+        local dist = currentSegmentStartDist_ + (i - 1) * CONFIG.ROAD_SEGMENT_LENGTH
+        PositionRoadSegment(roadPool_[i], dist)
+    end
+    for i = 1, CONFIG.LINE_POOL_SIZE do
+        local dist = currentSegmentStartDist_ + (i - 1) * CONFIG.LINE_SPACING
+        PositionLaneLine(linePool_[i], dist)
+    end
+    for i = 1, CONFIG.BUILDING_POOL_SIZE do
+        local item = buildingPool_[i]
+        local dist = currentSegmentStartDist_ + (i - 1) * 8.0
+        local side = (i % 2 == 0) and 1 or -1
+        local lateral = CONFIG.BUILDING_ZONE_START + math.random() * (CONFIG.BUILDING_ZONE_END - CONFIG.BUILDING_ZONE_START)
+        PositionBuilding(item, dist, side, lateral)
+    end
+
+    -- 清除所有活跃障碍物（转弯后重新生成）
+    for _, obs in ipairs(activeObstacles_) do
+        obs.active = false
+        obs.node.position = Vector3(0, -100, 0)
+    end
+    activeObstacles_ = {}
+    lastObstacleSpawnDist_ = currentSegmentStartDist_ + PATH.SAFE_ZONE_AFTER
+
+    -- 隐藏取件/送件（如果在视野外）
+    if pickupActive_ and pickupPathDist_ < currentSegmentStartDist_ then
         pickupActive_ = false
-        pickupNode_.enabled = false
-        pickupNode_.position = Vector3(0, -100, -100)
+        pickupNode_.position = Vector3(0, -100, 0)
+    end
+    if deliveryActive_ and deliveryPathDist_ < currentSegmentStartDist_ then
+        deliveryActive_ = false
+        deliveryNode_.position = Vector3(0, -100, 0)
+    end
 
-        -- 如果当前没有活跃送餐点，设置送餐点生成位置
-        if not deliveryActive_ then
-            if firstDeliveryInRun_ then
-                nextDeliveryZ_ = playerZ + 38.0 + math.random() * 17.0  -- 首单：38~55m
-                firstDeliveryInRun_ = false
-            else
-                nextDeliveryZ_ = playerZ + 42.0 + math.random() * 23.0  -- 常规：42~65m
-            end
-        end
+    -- 安排下一个路口
+    ScheduleNextIntersection()
 
-        lastOrderPointSeenTime_ = runTime_
-
-        -- 如果还没满载，安排下一个取餐点
-        if carriedOrderCount_ < maxCarryOrders_ then
-            nextPickupZ_ = playerZ + 32.0 + math.random() * 18.0
-            ShowToast(string.format("取餐 +1，订单 %d/%d", carriedOrderCount_, maxCarryOrders_))
-        else
-            ShowToast("满载！先去送餐")
-        end
-
-        TriggerFeedback("pickup")
-        print(string.format("[取餐点] 取餐成功！订单 %d/%d，倒计时 %.1fs", carriedOrderCount_, maxCarryOrders_, deliveryTimer_))
+    -- 奖惩判断
+    if intersectionCorrectDir_ == turnDir then
+        timeRemaining_ = timeRemaining_ + PATH.CORRECT_TURN_BONUS
+    else
+        timeRemaining_ = math.max(2.0, timeRemaining_ - PATH.WRONG_TURN_PENALTY)
     end
 end
 
---- 回收已超过玩家的取餐点（玩家错过了）
-local function RecyclePickupBehind(playerZ)
-    if not pickupActive_ then return end
+--- 更新路口逻辑（每帧调用）
+local function UpdateIntersection()
+    if turnExecuting_ then return end
+    if nextIntersectionDist_ <= 0 then return end
 
-    local pickZ = pickupNode_.position.z
-    if pickZ < playerZ - 5.0 then
-        -- 玩家错过了，取餐点回收但不改变 orderState_
-        -- 此处仍保持 orderState_ = "none"，等下一轮生成
-        pickupActive_ = false
-        pickupNode_.enabled = false
-        pickupNode_.position = Vector3(0, -100, -100)
-        -- 设置下一个取餐点位置（前方 32~50m）
-        nextPickupZ_ = playerZ + 32.0 + math.random() * 18.0
-        lastOrderPointSeenTime_ = runTime_
-        ShowToast("错过取餐点")
-        print(string.format("[取餐点] 已错过，下一个 Z=%.1f", nextPickupZ_))
+    local distToInt = nextIntersectionDist_ - routeDistance_
+
+    -- 进入输入窗口：显示路口
+    if distToInt < PATH.TURN_INPUT_WINDOW and distToInt > 0 and not intersectionActive_ then
+        intersectionActive_ = true
+        ShowIntersection()
+
+        -- 随机推荐方向
+        local r = math.random()
+        if r < 0.33 then intersectionHintDir_ = -1
+        elseif r < 0.66 then intersectionHintDir_ = 1
+        else intersectionHintDir_ = 0 end
+    end
+
+    -- 到达路口执行点
+    if distToInt <= PATH.TURN_EXECUTE_DIST and intersectionActive_ then
+        intersectionActive_ = false
+        ExecuteTurn(turnChoice_)
+        turnChoice_ = 0
+    end
+end
+
+--- 更新转弯动画（玩家模型旋转）
+local function UpdateTurnAnimation(dt)
+    if not turnExecuting_ then return end
+
+    turnAnimTime_ = turnAnimTime_ + dt
+    local t = math.min(1.0, turnAnimTime_ / PATH.TURN_ANIM_DURATION)
+
+    -- 使用平滑插值
+    local smoothT = t * t * (3.0 - 2.0 * t)
+
+    -- 玩家模型旋转
+    local fromYaw = HeadingToYaw(turnFromHeading_)
+    local toYaw = HeadingToYaw(turnToHeading_)
+    local diff = toYaw - fromYaw
+    if diff > 180 then toYaw = toYaw - 360
+    elseif diff < -180 then toYaw = toYaw + 360 end
+
+    local currentYaw = fromYaw + (toYaw - fromYaw) * smoothT
+    playerNode_.rotation = Quaternion(currentYaw, Vector3.UP)
+
+    if t >= 1.0 then
+        turnExecuting_ = false
+        playerNode_.rotation = Quaternion(HeadingToYaw(currentHeading_), Vector3.UP)
     end
 end
 
 -- ============================================================================
--- 送餐点
+-- 碰撞检测
 -- ============================================================================
 
---- 创建送餐点节点（多部件可视强化，初始隐藏）
-function CreateDeliveryPoint()
-    local boxMdl = cache:GetResource("Model", "Models/Box.mdl")
-    local cylMdl = cache:GetResource("Model", "Models/Cylinder.mdl")
+local function CheckCollisions()
+    local playerDist = routeDistance_
+    local playerLane = CONFIG.currentLane
 
-    deliveryNode_ = scene_:CreateChild("DeliveryPoint")
-    deliveryNode_.position = Vector3(0, -100, -100)
-    deliveryNode_.enabled = false
+    for idx = #activeObstacles_, 1, -1 do
+        local obs = activeObstacles_[idx]
+        local distDiff = math.abs(playerDist - obs.pathDist)
 
-    -- 底座（蓝绿色大圆盘，贴地）
-    local base = deliveryNode_:CreateChild("Base")
-    base.position = Vector3(0, 0.08, 0)
-    base.scale = Vector3(1.2, 0.16, 1.2)
-    local baseModel = base:CreateComponent("StaticModel")
-    baseModel:SetModel(cylMdl)
-    baseModel:SetMaterial(mat_.deliveryBase)
-    baseModel.castShadows = true
+        if distDiff < CONFIG.COLLISION_Z_THRESHOLD and obs.lane == playerLane then
+            -- 检查是否可以通过（跳跃/下滑）
+            local canPass = false
+            if obs.info.jumpable and isJumping_ and jumpTime_ > 0.1 then
+                canPass = true
+            end
+            if obs.info.slidable and isSliding_ and slideTime_ > 0.05 then
+                canPass = true
+            end
 
-    -- 竖直标识柱
-    local pillar = deliveryNode_:CreateChild("Pillar")
-    pillar.position = Vector3(0, 0.9, 0)
-    pillar.scale = Vector3(0.15, 1.6, 0.15)
-    local pillarModel = pillar:CreateComponent("StaticModel")
-    pillarModel:SetModel(cylMdl)
-    pillarModel:SetMaterial(mat_.deliveryPillar)
-    pillarModel.castShadows = true
-
-    -- 浮动标志容器（会上下浮动 + 旋转）
-    local floater = deliveryNode_:CreateChild("Floater")
-    floater.position = Vector3(0, 2.0, 0)
-
-    -- 小房子主体（绿色方块门牌造型）
-    local house = floater:CreateChild("House")
-    house.position = Vector3(0, 0, 0)
-    house.scale = Vector3(0.6, 0.7, 0.45)
-    local houseModel = house:CreateComponent("StaticModel")
-    houseModel:SetModel(boxMdl)
-    houseModel:SetMaterial(mat_.deliveryTop)
-    houseModel.castShadows = true
-
-    -- 屋顶（扁方块，模拟三角顶）
-    local roof = floater:CreateChild("Roof")
-    roof.position = Vector3(0, 0.5, 0)
-    roof.scale = Vector3(0.7, 0.25, 0.55)
-    roof.rotation = Quaternion(45, Vector3.FORWARD)
-    local roofModel = roof:CreateComponent("StaticModel")
-    roofModel:SetModel(boxMdl)
-    roofModel:SetMaterial(mat_.deliveryBase)
-    roofModel.castShadows = true
-
-    print("[送餐点] 多部件节点已创建（底座+柱子+浮动标志）")
-end
-
---- 检查某个 z 位置是否与已有障碍物冲突（同车道距离 < 4m）
----@param lane number
----@param z number
----@return boolean
-local function IsDeliveryConflictWithObstacles(lane, z)
-    for i = 1, #obstacles_ do
-        local obs = obstacles_[i]
-        if obs.active and obs.lane == lane then
-            if math.abs(obs.node.position.z - z) < 5.0 then
-                return true
+            if not canPass then
+                return true -- 碰撞！
             end
         end
     end
     return false
-end
-
---- 尝试生成送餐点
-local function TrySpawnDelivery(playerZ)
-    -- 仅在有订单且当前无活跃送餐点时生成
-    if carriedOrderCount_ <= 0 or deliveryActive_ then return end
-
-    -- 只在玩家接近 nextDeliveryZ_ 时生成（提前 80m 内）
-    if nextDeliveryZ_ > playerZ + 80.0 then return end
-
-    -- 随机选车道
-    local lane = math.random(1, 3)
-    local spawnZ = nextDeliveryZ_
-
-    -- 避免与障碍物重叠及目标点互近：最多尝试 6 次，每次前推 5m
-    for _ = 1, 6 do
-        if not IsDeliveryConflictWithObstacles(lane, spawnZ) and not IsOrderPointTooClose(lane, spawnZ) then
-            break
-        end
-        spawnZ = spawnZ + 5.0
-    end
-
-    -- 激活送餐点
-    deliveryLane_ = lane
-    deliveryActive_ = true
-    local laneX = CONFIG.LANE_X[lane] or 0.0
-    deliveryNode_.position = Vector3(laneX, 0, spawnZ)
-    deliveryNode_.enabled = true
-
-    lastOrderPointSeenTime_ = runTime_
-    print(string.format("[送餐点] 生成: 车道=%d, Z=%.1f", lane, spawnZ))
-end
-
---- 检测玩家是否经过送餐点（送达）
-local function CheckDelivery(playerZ)
-    if not deliveryActive_ then return end
-
-    -- 必须在同车道
-    if CONFIG.currentLane ~= deliveryLane_ then return end
-
-    -- Z 轴距离判断
-    local delZ = deliveryNode_.position.z
-    if math.abs(playerZ - delZ) < 1.0 then
-        -- 送达成功：先更新连送计数，再计算奖励
-        comboCount_ = comboCount_ + 1
-        if comboCount_ > maxComboCount_ then
-            maxComboCount_ = comboCount_
-        end
-        local reward = GetComboReward(comboCount_)
-        currentIncome_ = currentIncome_ + reward
-        deliveredOrderCount_ = deliveredOrderCount_ + 1
-        carriedOrderCount_ = math.max(carriedOrderCount_ - 1, 0)
-        deliveryActive_ = false
-        deliveryNode_.enabled = false
-        deliveryNode_.position = Vector3(0, -100, -100)
-
-        if carriedOrderCount_ > 0 then
-            -- 还有剩余订单，继续送餐中
-            orderState_ = "carrying"
-            deliveryTimer_ = deliveryTimeLimit_  -- 送达后重置倒计时
-            lowTimeWarningShown_ = false         -- 新倒计时，重置警告标记
-            nextDeliveryZ_ = playerZ + 42.0 + math.random() * 23.0
-            -- 允许继续生成取餐点
-            if carriedOrderCount_ < maxCarryOrders_ and not pickupActive_ then
-                nextPickupZ_ = playerZ + 32.0 + math.random() * 18.0
-            end
-            boostTimer_ = boostDuration_
-            lastOrderPointSeenTime_ = runTime_
-            TriggerFeedback("delivery")
-            TriggerFeedback("boost")
-            if comboCount_ >= 3 then TriggerFeedback("combo") end
-            ShowToast(string.format("送达 +¥%d，连送 %d，剩余 %d/%d，加速！", reward, comboCount_, carriedOrderCount_, maxCarryOrders_))
-            print(string.format("[送餐点] 送达成功！连送 %d，奖励 +%d，累计 ¥%d，剩余 %d/%d", comboCount_, reward, currentIncome_, carriedOrderCount_, maxCarryOrders_))
-        else
-            -- 全部送完，回到未取餐
-            orderState_ = "none"
-            deliveryTimer_ = 0.0
-            nextPickupZ_ = playerZ + 32.0 + math.random() * 18.0
-            boostTimer_ = boostDuration_
-            lastOrderPointSeenTime_ = runTime_
-            TriggerFeedback("delivery")
-            TriggerFeedback("boost")
-            if comboCount_ >= 3 then TriggerFeedback("combo") end
-            ShowToast(string.format("全部送完 +¥%d，连送 %d，加速！", reward, comboCount_))
-            print(string.format("[送餐点] 送达成功！连送 %d，奖励 +%d，累计 ¥%d，全部送完", comboCount_, reward, currentIncome_))
-        end
-    end
-end
-
---- 回收已超过玩家的送餐点（玩家错过了）
-local function RecycleDeliveryBehind(playerZ)
-    if not deliveryActive_ then return end
-
-    local delZ = deliveryNode_.position.z
-    if delZ < playerZ - 5.0 then
-        -- 玩家错过了，送餐点回收，重新在前方生成
-        deliveryActive_ = false
-        deliveryNode_.enabled = false
-        deliveryNode_.position = Vector3(0, -100, -100)
-        -- 在前方重新安排送餐点（前方 42~65m）
-        nextDeliveryZ_ = playerZ + 42.0 + math.random() * 23.0
-        lastOrderPointSeenTime_ = runTime_
-        ShowToast("错过送餐点，前方重新导航")
-        print(string.format("[送餐点] 已错过，下一个 Z=%.1f", nextDeliveryZ_))
-    end
-end
-
--- ============================================================================
--- 碰撞检测（返回失败原因字符串，nil 表示未碰撞）
--- ============================================================================
-
----@param playerZ number
----@return string|nil 失败原因
-local function CheckCollision(playerZ)
-    local playerLane = CONFIG.currentLane
-
-    for i = 1, #obstacles_ do
-        local obs = obstacles_[i]
-        if obs.active and obs.lane == playerLane then
-            local obsZ = obs.node.position.z
-            local zDist = math.abs(playerZ - obsZ)
-
-            if zDist < CONFIG.COLLISION_Z_THRESHOLD then
-                if obs.type == "block" then
-                    return "撞上路障"
-                elseif obs.type == "low" then
-                    if actionState_ ~= "jump" then
-                        return "没有跳过低矮障碍"
-                    end
-                elseif obs.type == "high" then
-                    if actionState_ ~= "slide" then
-                        return "没有下滑躲过高位障碍"
-                    end
-                end
-            end
-        end
-    end
-
-    return nil
 end
 
 -- ============================================================================
 -- 速度系统
 -- ============================================================================
 
---- 根据距离计算当前速度（平滑递增）
 local function UpdateSpeed()
-    -- 每跑 SPEED_DISTANCE_FACTOR 米增加 1 点速度，上限 MAX_SPEED
-    local baseSpeed = math.min(
-        CONFIG.MAX_SPEED,
-        CONFIG.BASE_SPEED + distanceTraveled_ / CONFIG.SPEED_DISTANCE_FACTOR
-    )
-    if boostTimer_ > 0 then
-        currentSpeed_ = math.min(CONFIG.MAX_SPEED + boostSpeedBonus_, baseSpeed + boostSpeedBonus_)
-    else
-        currentSpeed_ = baseSpeed
-    end
+    local speedIncrease = distanceTraveled_ / CONFIG.SPEED_DISTANCE_FACTOR
+    currentSpeed_ = math.min(CONFIG.MAX_SPEED, CONFIG.BASE_SPEED + speedIncrease)
 end
 
 -- ============================================================================
--- 游戏状态管理
+-- 游戏结束
 -- ============================================================================
 
---- 触发游戏结束
----@param reason string 失败原因
-local function GetFailureTip(reason)
-    if reason == "撞上路障" then
-        return "左右变道避开红色路障"
-    elseif reason == "没有跳过低矮障碍" then
-        return "上滑或空格跳过低矮障碍"
-    elseif reason == "没有下滑躲过高位障碍" then
-        return "下滑或 S 键躲过高位障碍"
-    elseif reason == "送餐超时" then
-        return "优先看目标提示，满载时先送餐"
-    else
-        return "观察前方目标，保持节奏"
-    end
-end
-
-local function TriggerGameOver(reason)
+local function GameOver()
     gameState_ = "gameOver"
-    TriggerFeedback("game_over")
-
-    -- 更新最高距离
-    local dist = math.floor(distanceTraveled_)
-    if dist > bestDistance_ then
-        bestDistance_ = dist
-    end
-
-    print(string.format("[游戏结束] 原因: %s, 距离: %d m, 时间: %.1f s", reason, dist, runTime_))
-
-    -- 更新游戏结束面板
     if gameOverPanel_ then
         gameOverPanel_:SetVisible(true)
-
-        local reasonLabel = UI.FindById("go_reason")
-        if reasonLabel then
-            reasonLabel:SetText(reason)
+        if lblFinalIncome_ then
+            lblFinalIncome_:SetText("收入: ¥" .. totalIncome_)
         end
-
-        local scoreLabel = UI.FindById("go_score")
-        if scoreLabel then
-            scoreLabel:SetText(string.format("本次距离: %d 米", dist))
-        end
-
-        local bestLabel = UI.FindById("go_best")
-        if bestLabel then
-            bestLabel:SetText(string.format("最高距离: %d 米", bestDistance_))
-        end
-
-        local timeLabel = UI.FindById("go_time")
-        if timeLabel then
-            local minutes = math.floor(runTime_ / 60)
-            local seconds = math.floor(runTime_ % 60)
-            timeLabel:SetText(string.format("持续时间: %d:%02d", minutes, seconds))
-        end
-
-        local incomeLabel = UI.FindById("go_income")
-        if incomeLabel then
-            incomeLabel:SetText(string.format("本局收入: ¥%d", currentIncome_))
-        end
-
-        local deliveredLabel = UI.FindById("go_delivered")
-        if deliveredLabel then
-            deliveredLabel:SetText(string.format("送达订单: %d 单", deliveredOrderCount_))
-        end
-
-        local comboLabel = UI.FindById("go_combo")
-        if comboLabel then
-            comboLabel:SetText(string.format("最高连送: %d", maxComboCount_))
-        end
-
-        -- 评价文案
-        local rankLabel = UI.FindById("go_rank_text")
-        if rankLabel then
-            local rankText
-            if deliveredOrderCount_ == 0 then
-                rankText = "还没送到，下一单冲！"
-            elseif deliveredOrderCount_ < 5 then
-                rankText = "跑腿新人，上手了！"
-            else
-                rankText = "金牌骑手，继续冲！"
-            end
-            rankLabel:SetText(rankText)
-        end
-
-        -- 失败建议
-        local tipLabel = UI.FindById("go_tip")
-        if tipLabel then
-            tipLabel:SetText("提示：" .. GetFailureTip(reason))
+        if lblFinalDist_ then
+            lblFinalDist_:SetText("距离: " .. math.floor(distanceTraveled_) .. "m")
         end
     end
-
-    -- 失败 Toast
-    ShowToast(GetFailureTip(reason))
 end
 
---- 重置游戏（再来一局）
+-- ============================================================================
+-- 重新开始
+-- ============================================================================
+
 local function RestartGame()
-    print("[重启] 再来一局")
-    TriggerFeedback("restart")
+    gameState_ = "running"
+
+    -- 重置路径系统
+    routeDistance_ = 0.0
+    currentHeading_ = PATH.HEADING_POS_Z
+    currentSegmentOrigin_ = Vector3(0, 0, 0)
+    currentSegmentStartDist_ = 0.0
+    nextIntersectionDist_ = PATH.FIRST_INTERSECTION_DIST
+    intersectionActive_ = false
+    turnChoice_ = 0
+    turnExecuting_ = false
+    camTurning_ = false
+    HideIntersection()
 
     -- 重置游戏状态
-    gameState_ = "running"
     distanceTraveled_ = 0.0
     currentSpeed_ = CONFIG.BASE_SPEED
-    runTime_ = 0.0
-
-    -- 重置玩家状态
     CONFIG.currentLane = 2
-    actionState_ = "run"
-    actionTimer_ = 0.0
-    laneChangeTimer_ = 0.0
-    touchStartX_ = nil
-    touchStartY_ = nil
-    touchConsumed_ = false
+    lastObstacleSpawnDist_ = 0.0
 
-    -- 重置玩家位置
-    playerNode_.position = Vector3(CONFIG.LANE_X[2], 0, 5.0)
+    -- 重置变道/跳跃/下滑
+    laneChanging_ = false
+    isJumping_ = false
+    jumpTime_ = 0.0
+    jumpBuffered_ = false
+    isSliding_ = false
+    slideTime_ = 0.0
+    slideBuffered_ = false
 
-    -- 回收所有障碍物
-    for i = 1, #obstacles_ do
-        if obstacles_[i].active then
-            DeactivateObstacle(obstacles_[i])
-        end
-    end
-    nextObstacleZ_ = 35.0  -- 玩家起始 Z=5, 第一个障碍物在前方 30m
-
-    -- 重置取餐点状态
-    orderState_ = "none"
+    -- 重置取件/送件
     pickupActive_ = false
-    pickupLane_ = 0
-    nextPickupZ_ = 35.0  -- 玩家起始 Z=5, 取餐点在前方约 30m
-    if pickupNode_ then
-        pickupNode_.enabled = false
-        pickupNode_.position = Vector3(0, -100, -100)
-    end
-
-    -- 重置送餐点状态
+    pickupNode_.position = Vector3(0, -100, 0)
     deliveryActive_ = false
-    deliveryLane_ = 0
-    nextDeliveryZ_ = 0.0
-    deliveryTimer_ = 0.0
-    currentIncome_ = 0
-    carriedOrderCount_ = 0
-    deliveredOrderCount_ = 0
-    toastTimer_ = 0.0
+    deliveryNode_.position = Vector3(0, -100, 0)
+    hasPackage_ = false
+    if packageVisualNode_ then packageVisualNode_.enabled = false end
+    lastPickupDist_ = 0.0
+    nextPickupDist_ = 30.0
+    lastDeliveryDist_ = 0.0
+    nextDeliveryDist_ = 100.0
+
+    -- 重置计时/收入/连击
+    timeRemaining_ = 30.0
+    totalIncome_ = 0
     comboCount_ = 0
-    maxComboCount_ = 0
-    lowTimeWarningShown_ = false
-    boostTimer_ = 0.0
-    firstDeliveryInRun_ = true
-    lastOrderPointSeenTime_ = 0.0
-    highPressureToastShown_ = false
-    jumpBufferTimer_ = 0.0
-    slideBufferTimer_ = 0.0
-    currentCameraFov_ = baseCameraFov_
-    cameraTilt_ = 0.0
-    if deliveryNode_ then
-        deliveryNode_.enabled = false
-        deliveryNode_.position = Vector3(0, -100, -100)
+
+    -- 重新定位玩家
+    playerNode_.position = Vector3(0, 0, 0)
+    playerNode_.rotation = Quaternion(0, Vector3.UP)
+
+    -- 重新定位路段
+    for i = 1, CONFIG.ROAD_SEGMENTS do
+        local dist = (i - 1) * CONFIG.ROAD_SEGMENT_LENGTH
+        PositionRoadSegment(roadPool_[i], dist)
+    end
+    for i = 1, CONFIG.LINE_POOL_SIZE do
+        local dist = (i - 1) * CONFIG.LINE_SPACING
+        PositionLaneLine(linePool_[i], dist)
+    end
+    for i = 1, CONFIG.BUILDING_POOL_SIZE do
+        local item = buildingPool_[i]
+        local dist = (i - 1) * 8.0
+        local side = (i % 2 == 0) and 1 or -1
+        local lateral = CONFIG.BUILDING_ZONE_START + math.random() * (CONFIG.BUILDING_ZONE_END - CONFIG.BUILDING_ZONE_START)
+        PositionBuilding(item, dist, side, lateral)
     end
 
-    -- 重置道路池
-    local segLen = CONFIG.ROAD_SEGMENT_LENGTH
-    for i = 1, #roadSegments_ do
-        local zCenter = (i - 1) * segLen + segLen / 2
-        MoveRoadSegment(roadSegments_[i], zCenter)
+    -- 清除障碍
+    for _, obs in ipairs(activeObstacles_) do
+        obs.active = false
+        obs.node.position = Vector3(0, -100, 0)
     end
-    nextSegmentZ_ = CONFIG.ROAD_SEGMENTS * segLen
+    activeObstacles_ = {}
 
-    -- 重置车道线
-    local spacing = CONFIG.LINE_SPACING
-    for i = 1, #laneLines_ do
-        local z = (i - 1) * spacing + CONFIG.LINE_LENGTH / 2
-        laneLines_[i].lineL.position = Vector3(-1.0, 0.01, z)
-        laneLines_[i].lineR.position = Vector3(1.0, 0.01, z)
-    end
-    nextLineZ_ = CONFIG.LINE_POOL_SIZE * spacing + CONFIG.LINE_LENGTH / 2
-
-    -- 重置建筑
-    math.randomseed(42)
-    local totalVisibleLength = CONFIG.ROAD_SEGMENTS * CONFIG.ROAD_SEGMENT_LENGTH
-    local bSpacing = totalVisibleLength / CONFIG.BUILDING_POOL_SIZE
-    for i = 1, #buildings_ do
-        local z = (i - 1) * bSpacing + math.random() * bSpacing
-        PlaceBuilding(buildings_[i], z)
-    end
-    nextBuildingZ_ = totalVisibleLength
-
-    -- 隐藏游戏结束面板
+    -- 隐藏结算面板
     if gameOverPanel_ then
         gameOverPanel_:SetVisible(false)
     end
-
-    -- 隐藏 Toast
-    local toastLabel = UI.FindById("toast_text")
-    if toastLabel then
-        toastLabel:SetVisible(false)
-    end
-
-    -- 更新摄像机
-    UpdateCameraPosition()
-
-    -- 重开提示
-    ShowToast("继续冲！")
 end
 
 -- ============================================================================
--- 玩家角色
+-- 创建玩家
 -- ============================================================================
 
-function CreatePlayer()
+local function CreatePlayer()
     playerNode_ = scene_:CreateChild("Player")
-    local laneX = CONFIG.LANE_X[CONFIG.currentLane]
-    playerNode_.position = Vector3(laneX, 0, 5.0)
+    playerNode_.position = Vector3(0, 0, 0)
 
-    local boxMdl = cache:GetResource("Model", "Models/Box.mdl")
-    local cylMdl = cache:GetResource("Model", "Models/Cylinder.mdl")
-    local sphMdl = cache:GetResource("Model", "Models/Sphere.mdl")
+    -- 身体（圆柱）
+    local body = playerNode_:CreateChild("Body")
+    local bm = body:CreateComponent("StaticModel")
+    bm.model = cache:GetResource("Model", "Models/Cylinder.mdl")
+    bm.material = CreatePBRMaterial(Color(0.3, 0.6, 0.9, 1.0), 0.1, 0.6)
+    body.scale = Vector3(0.6, 1.0, 0.6)
+    body.position = Vector3(0, 0.5, 0)
 
-    local bodyNode = playerNode_:CreateChild("Body")
-    bodyNode.position = Vector3(0, 0.7, 0)
-    bodyNode.scale = Vector3(0.5, 1.2, 0.4)
-    local bodyModel = bodyNode:CreateComponent("StaticModel")
-    bodyModel:SetModel(cylMdl)
-    bodyModel:SetMaterial(CreatePBRMaterial(Color(0.2, 0.45, 0.8, 1.0), 0.0, 0.6))
-    bodyModel.castShadows = true
+    -- 头（球）
+    local head = playerNode_:CreateChild("Head")
+    local hm = head:CreateComponent("StaticModel")
+    hm.model = cache:GetResource("Model", "Models/Sphere.mdl")
+    hm.material = CreatePBRMaterial(Color(1.0, 0.85, 0.7, 1.0), 0.0, 0.8)
+    head.scale = Vector3(0.45, 0.45, 0.45)
+    head.position = Vector3(0, 1.25, 0)
 
-    local headNode = playerNode_:CreateChild("Head")
-    headNode.position = Vector3(0, 1.5, 0)
-    headNode.scale = Vector3(0.4, 0.4, 0.4)
-    local headModel = headNode:CreateComponent("StaticModel")
-    headModel:SetModel(sphMdl)
-    headModel:SetMaterial(CreatePBRMaterial(Color(0.95, 0.82, 0.70, 1.0), 0.0, 0.5))
-    headModel.castShadows = true
+    -- 外卖箱（背上的方块）
+    local box = playerNode_:CreateChild("DeliveryBox")
+    local boxm = box:CreateComponent("StaticModel")
+    boxm.model = cache:GetResource("Model", "Models/Box.mdl")
+    boxm.material = CreatePBRMaterial(Color(0.2, 0.7, 0.3, 1.0), 0.1, 0.7)
+    box.scale = Vector3(0.5, 0.5, 0.3)
+    box.position = Vector3(0, 0.9, -0.3)
+    packageVisualNode_ = box
+    packageVisualNode_.enabled = false
 
-    local dboxNode = playerNode_:CreateChild("DeliveryBox")
-    dboxNode.position = Vector3(0, 1.0, -0.35)
-    dboxNode.scale = Vector3(0.5, 0.5, 0.3)
-    local dboxModel = dboxNode:CreateComponent("StaticModel")
-    dboxModel:SetModel(boxMdl)
-    dboxModel:SetMaterial(CreatePBRMaterial(Color(1.0, 0.75, 0.1, 1.0), 0.0, 0.5))
-    dboxModel.castShadows = true
-
-    local hatNode = playerNode_:CreateChild("Hat")
-    hatNode.position = Vector3(0, 1.75, 0)
-    hatNode.scale = Vector3(0.35, 0.12, 0.35)
-    local hatModel = hatNode:CreateComponent("StaticModel")
-    hatModel:SetModel(cylMdl)
-    hatModel:SetMaterial(CreatePBRMaterial(Color(1.0, 0.8, 0.15, 1.0), 0.0, 0.5))
-    hatModel.castShadows = true
+    -- 帽子
+    local hat = playerNode_:CreateChild("Hat")
+    local hatm = hat:CreateComponent("StaticModel")
+    hatm.model = cache:GetResource("Model", "Models/Cylinder.mdl")
+    hatm.material = CreatePBRMaterial(Color(1.0, 0.8, 0.1, 1.0), 0.0, 0.7)
+    hat.scale = Vector3(0.5, 0.12, 0.5)
+    hat.position = Vector3(0, 1.5, 0)
 end
 
 -- ============================================================================
 -- 摄像机
 -- ============================================================================
 
-function SetupCamera()
+local function SetupCamera()
     cameraNode_ = scene_:CreateChild("Camera")
     local camera = cameraNode_:CreateComponent("Camera")
-    camera.nearClip = 0.1
-    camera.farClip = 300.0
-    camera.fov = 60.0
+    camera.fov = CONFIG.CAM_FOV_BASE
+    camera.nearClip = 0.5
+    camera.farClip = 200.0
 
     renderer:SetViewport(0, Viewport:new(scene_, camera))
-    renderer.hdrRendering = true
-    UpdateCameraPosition()
+
+    -- 初始位置
+    local pp = playerNode_.position
+    cameraNode_.position = Vector3(pp.x, pp.y + CONFIG.CAM_OFFSET_Y, pp.z + CONFIG.CAM_OFFSET_Z)
+    local lookTarget = Vector3(pp.x, pp.y + 0.5, pp.z + CONFIG.CAM_LOOK_AHEAD)
+    cameraNode_:LookAt(lookTarget)
 end
 
-function UpdateCameraPosition(dt)
-    if playerNode_ == nil or cameraNode_ == nil then return end
+local function UpdateCamera(dt)
+    if not playerNode_ or not cameraNode_ then return end
+
     local pp = playerNode_.position
-    cameraNode_.position = Vector3(0, pp.y + CONFIG.CAM_OFFSET_Y, pp.z + CONFIG.CAM_OFFSET_Z)
-    local lookTarget = Vector3(0, pp.y + 0.5, pp.z + CONFIG.CAM_LOOK_AHEAD)
-    cameraNode_:LookAt(lookTarget)
 
-    -- FOV 平滑插值
-    if dt and dt > 0 then
-        local targetFov = baseCameraFov_
-        if GetDifficultyPhase() == 3 then
-            targetFov = highPressureCameraFov_
-        end
-        local fovSpeed = 6.0  -- 越大越快趋近
-        currentCameraFov_ = currentCameraFov_ + (targetFov - currentCameraFov_) * math.min(fovSpeed * dt, 1.0)
-        local camera = cameraNode_:GetComponent("Camera")
-        if camera then
-            camera.fov = currentCameraFov_
-        end
+    -- 计算摄像机当前的 yaw
+    local targetYaw = HeadingToYaw(currentHeading_)
+    local currentYaw = targetYaw
 
-        -- 变道倾斜
-        local targetTilt = 0.0
-        if laneChangeTimer_ > 0.0 then
-            local dir = 0.0
-            if laneChangeToX_ > laneChangeFromX_ then
-                dir = -1.0  -- 向右变道，镜头右倾（负roll）
-            elseif laneChangeToX_ < laneChangeFromX_ then
-                dir = 1.0   -- 向左变道，镜头左倾（正roll）
-            end
-            local progress = 1.0 - (laneChangeTimer_ / LANE_CHANGE_DURATION)
-            -- 中间最大，两端为零的正弦曲线
-            targetTilt = dir * 0.5 * math.sin(progress * math.pi)
+    if camTurning_ then
+        camTurnAnimTime_ = camTurnAnimTime_ + dt
+        local t = math.min(1.0, camTurnAnimTime_ / PATH.CAM_TURN_DURATION)
+        local smoothT = t * t * (3.0 - 2.0 * t)
+        currentYaw = camTurnFrom_ + (camTurnTo_ - camTurnFrom_) * smoothT
+        if t >= 1.0 then
+            camTurning_ = false
+            currentYaw = camTurnTo_
         end
-        local tiltSpeed = 8.0
-        cameraTilt_ = cameraTilt_ + (targetTilt - cameraTilt_) * math.min(tiltSpeed * dt, 1.0)
-        -- 应用倾斜（在 LookAt 之后叠加 roll）
-        local rot = cameraNode_.rotation
-        cameraNode_.rotation = rot * Quaternion(cameraTilt_, Vector3.FORWARD)
+    end
+
+    -- 基于当前 yaw 计算偏移方向
+    local yawRad = math.rad(currentYaw)
+    local camFwdX = math.sin(yawRad)
+    local camFwdZ = math.cos(yawRad)
+
+    -- 摄像机目标位置（在玩家后方偏上）
+    local camTargetX = pp.x - camFwdX * (-CONFIG.CAM_OFFSET_Z)
+    local camTargetZ = pp.z - camFwdZ * (-CONFIG.CAM_OFFSET_Z)
+    local camTargetY = pp.y + CONFIG.CAM_OFFSET_Y
+
+    -- 平滑跟随
+    local camPos = cameraNode_.position
+    local lerpFactor = math.min(1.0, dt * CONFIG.CAM_SMOOTH)
+    local newX = camPos.x + (camTargetX - camPos.x) * lerpFactor
+    local newY = camPos.y + (camTargetY - camPos.y) * lerpFactor
+    local newZ = camPos.z + (camTargetZ - camPos.z) * lerpFactor
+    cameraNode_.position = Vector3(newX, newY, newZ)
+
+    -- 注视点（玩家前方）
+    local lookX = pp.x + camFwdX * CONFIG.CAM_LOOK_AHEAD
+    local lookZ = pp.z + camFwdZ * CONFIG.CAM_LOOK_AHEAD
+    cameraNode_:LookAt(Vector3(lookX, pp.y + 0.5, lookZ))
+
+    -- FOV 动态调整
+    local camera = cameraNode_:GetComponent("Camera")
+    if camera then
+        local speedFactor = (currentSpeed_ - CONFIG.BASE_SPEED) / (CONFIG.MAX_SPEED - CONFIG.BASE_SPEED)
+        local targetFov = CONFIG.CAM_FOV_BASE + (CONFIG.CAM_FOV_MAX - CONFIG.CAM_FOV_BASE) * speedFactor * CONFIG.CAM_FOV_SPEED_FACTOR
+        camera.fov = camera.fov + (targetFov - camera.fov) * lerpFactor
     end
 end
 
 -- ============================================================================
--- UI
+-- UI 创建
 -- ============================================================================
 
-function CreateUI()
-    -- 游戏结束面板
-    gameOverPanel_ = UI.Panel {
-        id = "gameOverPanel",
-        visible = false,
-        position = "absolute",
-        top = 0, left = 0, right = 0, bottom = 0,
-        justifyContent = "center",
-        alignItems = "center",
-        backgroundColor = { 0, 0, 0, 160 },
+local function CreateUI()
+    UI.Init({
+        theme = "default-dark",
+        scale = UI.Scale.DEFAULT,
+    })
+
+    -- HUD
+    local hud = UI.Panel {
+        width = "100%", height = "100%",
         children = {
+            -- 顶部信息栏
             UI.Panel {
-                width = 280,
-                paddingTop = 28,
-                paddingBottom = 28,
-                paddingLeft = 24,
-                paddingRight = 24,
-                borderRadius = 16,
-                backgroundColor = { 255, 255, 255, 240 },
+                width = "100%", height = 80,
+                flexDirection = "row",
+                justifyContent = "space-around",
+                alignItems = "center",
+                paddingTop = 10,
+                children = {
+                    UI.Label { id = "timer", text = "⏱ 30s", fontSize = 20, fontColor = {255,255,255,255} },
+                    UI.Label { id = "income", text = "¥0", fontSize = 20, fontColor = {255,215,0,255} },
+                    UI.Label { id = "combo", text = "", fontSize = 16, fontColor = {0,255,136,255} },
+                    UI.Label { id = "speed", text = "8m/s", fontSize = 14, fontColor = {170,170,170,255} },
+                },
+            },
+            -- 方向提示
+            UI.Panel {
+                width = "100%", height = 40,
                 justifyContent = "center",
                 alignItems = "center",
                 children = {
-                    UI.Label {
-                        text = "游戏结束",
-                        fontSize = 26,
-                        fontWeight = "bold",
-                        fontColor = { 50, 50, 50, 255 },
-                    },
-                    UI.Label {
-                        id = "go_reason",
-                        text = "",
-                        fontSize = 14,
-                        fontColor = { 200, 60, 60, 255 },
-                        marginTop = 8,
-                    },
-                    UI.Panel {
-                        width = "100%",
-                        height = 1,
-                        backgroundColor = { 220, 220, 220, 255 },
-                        marginTop = 14,
-                        marginBottom = 14,
-                    },
-                    UI.Label {
-                        id = "go_score",
-                        text = "本次距离: 0 米",
-                        fontSize = 15,
-                        fontColor = { 80, 80, 80, 255 },
-                    },
-                    UI.Label {
-                        id = "go_best",
-                        text = "最高距离: 0 米",
-                        fontSize = 15,
-                        fontColor = { 80, 80, 80, 255 },
-                        marginTop = 6,
-                    },
-                    UI.Label {
-                        id = "go_time",
-                        text = "持续时间: 0:00",
-                        fontSize = 13,
-                        fontColor = { 120, 120, 120, 255 },
-                        marginTop = 4,
-                    },
-                    UI.Label {
-                        id = "go_income",
-                        text = "本局收入: ¥0",
-                        fontSize = 15,
-                        fontColor = { 34, 139, 34, 255 },
-                        marginTop = 6,
-                    },
-                    UI.Label {
-                        id = "go_delivered",
-                        text = "送达订单: 0 单",
-                        fontSize = 15,
-                        fontColor = { 255, 165, 0, 255 },
-                        marginTop = 4,
-                    },
-                    UI.Label {
-                        id = "go_combo",
-                        text = "最高连送: 0",
-                        fontSize = 15,
-                        fontColor = { 255, 100, 50, 255 },
-                        marginTop = 4,
-                    },
-                    UI.Label {
-                        id = "go_rank_text",
-                        text = "",
-                        fontSize = 16,
-                        fontColor = { 80, 200, 120, 255 },
-                        marginTop = 8,
-                    },
-                    UI.Label {
-                        id = "go_tip",
-                        text = "",
-                        fontSize = 13,
-                        fontColor = { 60, 120, 200, 255 },
-                        marginTop = 10,
-                    },
+                    UI.Label { id = "hint", text = "", fontSize = 18, fontColor = {0,221,255,255} },
+                },
+            },
+        },
+    }
+    UI.SetRoot(hud)
+
+    -- 获取引用
+    lblTimer_ = hud:FindById("timer")
+    lblIncome_ = hud:FindById("income")
+    lblCombo_ = hud:FindById("combo")
+    lblSpeed_ = hud:FindById("speed")
+    lblHint_ = hud:FindById("hint")
+
+    -- 游戏结束面板
+    gameOverPanel_ = UI.Panel {
+        width = "100%", height = "100%",
+        justifyContent = "center",
+        alignItems = "center",
+        backgroundColor = "rgba(0,0,0,0.7)",
+        children = {
+            UI.Panel {
+                width = 280, height = 220,
+                backgroundColor = "#222222",
+                borderRadius = 12,
+                justifyContent = "center",
+                alignItems = "center",
+                children = {
+                    UI.Label { text = "配送结束", fontSize = 22, fontColor = {255,255,255,255} },
+                    UI.Label { id = "finalIncome", text = "收入: ¥0", fontSize = 18, fontColor = {255,215,0,255}, marginTop = 12 },
+                    UI.Label { id = "finalDist", text = "距离: 0m", fontSize = 16, fontColor = {170,170,170,255}, marginTop = 8 },
                     UI.Button {
-                        text = "再来一局 (空格/R)",
+                        text = "再来一单",
                         variant = "primary",
-                        marginTop = 22,
-                        width = 160,
-                        height = 46,
+                        marginTop = 20,
                         onClick = function()
                             RestartGame()
                         end,
@@ -1596,540 +1438,463 @@ function CreateUI()
             },
         },
     }
+    UI.SetRoot(gameOverPanel_)
+    gameOverPanel_:SetVisible(false)
 
-    local uiRoot = UI.Panel {
-        width = "100%",
-        height = "100%",
-        pointerEvents = "box-none",
-        children = {
-            UI.Label {
-                id = "title",
-                text = "外卖冲冲冲",
-                fontSize = 22,
-                fontColor = { 255, 255, 255, 230 },
-                position = "absolute",
-                top = 20,
-                left = 0, right = 0,
-                textAlign = "center",
-            },
-            -- HUD 第一行：距离 + 速度 + 阶段
-            UI.Label {
-                id = "hud_info",
-                text = "0 m | 8.0 m/s | 热身",
-                fontSize = 14,
-                fontColor = { 255, 255, 200, 210 },
-                position = "absolute",
-                top = 48,
-                left = 0, right = 0,
-                textAlign = "center",
-            },
-            -- HUD 第二行：订单 + 收入 + 连送 + 已送
-            UI.Label {
-                id = "order_info",
-                text = "订单 0/2 | ¥0 | 连送 0 | 已送 0",
-                fontSize = 13,
-                fontColor = { 200, 240, 255, 200 },
-                position = "absolute",
-                top = 66,
-                left = 0, right = 0,
-                textAlign = "center",
-            },
-            -- 目标提示行
-            UI.Label {
-                id = "target_hint",
-                text = "目标：寻找取餐点",
-                fontSize = 15,
-                fontColor = { 255, 200, 60, 255 },
-                position = "absolute",
-                top = 86,
-                left = 0, right = 0,
-                textAlign = "center",
-            },
-            -- Toast 提示（短暂显示）
-            UI.Label {
-                id = "toast_text",
-                text = "",
-                fontSize = 16,
-                fontColor = { 255, 220, 50, 255 },
-                position = "absolute",
-                top = 110,
-                left = 0, right = 0,
-                textAlign = "center",
-                visible = false,
-            },
-            gameOverPanel_,
-        },
-    }
-    UI.SetRoot(uiRoot)
+    lblFinalIncome_ = gameOverPanel_:FindById("finalIncome")
+    lblFinalDist_ = gameOverPanel_:FindById("finalDist")
 end
 
 -- ============================================================================
--- 循环回收
+-- 回收系统
 -- ============================================================================
 
-local function RecycleRoadSegments(playerZ)
-    local segLen = CONFIG.ROAD_SEGMENT_LENGTH
-    local recycleThreshold = playerZ - segLen
+local function RecycleObjects()
+    -- 回收道路段：如果路程距离远远落后于玩家，移到前方
+    local behindThreshold = routeDistance_ - CONFIG.ROAD_SEGMENT_LENGTH * 1.5
+    local aheadTarget = routeDistance_ + CONFIG.ROAD_SEGMENT_LENGTH * (CONFIG.ROAD_SEGMENTS - 1)
 
-    for i = 1, #roadSegments_ do
-        local seg = roadSegments_[i]
-        if seg.road.position.z < recycleThreshold then
-            local newZ = nextSegmentZ_ + segLen / 2
-            MoveRoadSegment(seg, newZ)
-            nextSegmentZ_ = nextSegmentZ_ + segLen
+    for _, seg in ipairs(roadPool_) do
+        if seg.pathDist < behindThreshold then
+            aheadTarget = aheadTarget + CONFIG.ROAD_SEGMENT_LENGTH
+            PositionRoadSegment(seg, aheadTarget)
         end
     end
-end
 
-local function RecycleLaneLines(playerZ)
-    local spacing = CONFIG.LINE_SPACING
-    local recycleThreshold = playerZ - spacing * 2
+    -- 回收车道线
+    local lineBehind = routeDistance_ - CONFIG.LINE_SPACING * 2
+    local lineAhead = routeDistance_ + CONFIG.LINE_SPACING * CONFIG.LINE_POOL_SIZE * 0.8
 
-    for i = 1, #laneLines_ do
-        local pair = laneLines_[i]
-        if pair.lineL.position.z < recycleThreshold then
-            pair.lineL.position = Vector3(-1.0, 0.01, nextLineZ_)
-            pair.lineR.position = Vector3(1.0, 0.01, nextLineZ_)
-            nextLineZ_ = nextLineZ_ + spacing
+    for _, item in ipairs(linePool_) do
+        if item.pathDist < lineBehind then
+            lineAhead = lineAhead + CONFIG.LINE_SPACING
+            PositionLaneLine(item, lineAhead)
         end
     end
-end
 
-local function RecycleBuildings(playerZ)
-    local recycleThreshold = playerZ - 20.0
-    local spacing = (CONFIG.ROAD_SEGMENTS * CONFIG.ROAD_SEGMENT_LENGTH) / CONFIG.BUILDING_POOL_SIZE
+    -- 回收建筑
+    local buildBehind = routeDistance_ - 20.0
+    local buildAhead = routeDistance_ + 8.0 * CONFIG.BUILDING_POOL_SIZE * 0.7
 
-    for i = 1, #buildings_ do
-        local node = buildings_[i]
-        if node.position.z < recycleThreshold then
-            local newZ = nextBuildingZ_ + math.random() * spacing
-            PlaceBuilding(node, newZ)
-            nextBuildingZ_ = nextBuildingZ_ + spacing
+    for _, item in ipairs(buildingPool_) do
+        if item.pathDist < buildBehind then
+            buildAhead = buildAhead + 8.0 + math.random() * 4.0
+            local side = (math.random() > 0.5) and 1 or -1
+            local lateral = CONFIG.BUILDING_ZONE_START + math.random() * (CONFIG.BUILDING_ZONE_END - CONFIG.BUILDING_ZONE_START)
+            PositionBuilding(item, buildAhead, side, lateral)
+        end
+    end
+
+    -- 回收障碍物
+    local obsBehind = routeDistance_ - 10.0
+    for idx = #activeObstacles_, 1, -1 do
+        local obs = activeObstacles_[idx]
+        if obs.pathDist < obsBehind then
+            obs.active = false
+            obs.node.position = Vector3(0, -100, 0)
+            table.remove(activeObstacles_, idx)
         end
     end
 end
 
 -- ============================================================================
--- 变道逻辑
+-- 变道动画
 -- ============================================================================
-
-local function IsChangingLane()
-    return laneChangeTimer_ > 0.0
-end
-
-local function TryChangeLane(direction)
-    if IsChangingLane() then return end
-    local newLane = CONFIG.currentLane + direction
-    if newLane < 1 or newLane > 3 then return end
-
-    laneChangeFromX_ = CONFIG.LANE_X[CONFIG.currentLane]
-    laneChangeToX_ = CONFIG.LANE_X[newLane]
-    CONFIG.currentLane = newLane
-    laneChangeTimer_ = LANE_CHANGE_DURATION
-end
 
 local function UpdateLaneChange(dt)
-    if laneChangeTimer_ <= 0.0 then return end
+    if not laneChanging_ then return end
 
-    laneChangeTimer_ = laneChangeTimer_ - dt
-    if laneChangeTimer_ <= 0.0 then
-        laneChangeTimer_ = 0.0
-        local pos = playerNode_.position
-        playerNode_.position = Vector3(laneChangeToX_, pos.y, pos.z)
-    else
-        local progress = 1.0 - (laneChangeTimer_ / LANE_CHANGE_DURATION)
-        local t = progress * progress * (3.0 - 2.0 * progress)
-        local currentX = laneChangeFromX_ + (laneChangeToX_ - laneChangeFromX_) * t
-        local pos = playerNode_.position
-        playerNode_.position = Vector3(currentX, pos.y, pos.z)
+    laneChangeTime_ = laneChangeTime_ + dt
+    local t = math.min(1.0, laneChangeTime_ / CONFIG.LANE_CHANGE_DURATION)
+    local smoothT = t * t * (3.0 - 2.0 * t)
+
+    local currentX = laneChangeFrom_ + (laneChangeTo_ - laneChangeFrom_) * smoothT
+
+    -- 更新玩家 X（相对于当前方向的右侧偏移）
+    local worldPos = GetWorldPosOnTrack(routeDistance_, currentX)
+    local pp = playerNode_.position
+    playerNode_.position = Vector3(worldPos.x, pp.y, worldPos.z)
+
+    if t >= 1.0 then
+        laneChanging_ = false
     end
 end
 
--- ============================================================================
--- 跳跃与下滑
--- ============================================================================
+local function StartLaneChange(targetLane)
+    if laneChanging_ then return end
+    if targetLane < 1 or targetLane > 3 then return end
 
-local function CanDoAction()
-    return actionState_ == "run"
+    laneChangeFrom_ = CONFIG.LANE_X[CONFIG.currentLane]
+    laneChangeTo_ = CONFIG.LANE_X[targetLane]
+    CONFIG.currentLane = targetLane
+    laneChangeTime_ = 0.0
+    laneChanging_ = true
 end
 
-local function TryJump()
-    if not CanDoAction() then
-        -- 动作中，缓存输入
-        jumpBufferTimer_ = inputBufferDuration_
+-- ============================================================================
+-- 跳跃 / 下滑
+-- ============================================================================
+
+local function StartJump()
+    if isJumping_ or isSliding_ then
+        jumpBuffered_ = true
         return
     end
-    actionState_ = "jump"
-    actionTimer_ = 0.0
-    jumpBufferTimer_ = 0.0
-    slideBufferTimer_ = 0.0
+    isJumping_ = true
+    jumpTime_ = 0.0
 end
 
-local function TrySlide()
-    if not CanDoAction() then
-        -- 动作中，缓存输入
-        slideBufferTimer_ = inputBufferDuration_
+local function StartSlide()
+    if isSliding_ or isJumping_ then
+        slideBuffered_ = true
         return
     end
-    actionState_ = "slide"
-    actionTimer_ = 0.0
-    jumpBufferTimer_ = 0.0
-    slideBufferTimer_ = 0.0
+    isSliding_ = true
+    slideTime_ = 0.0
 end
 
-local function UpdateAction(dt)
-    -- 递减输入缓冲计时器
-    if jumpBufferTimer_ > 0 then
-        jumpBufferTimer_ = jumpBufferTimer_ - dt
-    end
-    if slideBufferTimer_ > 0 then
-        slideBufferTimer_ = slideBufferTimer_ - dt
-    end
+local function UpdateJumpSlide(dt)
+    local jumpY = 0.0
 
-    if actionState_ == "jump" then
-        actionTimer_ = actionTimer_ + dt
-        if actionTimer_ >= JUMP_DURATION then
-            actionState_ = "run"
-            actionTimer_ = 0.0
-        end
-    elseif actionState_ == "slide" then
-        actionTimer_ = actionTimer_ + dt
-        if actionTimer_ >= SLIDE_DURATION then
-            actionState_ = "run"
-            actionTimer_ = 0.0
+    if isJumping_ then
+        jumpTime_ = jumpTime_ + dt
+        if jumpTime_ >= CONFIG.JUMP_DURATION then
+            isJumping_ = false
+            jumpTime_ = 0.0
+            -- 检查缓冲
+            if slideBuffered_ then
+                slideBuffered_ = false
+                StartSlide()
+            end
+        else
+            local t = jumpTime_ / CONFIG.JUMP_DURATION
+            jumpY = 4.0 * CONFIG.JUMP_HEIGHT * t * (1.0 - t)
         end
     end
 
-    -- 动作刚结束回到 run，消费缓冲（跳跃优先级 > 滑铲）
-    if actionState_ == "run" then
-        if jumpBufferTimer_ > 0 then
-            actionState_ = "jump"
-            actionTimer_ = 0.0
-            jumpBufferTimer_ = 0.0
-            slideBufferTimer_ = 0.0
-        elseif slideBufferTimer_ > 0 then
-            actionState_ = "slide"
-            actionTimer_ = 0.0
-            jumpBufferTimer_ = 0.0
-            slideBufferTimer_ = 0.0
-        end
-    end
-end
-
-local function GetJumpY()
-    if actionState_ ~= "jump" then return 0.0 end
-    local progress = actionTimer_ / JUMP_DURATION
-    return math.sin(progress * math.pi) * JUMP_HEIGHT
-end
-
--- ============================================================================
--- 输入系统
--- ============================================================================
-
-local function HandleTouchInput()
-    local numTouches = input.numTouches
-    if numTouches > 0 then
-        local touch = input:GetTouch(0)
-        if touchStartX_ == nil then
-            touchStartX_ = touch.position.x
-            touchStartY_ = touch.position.y
-            touchId_ = touch.touchID
-            touchConsumed_ = false
-        elseif not touchConsumed_ then
-            local deltaX = touch.position.x - touchStartX_
-            local deltaY = touch.position.y - touchStartY_
-            local absDX = math.abs(deltaX)
-            local absDY = math.abs(deltaY)
-
-            if absDX > SWIPE_THRESHOLD or absDY > SWIPE_THRESHOLD then
-                if absDX > absDY then
-                    TryChangeLane(deltaX > 0 and 1 or -1)
-                else
-                    if deltaY < 0 then TryJump() else TrySlide() end
-                end
-                touchConsumed_ = true
+    if isSliding_ then
+        slideTime_ = slideTime_ + dt
+        if slideTime_ >= CONFIG.SLIDE_DURATION then
+            isSliding_ = false
+            slideTime_ = 0.0
+            -- 检查缓冲
+            if jumpBuffered_ then
+                jumpBuffered_ = false
+                StartJump()
             end
         end
+        -- 下滑缩放身体
+        local bodyNode = playerNode_:GetChild("Body")
+        if bodyNode then
+            bodyNode.scale = Vector3(0.8, 0.5, 0.6)
+            bodyNode.position = Vector3(0, 0.25, 0)
+        end
     else
-        touchStartX_ = nil
-        touchStartY_ = nil
-        touchId_ = -1
-        touchConsumed_ = false
+        local bodyNode = playerNode_:GetChild("Body")
+        if bodyNode then
+            bodyNode.scale = Vector3(0.6, 1.0, 0.6)
+            bodyNode.position = Vector3(0, 0.5, 0)
+        end
+    end
+
+    return jumpY
+end
+
+-- ============================================================================
+-- 输入处理
+-- ============================================================================
+
+local touchStartX_ = 0
+local touchStartY_ = 0
+local touchActive_ = false
+
+local function HandleTouchBegin(eventType, eventData)
+    if gameState_ ~= "running" then return end
+    touchStartX_ = eventData:GetInt("X")
+    touchStartY_ = eventData:GetInt("Y")
+    touchActive_ = true
+end
+
+local function HandleTouchEnd(eventType, eventData)
+    if not touchActive_ then return end
+    if gameState_ ~= "running" then return end
+    touchActive_ = false
+
+    local endX = eventData:GetInt("X")
+    local endY = eventData:GetInt("Y")
+    local dx = endX - touchStartX_
+    local dy = endY - touchStartY_
+
+    local threshold = 40
+
+    if math.abs(dx) > math.abs(dy) and math.abs(dx) > threshold then
+        -- 水平滑动
+        if intersectionActive_ then
+            -- 在路口输入窗口中：转弯选择
+            if dx < 0 then
+                turnChoice_ = -1  -- 左转
+            else
+                turnChoice_ = 1   -- 右转
+            end
+        else
+            -- 正常变道
+            if dx < 0 then
+                StartLaneChange(CONFIG.currentLane - 1)
+            else
+                StartLaneChange(CONFIG.currentLane + 1)
+            end
+        end
+    elseif math.abs(dy) > threshold then
+        -- 垂直滑动
+        if dy < 0 then
+            -- 上滑 = 跳
+            if intersectionActive_ then
+                turnChoice_ = 0  -- 直走
+            end
+            StartJump()
+        else
+            -- 下滑 = 滑铲
+            StartSlide()
+        end
     end
 end
 
-local function HandleKeyboardInput()
+local function HandleKeyboard(dt)
+    if gameState_ ~= "running" then return end
+
+    -- 左右（变道/转弯）
     if input:GetKeyPress(KEY_A) or input:GetKeyPress(KEY_LEFT) then
-        TryChangeLane(-1)
-    elseif input:GetKeyPress(KEY_D) or input:GetKeyPress(KEY_RIGHT) then
-        TryChangeLane(1)
+        if intersectionActive_ then
+            turnChoice_ = -1
+        else
+            StartLaneChange(CONFIG.currentLane - 1)
+        end
+    end
+    if input:GetKeyPress(KEY_D) or input:GetKeyPress(KEY_RIGHT) then
+        if intersectionActive_ then
+            turnChoice_ = 1
+        else
+            StartLaneChange(CONFIG.currentLane + 1)
+        end
     end
 
-    if input:GetKeyPress(KEY_SPACE) or input:GetKeyPress(KEY_W) or input:GetKeyPress(KEY_UP) then
-        TryJump()
+    -- 跳跃
+    if input:GetKeyPress(KEY_W) or input:GetKeyPress(KEY_UP) or input:GetKeyPress(KEY_SPACE) then
+        if intersectionActive_ then
+            turnChoice_ = 0  -- 直走
+        end
+        StartJump()
     end
 
+    -- 下滑
     if input:GetKeyPress(KEY_S) or input:GetKeyPress(KEY_DOWN) then
-        TrySlide()
+        StartSlide()
     end
 end
 
 -- ============================================================================
--- 游戏更新
+-- 主更新循环
 -- ============================================================================
-
-local runTimer_ = 0.0
-local uiTimer_ = 0.0
-
-local function UpdatePlayerPose(dt)
-    local bodyNode = playerNode_:GetChild("Body")
-    local headNode = playerNode_:GetChild("Head")
-    local hatNode = playerNode_:GetChild("Hat")
-    local dboxNode = playerNode_:GetChild("DeliveryBox")
-
-    if actionState_ == "run" then
-        runTimer_ = runTimer_ + dt * 10.0
-        local bobY = math.abs(math.sin(runTimer_)) * 0.08
-
-        if bodyNode then
-            bodyNode.position = Vector3(0, 0.7 + bobY, 0)
-            bodyNode.scale = Vector3(0.5, 1.2, 0.4)
-            bodyNode.rotation = Quaternion.IDENTITY
-        end
-        if headNode then headNode.position = Vector3(0, 1.5 + bobY, 0); headNode.scale = Vector3(0.4, 0.4, 0.4) end
-        if hatNode then hatNode.position = Vector3(0, 1.75 + bobY, 0) end
-        if dboxNode then
-            local swing = math.sin(runTimer_ * 0.7) * 2.0
-            dboxNode.rotation = Quaternion(swing, Vector3.FORWARD)
-            dboxNode.position = Vector3(0, 1.0, -0.35)
-        end
-
-    elseif actionState_ == "jump" then
-        runTimer_ = runTimer_ + dt * 12.0
-        if bodyNode then
-            bodyNode.position = Vector3(0, 0.7, 0)
-            bodyNode.scale = Vector3(0.5, 1.2, 0.4)
-            bodyNode.rotation = Quaternion.IDENTITY
-        end
-        if headNode then headNode.position = Vector3(0, 1.5, 0); headNode.scale = Vector3(0.4, 0.4, 0.4) end
-        if hatNode then hatNode.position = Vector3(0, 1.75, 0) end
-        if dboxNode then dboxNode.rotation = Quaternion.IDENTITY; dboxNode.position = Vector3(0, 1.0, -0.35) end
-
-    elseif actionState_ == "slide" then
-        local progress = actionTimer_ / SLIDE_DURATION
-        local slideAmount = progress < 0.8 and 1.0 or (1.0 - ((progress - 0.8) / 0.2))
-
-        if bodyNode then
-            local bodyHeight = 1.2 - 0.7 * slideAmount
-            local bodyY = 0.3 + (0.7 - 0.3) * (1.0 - slideAmount)
-            bodyNode.position = Vector3(0, bodyY, 0)
-            bodyNode.scale = Vector3(0.5 + 0.2 * slideAmount, bodyHeight, 0.4 + 0.2 * slideAmount)
-            bodyNode.rotation = Quaternion(25 * slideAmount, Vector3.RIGHT)
-        end
-        if headNode then
-            headNode.position = Vector3(0, 1.5 - 0.9 * slideAmount, 0.15 * slideAmount)
-            headNode.scale = Vector3(0.4, 0.4, 0.4)
-        end
-        if hatNode then hatNode.position = Vector3(0, 1.75 - 1.0 * slideAmount, 0.15 * slideAmount) end
-        if dboxNode then
-            dboxNode.rotation = Quaternion(-15 * slideAmount, Vector3.RIGHT)
-            dboxNode.position = Vector3(0, 1.0 - 0.5 * slideAmount, -0.35 - 0.1 * slideAmount)
-        end
-    end
-end
 
 ---@param eventType string
 ---@param eventData UpdateEventData
-function HandleUpdate(eventType, eventData)
-    local dt = eventData["TimeStep"]:GetFloat()
-    if playerNode_ == nil then return end
+local function HandleUpdate(eventType, eventData)
+    local dt = eventData:GetFloat("TimeStep")
 
-    if gameState_ == "gameOver" then
-        -- 快捷重开：空格键或 R 键
-        if input:GetKeyPress(KEY_SPACE) or input:GetKeyPress(KEY_R) then
-            RestartGame()
-        end
-        return
-    end
+    if gameState_ ~= "running" then return end
 
-    -- 开局提示（第一帧触发）
-    if startToastPending_ then
-        startToastPending_ = false
-        ShowToast("左右滑动变道，上滑跳跃，下滑躲避")
-    end
+    -- 输入处理
+    HandleKeyboard(dt)
 
-    -- 输入
-    HandleTouchInput()
-    HandleKeyboardInput()
-
-    -- 更新动作状态
-    UpdateAction(dt)
-    UpdateLaneChange(dt)
-
-    -- 更新加速计时
-    if boostTimer_ > 0 then
-        boostTimer_ = math.max(0, boostTimer_ - dt)
-    end
-
-    -- 更新速度（基于距离平滑递增）
+    -- 更新速度
     UpdateSpeed()
 
-    -- 更新运行时间
-    runTime_ = runTime_ + dt
+    -- 更新路程距离
+    local moveDist = currentSpeed_ * dt
+    routeDistance_ = routeDistance_ + moveDist
+    distanceTraveled_ = distanceTraveled_ + moveDist
 
-    -- 跳跃偏移
-    local jumpY = GetJumpY()
+    -- 跳跃/下滑
+    local jumpY = UpdateJumpSlide(dt)
 
-    -- 玩家自动向前跑（使用 currentSpeed_）
-    local currentPos = playerNode_.position
-    local newZ = currentPos.z + currentSpeed_ * dt
-    playerNode_.position = Vector3(currentPos.x, jumpY, newZ)
+    -- 变道
+    UpdateLaneChange(dt)
 
-    -- 更新距离
-    distanceTraveled_ = distanceTraveled_ + currentSpeed_ * dt
-
-    -- 高压期首次进入提示
-    if not highPressureToastShown_ and GetDifficultyPhase() == 3 then
-        highPressureToastShown_ = true
-        ShowToast("高压路段！")
-        print("[难度] 进入高压期，距离=" .. math.floor(distanceTraveled_))
+    -- 计算玩家世界位置
+    local laneX = CONFIG.LANE_X[CONFIG.currentLane]
+    if laneChanging_ then
+        local t = math.min(1.0, laneChangeTime_ / CONFIG.LANE_CHANGE_DURATION)
+        local smoothT = t * t * (3.0 - 2.0 * t)
+        laneX = laneChangeFrom_ + (laneChangeTo_ - laneChangeFrom_) * smoothT
     end
 
-    -- 角色姿态
-    UpdatePlayerPose(dt)
+    local worldPos = GetWorldPosOnTrack(routeDistance_, laneX)
+    playerNode_.position = Vector3(worldPos.x, jumpY, worldPos.z)
 
-    -- 障碍物
-    SpawnObstacles(newZ)
-    RecycleObstacles(newZ)
+    -- 玩家朝向（如果不在转弯动画中）
+    if not turnExecuting_ then
+        playerNode_.rotation = Quaternion(HeadingToYaw(currentHeading_), Vector3.UP)
+    end
 
-    -- 碰撞检测（返回失败原因）
-    local failReason = CheckCollision(newZ)
-    if failReason then
-        TriggerGameOver(failReason)
+    -- 转弯动画
+    UpdateTurnAnimation(dt)
+
+    -- 路口逻辑
+    UpdateIntersection()
+
+    -- 生成障碍物
+    SpawnObstacles()
+
+    -- 碰撞检测
+    if CheckCollisions() then
+        GameOver()
         return
     end
 
-    -- 送餐倒计时（只在 carrying 状态递减）
-    if orderState_ == "carrying" then
-        deliveryTimer_ = deliveryTimer_ - dt
-        if deliveryTimer_ <= 0 then
-            deliveryTimer_ = 0
-            TriggerGameOver("送餐超时")
-            return
-        end
-        -- 快超时警告（每轮倒计时只触发一次）
-        if deliveryTimer_ <= 3.0 and not lowTimeWarningShown_ then
-            ShowToast("快超时了！")
-            TriggerFeedback("low_time")
-            lowTimeWarningShown_ = true
-        end
-    end
+    -- 取件/送件
+    TrySpawnPickup()
+    CheckPickup()
+    TrySpawnDelivery()
+    CheckDelivery()
 
-    -- 循环回收
-    RecycleRoadSegments(newZ)
-    RecycleLaneLines(newZ)
-    RecycleBuildings(newZ)
+    -- 回收对象
+    RecycleObjects()
 
     -- 摄像机
-    UpdateCameraPosition(dt)
+    UpdateCamera(dt)
 
-    -- 取餐点逻辑
-    TrySpawnPickup(newZ)
-    CheckPickup(newZ)
-    RecyclePickupBehind(newZ)
+    -- 计时器
+    timeRemaining_ = timeRemaining_ - dt
+    if timeRemaining_ <= 0 then
+        timeRemaining_ = 0
+        GameOver()
+        return
+    end
 
-    -- 送餐点逻辑
-    TrySpawnDelivery(newZ)
-    CheckDelivery(newZ)
-    RecycleDeliveryBehind(newZ)
-
-    -- 首分钟节奏保底：超过 8 秒没有订单事件时，强制缩短下一个触发距离
-    if runTime_ < 60.0 and (runTime_ - lastOrderPointSeenTime_) > 8.0 then
-        if carriedOrderCount_ <= 0 and not pickupActive_ then
-            -- 没有携带订单且没有活跃取餐点 → 强制缩短取餐点距离
-            local forcedZ = newZ + 32.0 + math.random() * 13.0  -- 32~45m
-            if nextPickupZ_ > forcedZ then
-                nextPickupZ_ = forcedZ
-                print(string.format("[节奏保底] 空窗 %.1fs，取餐点提前到 Z=%.1f", runTime_ - lastOrderPointSeenTime_, forcedZ))
-            end
-            lastOrderPointSeenTime_ = runTime_  -- 重置，避免每帧触发
-        elseif carriedOrderCount_ > 0 and not deliveryActive_ then
-            -- 有订单但没有活跃送餐点 → 强制缩短送餐点距离
-            local forcedZ = newZ + 38.0 + math.random() * 17.0  -- 38~55m
-            if nextDeliveryZ_ > forcedZ then
-                nextDeliveryZ_ = forcedZ
-                print(string.format("[节奏保底] 空窗 %.1fs，送餐点提前到 Z=%.1f", runTime_ - lastOrderPointSeenTime_, forcedZ))
-            end
-            lastOrderPointSeenTime_ = runTime_  -- 重置，避免每帧触发
+    -- 更新 HUD
+    if lblTimer_ then
+        local timeColor = timeRemaining_ < 5 and "#FF4444" or "#FFFFFF"
+        lblTimer_:SetText(string.format("⏱ %.0fs", timeRemaining_))
+    end
+    if lblIncome_ then
+        lblIncome_:SetText("¥" .. totalIncome_)
+    end
+    if lblCombo_ then
+        if comboCount_ > 1 then
+            lblCombo_:SetText("x" .. comboCount_ .. " 连击!")
+        else
+            lblCombo_:SetText("")
+        end
+    end
+    if lblSpeed_ then
+        lblSpeed_:SetText(string.format("%.0fm/s", currentSpeed_))
+    end
+    if lblHint_ then
+        if intersectionActive_ then
+            local hintText = ""
+            if intersectionHintDir_ == -1 then hintText = "← 左转推荐"
+            elseif intersectionHintDir_ == 1 then hintText = "→ 右转推荐"
+            else hintText = "↑ 直走推荐" end
+            if turnChoice_ == -1 then hintText = "← 已选: 左转"
+            elseif turnChoice_ == 1 then hintText = "→ 已选: 右转"
+            elseif turnChoice_ ~= 0 then hintText = "↑ 已选: 直走" end
+            lblHint_:SetText(hintText)
+        else
+            lblHint_:SetText("")
         end
     end
 
-    -- 取餐点/送餐点可视强化动画（浮动 + 旋转 + 近距离加速）
+    -- 取件/送件浮动动画
     if pickupActive_ and pickupNode_ then
-        local pickDist = pickupNode_.position.z - newZ
-        local isNear = pickDist < 12.0 and pickDist > 0
-        -- 旋转速度：近距离时加快
-        local rotSpeed = isNear and 180.0 or 90.0
-        pickupNode_.rotation = Quaternion(runTime_ * rotSpeed, Vector3.UP)
-        -- 浮动标志上下浮动
-        local floater = pickupNode_:GetChild("Floater")
-        if floater then
-            local floatFreq = isNear and 6.0 or 3.0
-            local floatAmp = isNear and 0.3 or 0.18
-            floater.position = Vector3(0, 2.0 + math.sin(runTime_ * floatFreq) * floatAmp, 0)
-        end
+        local py = pickupNode_.position.y
+        pickupNode_.position = Vector3(pickupNode_.position.x, 0.6 + math.sin(time.elapsedTime * 3.0) * 0.2, pickupNode_.position.z)
     end
     if deliveryActive_ and deliveryNode_ then
-        local delDist = deliveryNode_.position.z - newZ
-        local isNear = delDist < 12.0 and delDist > 0
-        local rotSpeed = isNear and 150.0 or 60.0
-        deliveryNode_.rotation = Quaternion(runTime_ * rotSpeed, Vector3.UP)
-        local floater = deliveryNode_:GetChild("Floater")
-        if floater then
-            local floatFreq = isNear and 5.0 or 2.5
-            local floatAmp = isNear and 0.28 or 0.15
-            floater.position = Vector3(0, 2.0 + math.sin(runTime_ * floatFreq) * floatAmp, 0)
-        end
+        deliveryNode_.position = Vector3(deliveryNode_.position.x, 0.15 + math.sin(time.elapsedTime * 2.5) * 0.1, deliveryNode_.position.z)
     end
+end
 
-    -- Toast 提示递减
-    if toastTimer_ > 0 then
-        toastTimer_ = toastTimer_ - dt
-        if toastTimer_ <= 0 then
-            toastTimer_ = 0
-            local toastLabel = UI.FindById("toast_text")
-            if toastLabel then
-                toastLabel:SetVisible(false)
-            end
-        end
-    end
+-- ============================================================================
+-- 场景初始化
+-- ============================================================================
 
-    -- HUD 更新（节流 4Hz）
-    uiTimer_ = uiTimer_ + dt
-    if uiTimer_ >= 0.25 then
-        uiTimer_ = uiTimer_ - 0.25
-        -- 第一行：距离 + 速度 + 阶段
-        local hudLabel = UI.FindById("hud_info")
-        if hudLabel then
-            local speedTag = string.format("%.1f m/s", currentSpeed_)
-            if boostTimer_ > 0 then
-                speedTag = speedTag .. " 加速"
-            end
-            local phaseNames = { "热身", "冲刺", "高压" }
-            local phaseTag = phaseNames[GetDifficultyPhase()] or ""
-            hudLabel:SetText(string.format("%d m | %s | %s",
-                math.floor(distanceTraveled_), speedTag, phaseTag))
-        end
-        -- 第二行：订单 + 收入 + 连送 + 已送
-        local orderLabel = UI.FindById("order_info")
-        if orderLabel then
-            local orderTag = string.format("订单 %d/%d", carriedOrderCount_, maxCarryOrders_)
-            if orderState_ == "carrying" and deliveryTimer_ <= 3.0 then
-                orderTag = orderTag .. " 紧急"
-            end
-            orderLabel:SetText(string.format("%s | ¥%d | 连送 %d | 已送 %d",
-                orderTag, currentIncome_, comboCount_, deliveredOrderCount_))
-        end
-        UpdateTargetHint(newZ)
-    end
+local function CreateScene()
+    scene_ = Scene()
+    scene_:CreateComponent("Octree")
+
+    -- 灯光
+    local lightNode = scene_:CreateChild("DirectionalLight")
+    lightNode.direction = Vector3(0.3, -1.0, 0.5):Normalized()
+    local light = lightNode:CreateComponent("Light")
+    light.lightType = LIGHT_DIRECTIONAL
+    light.color = Color(1.0, 0.95, 0.9)
+    light.brightness = 1.2
+    light.castShadows = true
+    light.shadowCascade = CascadeParameters(15.0, 30.0, 60.0, 120.0, 0.8)
+
+    -- 环境光
+    local zone = scene_:CreateComponent("Zone")
+    zone.boundingBox = BoundingBox(Vector3(-200, -50, -200), Vector3(200, 100, 200))
+    zone.ambientColor = Color(0.55, 0.6, 0.7)
+    zone.fogColor = Color(0.75, 0.85, 0.95)
+    zone.fogStart = 80.0
+    zone.fogEnd = 180.0
+end
+
+-- ============================================================================
+-- Start() / CreateGameContent()
+-- ============================================================================
+
+function Start()
+    -- 在 Start 里面只做转发
+    CreateGameContent()
+end
+
+function CreateGameContent()
+    math.randomseed(os.time())
+
+    -- 初始化路径系统
+    currentSegmentOrigin_ = Vector3(0, 0, 0)
+    currentSegmentStartDist_ = 0.0
+    currentHeading_ = PATH.HEADING_POS_Z
+    nextIntersectionDist_ = PATH.FIRST_INTERSECTION_DIST
+
+    -- 创建场景
+    CreateScene()
+
+    -- 初始化材质
+    InitMaterials()
+
+    -- 创建对象池
+    InitRoadPool()
+    InitLinePool()
+    InitBuildingPool()
+    InitObstaclePool()
+
+    -- 创建取件/送件节点
+    pickupNode_ = CreatePickupNode()
+    deliveryNode_ = CreateDeliveryNode()
+    nextPickupDist_ = 30.0
+    nextDeliveryDist_ = 100.0
+
+    -- 创建路口视觉
+    CreateCrossroadsVisuals()
+
+    -- 创建玩家
+    CreatePlayer()
+
+    -- 设置摄像机
+    SetupCamera()
+
+    -- 创建 UI
+    CreateUI()
+
+    -- 注册事件
+    SubscribeToEvent("Update", HandleUpdate)
+    SubscribeToEvent("TouchBegin", HandleTouchBegin)
+    SubscribeToEvent("TouchEnd", HandleTouchEnd)
+
+    print("[Game] 外卖冲冲冲 - 真实转弯版已启动!")
+    print("[Game] 操作: ← → 变道/转弯 | ↑/空格 跳跃 | ↓ 下滑")
+    print("[Game] 路口出现时：←/→ 选择转弯方向，↑ 直走")
 end
