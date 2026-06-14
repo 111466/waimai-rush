@@ -44,7 +44,7 @@ end
 local function RestartGame()
     gameState_ = "running"
 
-    -- 重置路径系统（重新选择起始边）
+    -- 重置路径系统（重新选择起始边，内部会重置所有状态机字段）
     path.Init()
 
     -- 重置玩家
@@ -81,8 +81,17 @@ local function HandleUpdate(eventType, eventData)
 
     local s = path.state
 
+    -- 更新输入状态机（在处理输入之前）
+    path.UpdateInputState()
+
     -- 输入处理
     inp.HandleKeyboard(dt)
+
+    -- 检查死路（玩家选择方向无路或默认直走无路）
+    if s.routeBlocked then
+        GameOver()
+        return
+    end
 
     -- 更新速度
     player.UpdateSpeed()
@@ -94,6 +103,12 @@ local function HandleUpdate(eventType, eventData)
 
     -- 推进路径（沿边前进 / 弧线过渡）
     path.Advance(moveDist)
+
+    -- 再次检查死路（Advance 中的 StartTurnAtNode 可能触发）
+    if s.routeBlocked then
+        GameOver()
+        return
+    end
 
     -- 转弯刚开始时的逻辑（仅在实际转向时清理，直行不清）
     if s.turnJustStarted then

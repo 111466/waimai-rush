@@ -26,12 +26,20 @@ M.state = {
     -- 上一个经过的节点（用于判断来路方向）
     lastNodeId = 0,
 
-    -- 路口状态
-    intersectionActive = false,   -- 是否在路口选择阶段（显示箭头）
+    -- 路口状态（仅用于UI提示）
+    intersectionActive = false,   -- 是否在路口提示阶段
     intersectionHintDir = 0,      -- 推荐方向 -1左/0直/1右（仅用于UI提示）
+    availableTurns = {},          -- 当前路口可用转向列表
+
+    -- 输入状态机（新增）
+    turnInputActive = false,      -- 当前左右滑动是否为转向选择
+    laneChangeLocked = false,     -- 当前是否禁止变道
+    distanceToNode = 0.0,         -- 当前离目标路口中心的距离
+    routeBlocked = false,         -- 是否撞到死路/无路可走
+
+    -- 玩家转向选择
     turnChoice = 0,               -- 玩家实际选择 -1左/0直/1右
     hasTurnChoice = false,        -- 玩家是否已做出选择
-    availableTurns = {},          -- 当前路口可用转向列表
 
     -- 转弯执行状态
     turnExecuting = false,
@@ -77,6 +85,12 @@ function M.Init()
     s.totalDistance = 0.0
     s.availableTurns = {}
     s.turnArcProgress = 0.0
+
+    -- 新状态机字段
+    s.turnInputActive = false
+    s.laneChangeLocked = false
+    s.distanceToNode = startEdge.length - s.edgeDistance
+    s.routeBlocked = false
 
     print("[Path] Initialized on edge " .. startEdge.id .. " heading " .. startEdge.heading)
 end
@@ -157,12 +171,51 @@ function M.IsInSafeZone(distFromEdgeStart)
 end
 
 -- ============================================================================
+-- 输入状态机更新（每帧调用，在 Advance 之前或之后均可）
+-- ============================================================================
+
+function M.UpdateInputState()
+    local s = M.state
+
+    -- 已经死路，不再更新
+    if s.routeBlocked then return end
+
+    -- 转弯执行中：禁止变道，禁止转向选择
+    if s.turnExecuting then
+        s.turnInputActive = false
+        s.laneChangeLocked = true
+        return
+    end
+
+    -- 不在转弯中：允许变道
+    s.laneChangeLocked = false
+
+    -- 计算距离目标路口中心的距离
+    if s.currentEdge then
+        s.distanceToNode = s.currentEdge.length - s.edgeDistance
+    else
+        s.distanceToNode = 999.0
+    end
+
+    -- 判断是否在转向选择窗口
+    -- 条件：距路口 <= TURN_INPUT_START_DIST 且 > TURN_RADIUS
+    if s.distanceToNode <= CONFIG.TURN_INPUT_START_DIST and s.distanceToNode > rn.TURN_RADIUS then
+        s.turnInputActive = true
+    else
+        s.turnInputActive = false
+    end
+end
+
+-- ============================================================================
 -- 核心：移动逻辑（连续过渡，无跳变）
 -- ============================================================================
 
 --- 每帧前进。返回 false 正常，不需要外部处理
 function M.Advance(moveDist)
     local s = M.state
+
+    -- 已经死路，不再移动
+    if s.routeBlocked then return false end
 
     -- 清除上一帧的 turnJustStarted 标记
     s.turnJustStarted = false
@@ -207,6 +260,9 @@ function M.Advance(moveDist)
         -- 开始转弯
         M.StartTurnAtNode()
 
+        -- 如果死路了，不再推进
+        if s.routeBlocked then return false end
+
         -- 把多余距离应用到弧线
         if s.turnExecuting and overshoot > 0 then
             local arcAdvance = overshoot / s.turnLength
@@ -223,6 +279,7 @@ end
 
 -- ============================================================================
 -- 开始转弯（解析玩家选择，设置弧线参数）
+-- 不再自动选择方向 —— 没路就触发死路状态
 -- ============================================================================
 
 function M.StartTurnAtNode()
@@ -233,6 +290,7 @@ function M.StartTurnAtNode()
 
     if not targetNode then
         print("[Path] ERROR: Target node not found!")
+        s.routeBlocked = true
         return
     end
 
@@ -247,38 +305,21 @@ function M.StartTurnAtNode()
         elseif choice == 1 then
             exitHeading = rn.TurnRight(s.currentHeading)
         else
-            exitHeading = s.currentHeading  -- 直走
+            exitHeading = s.currentHeading  -- 玩家明确选择直走
         end
     end
-    -- 如果没有选择，exitHeading 保持直走
+    -- 如果没有选择（hasTurnChoice == false），exitHeading 保持直走
 
     -- 检查该方向是否有边
     local nextEdge = rn.GetEdgeByHeading(targetNodeId, exitHeading)
-    if not nextEdge then
-        -- 该方向无路，尝试直走
-        if exitHeading ~= s.currentHeading then
-            nextEdge = rn.GetEdgeByHeading(targetNodeId, s.currentHeading)
-            if nextEdge then
-                exitHeading = s.currentHeading
-            end
-        end
-        if not nextEdge then
-            -- 直走也无路，选一条可用方向（不掉头）
-            local turns = rn.GetAvailableTurns(targetNodeId, s.currentHeading)
-            if #turns > 0 then
-                local pick = turns[1]
-                nextEdge = pick.edge
-                exitHeading = pick.heading
-            else
-                -- 死路：掉头
-                exitHeading = rn.ReverseHeading(s.currentHeading)
-                nextEdge = rn.GetEdgeByHeading(targetNodeId, exitHeading)
-            end
-        end
-    end
 
     if not nextEdge then
-        print("[Path] ERROR: No exit edge at node " .. targetNodeId)
+        -- 选择的方向无路 → 死路！
+        -- 不自动选择其他方向，直接触发失败
+        print("[Path] DEAD END: No road in heading " .. exitHeading .. " at node " .. targetNodeId)
+        s.routeBlocked = true
+        s.turnExecuting = false
+        s.laneChangeLocked = true
         return
     end
 
@@ -294,6 +335,7 @@ function M.StartTurnAtNode()
 
     -- 重置路口状态
     s.intersectionActive = false
+    s.turnInputActive = false
     s.turnChoice = 0
     s.hasTurnChoice = false
 
@@ -322,28 +364,33 @@ function M.FinishTurn(overshootDist)
     s.edgeDistance = math.min(startDist, s.currentEdge.length * 0.95)  -- clamp 防溢
     s.edgeProgress = s.edgeDistance / s.currentEdge.length
 
+    -- 进入新边后解锁变道
+    s.laneChangeLocked = false
+    s.turnInputActive = false
+
     print("[Path] Entered edge " .. s.currentEdge.id .. " heading " .. s.currentHeading)
 end
 
 -- ============================================================================
--- 路口检测与提示（只负责显示箭头，不触发转弯）
+-- 路口检测与提示（只负责UI提示状态，不控制输入含义）
 -- ============================================================================
 
 --- 每帧检查是否应该显示路口提示
 function M.CheckIntersection()
     local s = M.state
     if s.turnExecuting then return end
+    if s.routeBlocked then return end
     if s.intersectionActive then return end
     if not s.currentEdge then return end
 
-    -- 当进度达到阈值时，显示路口选择
+    -- 当进度达到阈值时，激活路口提示（仅用于UI）
     if s.edgeProgress >= CONFIG.INTERSECTION_HINT_PROGRESS then
         local targetNodeId = s.currentEdge.toNode
         s.availableTurns = rn.GetAvailableTurns(targetNodeId, s.currentHeading)
 
         if #s.availableTurns > 0 then
             s.intersectionActive = true
-            -- 随机推荐一个方向（仅用于 UI 提示）
+            -- 随机推荐一个方向（仅用于 UI 提示和奖惩）
             local r = math.random(1, #s.availableTurns)
             local recommended = s.availableTurns[r]
             if recommended.direction == "left" then
@@ -353,8 +400,6 @@ function M.CheckIntersection()
             else
                 s.intersectionHintDir = 0
             end
-            -- 不自动设置 turnChoice！玩家必须手动选择
-            -- s.turnChoice 和 s.hasTurnChoice 保持不变
         end
     end
 end

@@ -73,10 +73,13 @@ M.CONFIG = {
     -- 变道平滑
     LANE_CHANGE_DURATION = 0.18,
 
-    -- 路口接近提示距离（进度百分比）
+    -- 路口接近提示距离（进度百分比，仅用于UI提示）
     INTERSECTION_HINT_PROGRESS = 0.7,  -- 到达边的 70% 时提示
-    -- 转弯执行距离（进度百分比）
-    INTERSECTION_EXECUTE_PROGRESS = 0.92,  -- 到达边的 92% 时执行转弯
+    -- 转弯执行距离（进度百分比，已废弃）
+    INTERSECTION_EXECUTE_PROGRESS = 0.92,
+
+    -- 路口转向输入窗口（基于距路口中心的距离，单位：米）
+    TURN_INPUT_START_DIST = 12.0,  -- 距路口 <= 12m 时左右滑动变为转向选择
 
     -- 路口安全区（距离路口中心的 pathDistance）
     SAFE_ZONE_DIST = 15.0,
