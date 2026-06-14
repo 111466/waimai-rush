@@ -1,7 +1,7 @@
 -- ============================================================================
--- 澶栧崠鍐插啿锟?- 鍙栦欢/閫佷欢妯″潡锛堝熀锟?RoadGraph锟?
+-- 外卖冲冲冲 - 取件/送件模块（基于 RoadGraph）
 -- ============================================================================
--- 鍙栦欢/閫佷欢鐐圭粦瀹氬埌鐪熷疄 edge 涓婏紝鏍规嵁 edgeProgress 鐢熸垚
+-- 取件/送件点绑定到真实 edge 上，根据 edgeProgress 生成
 -- ============================================================================
 
 local cfg = require("config")
@@ -13,16 +13,16 @@ local nav = require("route_navigation")
 
 local M = {}
 
--- 鍙栦欢鐐圭姸锟?
+-- 取件点状态
 M.pickupNode = nil
 M.pickupActive = false
 M.pickupEdgeId = 0
 M.pickupEdgeDist = 0.0
 M.pickupLane = 2
 M.lastPickupEdgeId = 0
-M.nextPickupDistance = 0.0  -- 璧板杩滃悗鎵嶈兘鍐嶇敓鎴愪笅涓€锟?
+M.nextPickupDistance = 0.0  -- 走多远后才能再生成下一个
 
--- 閫佷欢鐐圭姸锟?
+-- 送件点状态
 M.deliveryNode = nil
 M.deliveryActive = false
 M.deliveryEdgeId = 0
@@ -30,24 +30,23 @@ M.deliveryEdgeDist = 0.0
 M.deliveryLane = 2
 M.lastDeliveryEdgeId = 0
 M.nextDeliveryDistance = 0.0
-M.deliveryDistrictId = "downtown"
 
--- 娓告垙鐘讹拷?
+-- 游戏状态
 M.hasPackage = false
 M.packageVisualNode = nil
 
--- 璁″垎
+-- 计分
 M.totalIncome = 0
 M.comboCount = 0
 
--- 褰撳墠璁㈠崟鍊掕锟?M.orderTimerActive = false
+-- 当前订单倒计时
 M.orderTimerActive = false
 M.orderTimeLimit = 0.0
 M.orderTimeRemaining = 0.0
 M.orderLateSeconds = 0.0
 
 -- ============================================================================
--- 鍒涘缓瑙嗚鑺傜偣
+-- 创建视觉节点
 -- ============================================================================
 
 function M.CreatePickupNode(scene)
@@ -130,7 +129,7 @@ function M.CreateDeliveryNode(scene)
 end
 
 -- ============================================================================
--- 閫佷欢鐩爣宸ュ叿
+-- 送件目标工具
 -- ============================================================================
 
 local function HideDeliveryNode()
@@ -150,11 +149,10 @@ local function StopOrderTimer()
     M.orderLateSeconds = 0.0
 end
 
-local function StartOrderTimer(routeDistance, currentSpeed, district)
+local function StartOrderTimer(routeDistance, currentSpeed)
     local safeSpeed = math.max(1.0, currentSpeed or CONFIG.BASE_SPEED)
     local estimatedTime = routeDistance / safeSpeed
-    local orderTimeMult = district and district.orderTime or 1.0
-    local limit = (estimatedTime * CONFIG.ORDER_TIME_ROUTE_FACTOR + CONFIG.ORDER_TIME_EXTRA_SECONDS) * orderTimeMult
+    local limit = estimatedTime * CONFIG.ORDER_TIME_ROUTE_FACTOR + CONFIG.ORDER_TIME_EXTRA_SECONDS
 
     M.orderTimeLimit = Clamp(limit, CONFIG.ORDER_TIME_MIN_SECONDS, CONFIG.ORDER_TIME_MAX_SECONDS)
     M.orderTimeRemaining = M.orderTimeLimit
@@ -167,7 +165,6 @@ local function ClearDeliveryTarget()
     M.deliveryEdgeId = 0
     M.deliveryEdgeDist = 0.0
     M.deliveryLane = 2
-    M.deliveryDistrictId = "downtown"
     HideDeliveryNode()
     nav.ClearTarget()
     StopOrderTimer()
@@ -196,7 +193,6 @@ local function PlaceDeliveryOnCandidate(candidate, currentSpeed)
     if maxDist <= minDist then return false end
 
     local targetDist = minDist + math.random() * (maxDist - minDist)
-
     local lane = math.random(1, 3)
 
     if not nav.SetTarget(edge.id, targetDist, s) then
@@ -207,8 +203,6 @@ local function PlaceDeliveryOnCandidate(candidate, currentSpeed)
     M.deliveryEdgeDist = targetDist
     M.deliveryLane = lane
     M.deliveryActive = true
-    local district = rn.GetEdgeDistrict(edge)
-    M.deliveryDistrictId = district.id
 
     local laneX = CONFIG.LANE_X[lane]
     local worldPos = rn.GetPositionOnEdgeByDist(edge, targetDist, laneX)
@@ -217,7 +211,7 @@ local function PlaceDeliveryOnCandidate(candidate, currentSpeed)
 
     M.lastDeliveryEdgeId = edge.id
     M.nextDeliveryDistance = s.totalDistance + CONFIG.DELIVERY_INTERVAL_MIN + math.random() * (CONFIG.DELIVERY_INTERVAL_MAX - CONFIG.DELIVERY_INTERVAL_MIN)
-    StartOrderTimer(nav.distanceRemaining or 0.0, currentSpeed, district)
+    StartOrderTimer(nav.distanceRemaining or 0.0, currentSpeed)
 
     print("[Delivery] Spawned target edge " .. edge.id ..
         " hops " .. candidate.hops ..
@@ -244,7 +238,8 @@ local function SpawnReachableDeliveryTarget(currentSpeed)
 end
 
 -- ============================================================================
--- 鐢熸垚鍙栦欢鐐癸紙edge-based锟?-- ============================================================================
+-- 生成取件点（edge-based）
+-- ============================================================================
 
 function M.TrySpawnPickup()
     local s = path.state
@@ -252,15 +247,15 @@ function M.TrySpawnPickup()
     if M.pickupActive or M.hasPackage then return end
     if not s.currentEdge then return end
 
-    -- 妫€鏌ヨ蛋杩囩殑璺濈鏄惁婊¤冻闂撮殧瑕佹眰
+    -- 检查走过的距离是否满足间隔要求
     if s.totalDistance < M.nextPickupDistance then return end
 
-    -- 鐢熸垚浣嶇疆锛氬綋锟?edge 鏈夋晥鍖烘涓婄帺瀹跺墠锟?
+    -- 生成位置：当前 edge 有效区段上玩家前方
     local effectiveLen = rn.GetEdgeEffectiveLength()
     local spawnDist = s.edgeDistance + CONFIG.PICKUP_SPAWN_AHEAD
-    if spawnDist >= effectiveLen - CONFIG.ORDER_EDGE_END_BUFFER then return end  -- 澶潬杩戞湯绔笉鐢熸垚
+    if spawnDist >= effectiveLen - CONFIG.ORDER_EDGE_END_BUFFER then return end  -- 太靠近末端不生成
 
-
+    -- 安全区检测
     if spawnDist < CONFIG.ORDER_EDGE_START_BUFFER then return end
 
     local lane = math.random(1, 3)
@@ -269,23 +264,20 @@ function M.TrySpawnPickup()
     M.pickupLane = lane
     M.pickupActive = true
 
-    -- 璁＄畻涓栫晫浣嶇疆
+    -- 计算世界位置
     local laneX = CONFIG.LANE_X[lane]
     local worldPos = rn.GetPositionOnEdgeByDist(s.currentEdge, spawnDist, laneX)
     M.pickupNode.position = Vector3(worldPos.x, 0.6, worldPos.z)
     M.pickupNode.rotation = Quaternion(rn.HeadingToYaw(s.currentEdge.heading), Vector3.UP)
 
     M.lastPickupEdgeId = s.currentEdge.id
-    local district = rn.GetEdgeDistrict(s.currentEdge)
-    local pickupMult = district.pickupInterval or 1.0
-    local pickupGap = CONFIG.PICKUP_INTERVAL_MIN + math.random() * (CONFIG.PICKUP_INTERVAL_MAX - CONFIG.PICKUP_INTERVAL_MIN)
-    M.nextPickupDistance = s.totalDistance + pickupGap * pickupMult
+    M.nextPickupDistance = s.totalDistance + CONFIG.PICKUP_INTERVAL_MIN + math.random() * (CONFIG.PICKUP_INTERVAL_MAX - CONFIG.PICKUP_INTERVAL_MIN)
 
     print("[Pickup] Spawned at edge " .. s.currentEdge.id .. " dist " .. string.format("%.1f", spawnDist))
 end
 
 -- ============================================================================
--- 鍙栦欢纰版挒妫€锟?
+-- 取件碰撞检测
 -- ============================================================================
 
 function M.CheckPickup()
@@ -293,7 +285,9 @@ function M.CheckPickup()
     local s = path.state
     if not s.currentEdge then return end
 
+    -- 只有在同一条边上才检测
     if M.pickupEdgeId ~= s.currentEdge.id then
+        -- 玩家已离开该边，取件点消失
         M.pickupActive = false
         M.pickupNode.position = Vector3(0, -100, 0)
         return
@@ -301,6 +295,7 @@ function M.CheckPickup()
 
     local distDiff = s.edgeDistance - (M.pickupEdgeDist or 0)
     if math.abs(distDiff) < CONFIG.COLLISION_Z_THRESHOLD and CONFIG.currentLane == M.pickupLane then
+        -- 成功取件
         M.hasPackage = true
         M.pickupActive = false
         M.pickupNode.position = Vector3(0, -100, 0)
@@ -310,10 +305,12 @@ function M.CheckPickup()
         M.nextDeliveryDistance = s.totalDistance
         print("[Pickup] Package collected!")
     elseif distDiff > 3.0 then
+        -- 错过了
         M.pickupActive = false
         M.pickupNode.position = Vector3(0, -100, 0)
     end
 end
+
 function M.GetMinimapData()
     if not M.pickupActive then
         return {
@@ -345,17 +342,21 @@ function M.GetMinimapData()
 end
 
 -- ============================================================================
--- 鐢熸垚閫佷欢鐐癸紙edge-based锟?-- ============================================================================
+-- 生成送件点（edge-based）
+-- ============================================================================
 
 function M.TrySpawnDelivery(currentSpeed)
     local s = path.state
     if s.insideIntersection then return end
     if M.deliveryActive or not M.hasPackage then return end
     if not s.currentEdge then return end
+
+    -- 检查距离间隔
     if s.totalDistance < M.nextDeliveryDistance then return end
 
     SpawnReachableDeliveryTarget(currentSpeed)
 end
+
 function M.ReselectDeliveryTarget(currentSpeed)
     if not M.hasPackage then return false end
     if not M.deliveryActive then return false end
@@ -371,21 +372,23 @@ function M.ReselectDeliveryTarget(currentSpeed)
 end
 
 -- ============================================================================
--- 閫佷欢纰版挒妫€锟?
+-- 送件碰撞检测
 -- ============================================================================
 
 function M.CheckDelivery()
     if not M.deliveryActive then return end
     local s = path.state
     if not s.currentEdge then return end
+
+    -- 送件点是持久目标，离开/绕路不会清空，只有进入目标 edge 后才检测送达或错过。
     if M.deliveryEdgeId ~= s.currentEdge.id then
         return
     end
 
     local distDiff = s.edgeDistance - (M.deliveryEdgeDist or 0)
     if math.abs(distDiff) < CONFIG.COLLISION_Z_THRESHOLD and CONFIG.currentLane == M.deliveryLane then
-        local district = rn.GetEdgeDistrict(rn.edges[M.deliveryEdgeId])
-        local baseReward = math.floor(10 * (district.reward or 1.0))
+        -- 成功送达
+        local baseReward = 10
         local reward = baseReward
 
         if M.orderLateSeconds > 0.0 then
@@ -398,6 +401,7 @@ function M.CheckDelivery()
         end
 
         M.totalIncome = M.totalIncome + reward
+
         M.hasPackage = false
         ClearDeliveryTarget()
         if M.packageVisualNode then
@@ -405,6 +409,7 @@ function M.CheckDelivery()
         end
         print("[Delivery] Delivered! Income " .. reward .. " (combo x" .. M.comboCount .. ")")
     elseif distDiff > 3.0 then
+        -- 真正越过目标点才算错过；普通走错路只会触发导航重规划。
         M.comboCount = 0
         M.hasPackage = false
         ClearDeliveryTarget()
@@ -415,6 +420,7 @@ function M.CheckDelivery()
         print("[Delivery] Missed target, combo reset")
     end
 end
+
 function M.UpdateOrderTimer(dt)
     if not M.orderTimerActive then return end
 
@@ -427,7 +433,7 @@ function M.GetOrderTimerData()
         return {
             active = false,
             state = "waiting",
-            text = "绛夊緟璁㈠崟",
+            text = "等待订单",
             remaining = 0.0,
             lateSeconds = 0.0,
         }
@@ -442,7 +448,7 @@ function M.GetOrderTimerData()
         return {
             active = true,
             state = state,
-            text = "璁㈠崟 " .. displaySeconds .. "s",
+            text = "订单 " .. displaySeconds .. "s",
             remaining = M.orderTimeRemaining,
             lateSeconds = 0.0,
         }
@@ -452,14 +458,14 @@ function M.GetOrderTimerData()
     return {
         active = true,
         state = "late",
-        text = "杩熷埌 " .. lateSeconds .. "s",
+        text = "迟到 " .. lateSeconds .. "s",
         remaining = M.orderTimeRemaining,
         lateSeconds = M.orderLateSeconds,
     }
 end
 
 -- ============================================================================
--- 娴姩鍔ㄧ敾
+-- 浮动动画
 -- ============================================================================
 
 function M.UpdateAnimation()
@@ -474,7 +480,7 @@ function M.UpdateAnimation()
 end
 
 -- ============================================================================
--- 閲嶇疆
+-- 重置
 -- ============================================================================
 
 function M.Reset()
@@ -487,7 +493,6 @@ function M.Reset()
     if M.packageVisualNode then M.packageVisualNode.enabled = false end
     M.nextPickupDistance = 30.0
     M.nextDeliveryDistance = 100.0
-    M.deliveryDistrictId = "downtown"
     StopOrderTimer()
     M.totalIncome = 0
     M.comboCount = 0

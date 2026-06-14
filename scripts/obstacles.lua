@@ -1,7 +1,7 @@
 -- ============================================================================
--- 澶栧崠鍐插啿鍐?- 闅滅鐗╂ā鍧楋紙鍩轰簬 RoadGraph锛?
+-- 外卖冲冲冲 - 障碍物模块（基于 RoadGraph）
 -- ============================================================================
--- 闅滅鐗╃粦瀹氬埌鐪熷疄 edge锛屾牴鎹?edgeProgress 鐢熸垚/鍥炴敹
+-- 障碍物绑定到真实 edge，根据 edgeProgress 生成/回收
 -- ============================================================================
 
 local cfg = require("config")
@@ -13,8 +13,8 @@ local pickup = require("pickup_delivery")
 
 local M = {}
 
+-- 障碍物类型定义
 M.types = {
-
     { name = "block", offsetY = 0.785, jumpable = false, slidable = false },
     { name = "low",   offsetY = 0.30,  jumpable = true,  slidable = false, topLandable = true },
     { name = "high",  offsetY = 1.01,  jumpable = false, slidable = true  },
@@ -24,7 +24,7 @@ local TYPE_BLOCK = 1
 local TYPE_LOW = 2
 local TYPE_HIGH = 3
 
--- 瀵硅薄姹犲拰娲昏穬鍒楄〃
+-- 对象池和活跃列表
 M.pool = {}
 M.active = {}
 M.lastSpawnEdgeId = 0
@@ -123,13 +123,7 @@ end
 
 local function GetCurrentSpacing()
     local factor = GetDifficultyFactor()
-    local spacing = CONFIG.OBSTACLE_SPACING_MAX - (CONFIG.OBSTACLE_SPACING_MAX - CONFIG.OBSTACLE_SPACING_MIN) * factor
-    local s = path.state
-    if s and s.currentEdge then
-        local district = rn.GetEdgeDistrict(s.currentEdge)
-        spacing = spacing * (district.obstacleSpacing or 1.0)
-    end
-    return spacing
+    return CONFIG.OBSTACLE_SPACING_MAX - (CONFIG.OBSTACLE_SPACING_MAX - CONFIG.OBSTACLE_SPACING_MIN) * factor
 end
 
 local function Shuffle(list)
@@ -242,7 +236,8 @@ local function BuildObstacleRows(pattern)
     return { { distOffset = 0, entries = { { lane = lanes[1], typeIdx = PickTypeForSingle() } } } }
 end
 
-
+--- 在指定边上指定位置放置障碍物
+--- edgeDist: 在有效区段内的距离（0 = 刚出路口区域）
 local function PositionObstacle(obs, edge, edgeDist, lane)
     obs.edgeId = edge.id
     obs.edgeDist = edgeDist
@@ -320,7 +315,7 @@ local function ClearOrderConflicts()
     end
 end
 
---- 鐢熸垚闅滅鐗╋紙鍦ㄥ綋鍓嶈竟鐨勫墠鏂癸級
+--- 生成障碍物（在当前边的前方）
 function M.Spawn()
     local s = path.state
     if s.insideIntersection then return end
@@ -332,12 +327,13 @@ function M.Spawn()
     local spacing = GetCurrentSpacing()
 
     ClearOrderConflicts()
+
+    -- 计算生成范围（玩家前方 effectiveDist）
     local spawnAheadDist = GetSpawnAheadDist(playerDist, effectiveLen)
 
-
-    -- 纭畾涓嬫鐢熸垚鐨勪綅缃紙璺濈鏈夋晥鍖烘璧风偣鐨勮窛绂伙級
+    -- 确定下次生成的位置（距离有效区段起点的距离）
     if M.lastSpawnEdgeId ~= edge.id then
-        -- 杩涘叆鏂拌竟锛屼粠瀹夊叏鍖轰箣鍚庡紑濮?
+        -- 进入新边，从安全区之后开始
         M.lastSpawnEdgeId = edge.id
         M.lastSpawnDist = CONFIG.SAFE_ZONE_DIST
     end
@@ -349,7 +345,7 @@ function M.Spawn()
         local pattern = PickPattern()
         local isComplex = pattern == "double_block" or pattern == "low_then_high" or pattern == "zigzag_blocks"
 
-        -- 璺宠繃瀹夊叏鍖猴紙闈犺繎涓ょ璺彛鍖哄煙杈圭晫鐨勪綅缃級
+        -- 跳过安全区（靠近两端路口区域边界的位置）
         if not IsSpawnDistSafe(spawnDist, effectiveLen, isComplex) then
             goto continue_spawn
         end
@@ -364,7 +360,7 @@ function M.Spawn()
     end
 end
 
---- 纰版挒妫€娴?
+--- 碰撞检测
 function M.CheckCollisions(playerLane, isJumping, jumpTime, isSliding, slideTime, collisionState)
     local s = path.state
     if not s.currentEdge then return nil end
@@ -376,7 +372,7 @@ function M.CheckCollisions(playerLane, isJumping, jumpTime, isSliding, slideTime
 
     for idx = #M.active, 1, -1 do
         local obs = M.active[idx]
-        -- 鍙娴嬪悓涓€鏉¤竟涓婄殑闅滅鐗?
+        -- 只检测同一条边上的障碍物
         if obs.edgeId == s.currentEdge.id then
             local distDiff = math.abs(s.edgeDistance - (obs.edgeDist or 0))
             if distDiff < CONFIG.COLLISION_Z_THRESHOLD then
@@ -406,14 +402,14 @@ function M.CheckCollisions(playerLane, isJumping, jumpTime, isSliding, slideTime
     return nil
 end
 
---- 鍥炴敹宸茶繃鐨勯殰纰嶇墿
+--- 回收已过的障碍物
 function M.Recycle()
     local s = path.state
     if not s.currentEdge then return end
 
     for idx = #M.active, 1, -1 do
         local obs = M.active[idx]
-        -- 涓嶅湪褰撳墠杈逛笂锛屾垨鑰呭凡缁忓湪鐜╁鍚庨潰寰堣繙
+        -- 不在当前边上，或者已经在玩家后面很远
         local shouldRemove = false
         if obs.edgeId ~= s.currentEdge.id then
             shouldRemove = true

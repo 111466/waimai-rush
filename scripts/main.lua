@@ -141,6 +141,8 @@ local function HandleUpdate(eventType, eventData)
     -- 先生成取件/送件点，障碍物生成时会避让订单点
     pickup.TrySpawnPickup()
     pickup.TrySpawnDelivery(player.currentSpeed)
+
+    -- 生成障碍物
     obstacles.Spawn()
 
     -- 碰撞检测
@@ -165,6 +167,8 @@ local function HandleUpdate(eventType, eventData)
     -- 取件/送件
     pickup.CheckPickup()
     pickup.CheckDelivery()
+
+    -- 配送导航：偏离推荐路线后自动重规划，不额外扣时间。
     nav.Update(s, dt)
     if nav.NeedsNewTarget() then
         pickup.ReselectDeliveryTarget(player.currentSpeed)

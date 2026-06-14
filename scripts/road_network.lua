@@ -7,7 +7,6 @@
 
 local cfg = require("config")
 local CONFIG = cfg.CONFIG
-local districts = require("districts")
 
 local M = {}
 
@@ -97,29 +96,6 @@ function M.TurnRight(heading)
 end
 
 --- 生成完整路网
-function M.GetDistrict(id)
-    return districts.Get(id)
-end
-
-function M.GetDistrictByGrid(gx, gz)
-    return districts.ByGrid(gx, gz, M.GRID_SIZE)
-end
-
-function M.GetNodeDistrict(nodeId)
-    local node = M.nodes[nodeId]
-    if not node then
-        return M.GetDistrict("downtown")
-    end
-    return M.GetDistrict(node.districtId)
-end
-
-function M.GetEdgeDistrict(edge)
-    if not edge then
-        return M.GetDistrict("downtown")
-    end
-    return M.GetDistrict(edge.districtId)
-end
-
 function M.Generate()
     M.nodes = {}
     M.edges = {}
@@ -135,7 +111,6 @@ function M.Generate()
                 gridZ = gz,
                 worldX = wx,
                 worldZ = wz,
-                districtId = M.GetDistrictByGrid(gx, gz).id,
                 edges = {},  -- 从该节点出发的 edgeId 列表
             }
         end
@@ -152,7 +127,6 @@ function M.Generate()
             if gx < M.GRID_SIZE then
                 local neighborId = M.GridToNodeId(gx + 1, gz)
                 local neighbor = M.nodes[neighborId]
-                local district = M.GetDistrictByGrid((node.gridX + neighbor.gridX) * 0.5, (node.gridZ + neighbor.gridZ) * 0.5)
                 edgeId = edgeId + 1
                 local edge = {
                     id = edgeId,
@@ -162,7 +136,6 @@ function M.Generate()
                     length = M.BLOCK_SIZE,
                     worldStart = Vector3(node.worldX, 0, node.worldZ),
                     worldEnd = Vector3(neighbor.worldX, 0, neighbor.worldZ),
-                    districtId = district.id,
                 }
                 M.edges[edgeId] = edge
                 table.insert(node.edges, edgeId)
@@ -177,7 +150,6 @@ function M.Generate()
                     length = M.BLOCK_SIZE,
                     worldStart = Vector3(neighbor.worldX, 0, neighbor.worldZ),
                     worldEnd = Vector3(node.worldX, 0, node.worldZ),
-                    districtId = district.id,
                 }
                 M.edges[edgeId] = revEdge
                 table.insert(neighbor.edges, edgeId)
@@ -187,7 +159,6 @@ function M.Generate()
             if gz < M.GRID_SIZE then
                 local neighborId = M.GridToNodeId(gx, gz + 1)
                 local neighbor = M.nodes[neighborId]
-                local district = M.GetDistrictByGrid((node.gridX + neighbor.gridX) * 0.5, (node.gridZ + neighbor.gridZ) * 0.5)
                 edgeId = edgeId + 1
                 local edge = {
                     id = edgeId,
@@ -197,7 +168,6 @@ function M.Generate()
                     length = M.BLOCK_SIZE,
                     worldStart = Vector3(node.worldX, 0, node.worldZ),
                     worldEnd = Vector3(neighbor.worldX, 0, neighbor.worldZ),
-                    districtId = district.id,
                 }
                 M.edges[edgeId] = edge
                 table.insert(node.edges, edgeId)
@@ -212,7 +182,6 @@ function M.Generate()
                     length = M.BLOCK_SIZE,
                     worldStart = Vector3(neighbor.worldX, 0, neighbor.worldZ),
                     worldEnd = Vector3(node.worldX, 0, node.worldZ),
-                    districtId = district.id,
                 }
                 M.edges[edgeId] = revEdge
                 table.insert(neighbor.edges, edgeId)
