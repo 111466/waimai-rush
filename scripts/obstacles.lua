@@ -86,10 +86,8 @@ local function PositionObstacle(obs, edge, edgeDist, lane)
     obs.lane = lane
     obs.active = true
 
-    -- 新系统：找到对应 lane 的并行 edge，获取其世界坐标
-    local targetEdge = rn.GetParallelExitEdge(edge.fromNode, edge.heading, lane)
-    if not targetEdge then targetEdge = edge end
-    local worldPos = rn.GetPositionOnEdgeByDist(targetEdge, edgeDist)
+    local laneX = CONFIG.LANE_X[lane]
+    local worldPos = rn.GetPositionOnEdgeByDist(edge, edgeDist, laneX)
     obs.node.position = Vector3(worldPos.x, obs.info.offsetY, worldPos.z)
     obs.node.rotation = Quaternion(rn.HeadingToYaw(edge.heading), Vector3.UP)
 end
@@ -161,15 +159,10 @@ function M.CheckCollisions(playerLane, isJumping, jumpTime, isSliding, slideTime
     local s = path.state
     if not s.currentEdge then return false end
 
-    -- 使用 fromNode + heading 匹配同组并行道路上的障碍物
-    local playerFromNode = s.currentEdge.fromNode
-    local playerHeading = s.currentEdge.heading
-
     for idx = #M.active, 1, -1 do
         local obs = M.active[idx]
-        -- 检查障碍物是否在同组并行道路上（相同 fromNode + heading）
-        local obsEdge = rn.edges[obs.edgeId]
-        if obsEdge and obsEdge.fromNode == playerFromNode and obsEdge.heading == playerHeading then
+        -- 只检测同一条边上的障碍物
+        if obs.edgeId == s.currentEdge.id then
             local distDiff = math.abs(s.edgeDistance - (obs.edgeDist or 0))
             if distDiff < CONFIG.COLLISION_Z_THRESHOLD and obs.lane == playerLane then
                 local canPass = false
@@ -193,15 +186,11 @@ function M.Recycle()
     local s = path.state
     if not s.currentEdge then return end
 
-    local playerFromNode = s.currentEdge.fromNode
-    local playerHeading = s.currentEdge.heading
-
     for idx = #M.active, 1, -1 do
         local obs = M.active[idx]
-        -- 不在同组并行道路上，或者已经在玩家后面很远
+        -- 不在当前边上，或者已经在玩家后面很远
         local shouldRemove = false
-        local obsEdge = rn.edges[obs.edgeId]
-        if not obsEdge or obsEdge.fromNode ~= playerFromNode or obsEdge.heading ~= playerHeading then
+        if obs.edgeId ~= s.currentEdge.id then
             shouldRemove = true
         elseif (obs.edgeDist or 0) < s.edgeDistance - 10.0 then
             shouldRemove = true

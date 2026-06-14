@@ -1,5 +1,5 @@
 -- ============================================================================
--- 外卖冲冲冲 - 入口文件（并行道路 + 3x3 路口系统）
+-- 外卖冲冲冲 - 入口文件（基于 RoadGraph 路网系统）
 -- Temple Run 式 90° 转向竖屏跑酷 + 外卖配送
 -- ============================================================================
 
@@ -44,7 +44,7 @@ end
 local function RestartGame()
     gameState_ = "running"
 
-    -- 重置路径系统
+    -- 重置路径系统（重新选择起始边，内部会重置所有状态机字段）
     path.Init()
 
     -- 重置玩家
@@ -81,13 +81,13 @@ local function HandleUpdate(eventType, eventData)
 
     local s = path.state
 
-    -- 更新输入状态机
+    -- 更新输入状态机（在处理输入之前）
     path.UpdateInputState()
 
     -- 输入处理
     inp.HandleKeyboard(dt)
 
-    -- 检查死路
+    -- 检查死路（玩家选择方向无路或默认直走无路）
     if s.routeBlocked then
         GameOver()
         return
@@ -101,24 +101,25 @@ local function HandleUpdate(eventType, eventData)
     player.distanceTraveled = player.distanceTraveled + moveDist
     obstacles.distanceTraveled = player.distanceTraveled
 
-    -- 推进路径
+    -- 推进路径（沿边前进 / 弧线过渡）
     path.Advance(moveDist)
 
-    -- 再次检查死路
+    -- 再次检查死路（Advance 中的 StartTurnAtNode 可能触发）
     if s.routeBlocked then
         GameOver()
         return
     end
 
-    -- 刚确定路口出口时的逻辑
+    -- 刚确定路口出口时的逻辑（仅在实际转向时清理，直行不清）
     if s.turnJustCommitted then
         local actuallyTurning = (s.turnArrivalHeading ~= s.turnExitHeading)
 
         if actuallyTurning then
+            -- 只有实际转弯（左/右）时才清除旧边上的障碍物
             obstacles.ClearAll()
         end
 
-        -- 奖惩逻辑
+        -- 奖惩逻辑（持有包裹时，按推荐方向给奖惩）
         if pickup.hasPackage and actuallyTurning then
             local correctDir = s.intersectionHintDir
             local actualDir = 0
@@ -137,13 +138,16 @@ local function HandleUpdate(eventType, eventData)
         end
     end
 
-    -- 路口逻辑
+    -- 路口逻辑（检测、显示箭头）
     intersection.Update()
 
     -- 跳跃/下滑
     local jumpY = player.UpdateJumpSlide(dt)
 
-    -- 计算玩家世界位置
+    -- 变道
+    player.UpdateLaneChange(dt)
+
+    -- 计算玩家世界位置（使用 path 模块）
     player.UpdatePosition(jumpY)
 
     -- 生成障碍物
@@ -183,7 +187,7 @@ local function HandleUpdate(eventType, eventData)
         player.currentSpeed,
         s.intersectionActive,
         s.intersectionHintDir,
-        s.desiredTurn
+        s.turnChoice
     )
 
     -- 取件/送件浮动动画
@@ -191,7 +195,7 @@ local function HandleUpdate(eventType, eventData)
 end
 
 -- ============================================================================
--- 触摸事件包装
+-- 触摸事件包装（过滤 gameState）
 -- ============================================================================
 
 local function HandleTouchBegin(eventType, eventData)
@@ -230,7 +234,7 @@ local function CreateScene()
     zone.fogStart = 100.0
     zone.fogEnd = 220.0
 
-    -- 地面
+    -- 地面（大平面，覆盖整个路网区域）
     local groundNode = scene_:CreateChild("Ground")
     local gm = groundNode:CreateComponent("StaticModel")
     gm.model = cache:GetResource("Model", "Models/Box.mdl")
@@ -259,7 +263,7 @@ function CreateGameContent()
     -- 初始化材质
     mats.Init()
 
-    -- 创建道路视觉（基于路网渲染所有并行道路）
+    -- 创建道路视觉（基于路网一次性铺设所有道路）
     pools.Init(scene_)
 
     -- 初始化障碍物池
@@ -271,7 +275,7 @@ function CreateGameContent()
     pickup.nextPickupDistance = 30.0
     pickup.nextDeliveryDistance = 100.0
 
-    -- 创建路口视觉
+    -- 创建路口视觉（方向箭头）
     intersection.CreateVisuals(scene_)
 
     -- 创建玩家
@@ -293,10 +297,11 @@ function CreateGameContent()
     SubscribeToEvent("TouchEnd", HandleTouchEnd)
 
     print("[Game] ==============================")
-    print("[Game] 外卖冲冲冲 - 并行道路版启动!")
+    print("[Game] 外卖冲冲冲 - RoadGraph 路网版启动!")
     print("[Game] ==============================")
-    print("[Game] 操作: ← → 切换道路/选择转弯 | ↑/空格 跳跃+直走 | ↓ 下滑")
-    print("[Game] 路口内：←/→ 选择转弯方向，↑ 选择直走")
+    print("[Game] 操作: ← → 变道/转弯 | ↑/空格 跳跃 | ↓ 下滑")
+    print("[Game] 路口出现时：←/→ 选择转弯方向，↑ 直走")
     print("[Game] 路网规模: " .. rn.GRID_SIZE .. "x" .. rn.GRID_SIZE .. " 网格, 间距 " .. rn.BLOCK_SIZE .. "m")
-    print("[Game] 每方向 " .. rn.PARALLEL_COUNT .. " 条并行道路，间距 " .. rn.LANE_SPACING .. "m")
 end
+
+

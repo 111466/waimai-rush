@@ -92,10 +92,9 @@ function M.TrySpawnPickup()
     M.pickupLane = lane
     M.pickupActive = true
 
-    -- 新系统：找到对应 lane 的并行 edge，获取其世界坐标
-    local targetEdge = rn.GetParallelExitEdge(s.currentEdge.fromNode, s.currentEdge.heading, lane)
-    if not targetEdge then targetEdge = s.currentEdge end
-    local worldPos = rn.GetPositionOnEdgeByDist(targetEdge, spawnDist)
+    -- 计算世界位置
+    local laneX = CONFIG.LANE_X[lane]
+    local worldPos = rn.GetPositionOnEdgeByDist(s.currentEdge, spawnDist, laneX)
     M.pickupNode.position = Vector3(worldPos.x, 0.6, worldPos.z)
     M.pickupNode.rotation = Quaternion(rn.HeadingToYaw(s.currentEdge.heading), Vector3.UP)
 
@@ -114,11 +113,9 @@ function M.CheckPickup()
     local s = path.state
     if not s.currentEdge then return end
 
-    -- 检查玩家是否在同组并行道路上（相同 fromNode + heading）
-    local pickupEdge = rn.edges[M.pickupEdgeId]
-    local sameGroup = pickupEdge and pickupEdge.fromNode == s.currentEdge.fromNode and pickupEdge.heading == s.currentEdge.heading
-    if not sameGroup then
-        -- 玩家已离开该道路组，取件点消失
+    -- 只有在同一条边上才检测
+    if M.pickupEdgeId ~= s.currentEdge.id then
+        -- 玩家已离开该边，取件点消失
         M.pickupActive = false
         M.pickupNode.position = Vector3(0, -100, 0)
         return
@@ -169,10 +166,9 @@ function M.TrySpawnDelivery()
     M.deliveryLane = lane
     M.deliveryActive = true
 
-    -- 新系统：找到对应 lane 的并行 edge，获取其世界坐标
-    local targetEdge = rn.GetParallelExitEdge(s.currentEdge.fromNode, s.currentEdge.heading, lane)
-    if not targetEdge then targetEdge = s.currentEdge end
-    local worldPos = rn.GetPositionOnEdgeByDist(targetEdge, spawnDist)
+    -- 计算世界位置
+    local laneX = CONFIG.LANE_X[lane]
+    local worldPos = rn.GetPositionOnEdgeByDist(s.currentEdge, spawnDist, laneX)
     M.deliveryNode.position = Vector3(worldPos.x, 0.15, worldPos.z)
     M.deliveryNode.rotation = Quaternion(rn.HeadingToYaw(s.currentEdge.heading), Vector3.UP)
 
@@ -194,11 +190,9 @@ function M.CheckDelivery()
     local s = path.state
     if not s.currentEdge then return end
 
-    -- 检查玩家是否在同组并行道路上（相同 fromNode + heading）
-    local deliveryEdge = rn.edges[M.deliveryEdgeId]
-    local sameGroup = deliveryEdge and deliveryEdge.fromNode == s.currentEdge.fromNode and deliveryEdge.heading == s.currentEdge.heading
-    if not sameGroup then
-        -- 玩家已离开该道路组，送件点消失，连击中断
+    -- 只有在同一条边上才检测
+    if M.deliveryEdgeId ~= s.currentEdge.id then
+        -- 玩家已离开该边，送件点消失，连击中断
         M.comboCount = 0
         M.deliveryActive = false
         M.deliveryNode.position = Vector3(0, -100, 0)
