@@ -1,7 +1,7 @@
 -- ============================================================================
--- 外卖冲冲冲 - 对象池模块（基于 RoadGraph 真实路网渲染）
+-- 外卖冲冲冲 - 对象池模块（并行道路渲染）
 -- ============================================================================
--- 所有道路段、车道线、建筑根据路网 edge 真实摆放
+-- 每个方向渲染 3 条并行道路，路口中心渲染为 3x3 大方形区域
 -- ============================================================================
 
 local cfg = require("config")
@@ -11,11 +11,10 @@ local mats = require("materials")
 
 local M = {}
 
--- 场景对象列表（不再是循环回收池，而是一次性创建所有路网视觉）
-M.roadSegments = {}    -- 所有道路段节点
-M.lineNodes = {}       -- 所有车道线节点
-M.buildingNodes = {}   -- 所有建筑节点
-M.intersectionNodes = {} -- 所有路口地面节点
+M.roadSegments = {}
+M.lineNodes = {}
+M.buildingNodes = {}
+M.intersectionNodes = {}
 
 -- 建筑色板
 local buildingColors = {
@@ -28,40 +27,47 @@ local buildingColors = {
 }
 
 -- ============================================================================
--- 创建道路段（一个 edge 铺多段）
+-- 创建单条道路段
 -- ============================================================================
 
-local function CreateRoadSegment(scene, pos, yaw, segLength)
+local function CreateRoadSegment(scene, pos, yaw, segLength, roadWidth)
+    local w = roadWidth or rn.ROAD_WIDTH
     local roadNode = scene:CreateChild("RoadSeg")
     local model = roadNode:CreateComponent("StaticModel")
     model.model = cache:GetResource("Model", "Models/Box.mdl")
     model.material = mats.road
-    roadNode.scale = Vector3(CONFIG.ROAD_WIDTH, 0.15, segLength)
+    roadNode.scale = Vector3(w, 0.15, segLength)
     roadNode.position = Vector3(pos.x, 0.075, pos.z)
     roadNode.rotation = Quaternion(yaw, Vector3.UP)
     table.insert(M.roadSegments, roadNode)
+end
 
-    -- 路缘石
-    local halfRoad = CONFIG.ROAD_WIDTH * 0.5
+-- ============================================================================
+-- 创建路缘和人行道（只在最外侧道路两边）
+-- ============================================================================
+
+local function CreateCurbAndSidewalk(scene, pos, yaw, segLength, halfGroupWidth)
     local yawRad = math.rad(yaw)
     local rx = math.cos(yawRad)
     local rz = -math.sin(yawRad)
 
+    -- 左侧路缘石
     local curbL = scene:CreateChild("CurbL")
     local cm = curbL:CreateComponent("StaticModel")
     cm.model = cache:GetResource("Model", "Models/Box.mdl")
     cm.material = mats.curb
     curbL.scale = Vector3(0.3, 0.35, segLength)
-    curbL.position = Vector3(pos.x + rx * (halfRoad + 0.15), 0.175, pos.z + rz * (halfRoad + 0.15))
+    curbL.position = Vector3(pos.x + rx * (halfGroupWidth + 0.15), 0.175, pos.z + rz * (halfGroupWidth + 0.15))
     curbL.rotation = Quaternion(yaw, Vector3.UP)
     table.insert(M.roadSegments, curbL)
 
+    -- 右侧路缘石
     local curbR = scene:CreateChild("CurbR")
     local cm2 = curbR:CreateComponent("StaticModel")
     cm2.model = cache:GetResource("Model", "Models/Box.mdl")
     cm2.material = mats.curb
     curbR.scale = Vector3(0.3, 0.35, segLength)
-    curbR.position = Vector3(pos.x - rx * (halfRoad + 0.15), 0.175, pos.z - rz * (halfRoad + 0.15))
+    curbR.position = Vector3(pos.x - rx * (halfGroupWidth + 0.15), 0.175, pos.z - rz * (halfGroupWidth + 0.15))
     curbR.rotation = Quaternion(yaw, Vector3.UP)
     table.insert(M.roadSegments, curbR)
 
@@ -70,8 +76,8 @@ local function CreateRoadSegment(scene, pos, yaw, segLength)
     local sm = swL:CreateComponent("StaticModel")
     sm.model = cache:GetResource("Model", "Models/Box.mdl")
     sm.material = mats.sidewalk
-    swL.scale = Vector3(2.5, 0.12, segLength)
-    swL.position = Vector3(pos.x + rx * (halfRoad + 1.55), 0.06, pos.z + rz * (halfRoad + 1.55))
+    swL.scale = Vector3(2.0, 0.12, segLength)
+    swL.position = Vector3(pos.x + rx * (halfGroupWidth + 1.3), 0.06, pos.z + rz * (halfGroupWidth + 1.3))
     swL.rotation = Quaternion(yaw, Vector3.UP)
     table.insert(M.roadSegments, swL)
 
@@ -79,68 +85,66 @@ local function CreateRoadSegment(scene, pos, yaw, segLength)
     local sm2 = swR:CreateComponent("StaticModel")
     sm2.model = cache:GetResource("Model", "Models/Box.mdl")
     sm2.material = mats.sidewalk
-    swR.scale = Vector3(2.5, 0.12, segLength)
-    swR.position = Vector3(pos.x - rx * (halfRoad + 1.55), 0.06, pos.z - rz * (halfRoad + 1.55))
+    swR.scale = Vector3(2.0, 0.12, segLength)
+    swR.position = Vector3(pos.x - rx * (halfGroupWidth + 1.3), 0.06, pos.z - rz * (halfGroupWidth + 1.3))
     swR.rotation = Quaternion(yaw, Vector3.UP)
     table.insert(M.roadSegments, swR)
 end
 
 -- ============================================================================
--- 创建车道线
+-- 创建一组并行道路（3条）之间的分隔线
 -- ============================================================================
 
-local function CreateLaneLines(scene, edgeStart, edgeEnd, heading, edgeLength)
+local function CreateLaneMarkers(scene, edgeStart, edgeEnd, heading, effectiveLength)
     local yaw = rn.HeadingToYaw(heading)
-    local fwd = rn.HeadingToForward(heading)
     local right = rn.HeadingToRight(heading)
 
-    local numLines = math.floor(edgeLength / CONFIG.LINE_SPACING)
-    for i = 1, numLines do
-        local t = (i - 0.5) / numLines
-        local px = edgeStart.x + (edgeEnd.x - edgeStart.x) * t
-        local pz = edgeStart.z + (edgeEnd.z - edgeStart.z) * t
+    -- 道路间分隔线（在 lane 1-2 和 lane 2-3 之间）
+    local numLines = math.floor(effectiveLength / CONFIG.LINE_SPACING)
+    for _, gapOffset in ipairs({ -rn.LANE_SPACING * 0.5, rn.LANE_SPACING * 0.5 }) do
+        for i = 1, numLines do
+            local t = (i - 0.5) / numLines
+            local px = edgeStart.x + (edgeEnd.x - edgeStart.x) * t
+            local pz = edgeStart.z + (edgeEnd.z - edgeStart.z) * t
 
-        -- 左车道线
-        local nodeL = scene:CreateChild("LineL")
-        local mL = nodeL:CreateComponent("StaticModel")
-        mL.model = cache:GetResource("Model", "Models/Box.mdl")
-        mL.material = mats.laneLine
-        nodeL.scale = Vector3(0.12, 0.05, CONFIG.LINE_LENGTH)
-        nodeL.position = Vector3(px - right.x * 1.0, 0.16, pz - right.z * 1.0)
-        nodeL.rotation = Quaternion(yaw, Vector3.UP)
-        table.insert(M.lineNodes, nodeL)
+            -- 偏移到分隔线位置
+            local lx = px + right.x * gapOffset
+            local lz = pz + right.z * gapOffset
 
-        -- 右车道线
-        local nodeR = scene:CreateChild("LineR")
-        local mR = nodeR:CreateComponent("StaticModel")
-        mR.model = cache:GetResource("Model", "Models/Box.mdl")
-        mR.material = mats.laneLine
-        nodeR.scale = Vector3(0.12, 0.05, CONFIG.LINE_LENGTH)
-        nodeR.position = Vector3(px + right.x * 1.0, 0.16, pz + right.z * 1.0)
-        nodeR.rotation = Quaternion(yaw, Vector3.UP)
-        table.insert(M.lineNodes, nodeR)
+            local lineNode = scene:CreateChild("LnMark")
+            local lm = lineNode:CreateComponent("StaticModel")
+            lm.model = cache:GetResource("Model", "Models/Box.mdl")
+            lm.material = mats.laneLine
+            lineNode.scale = Vector3(0.12, 0.05, CONFIG.LINE_LENGTH)
+            lineNode.position = Vector3(lx, 0.16, lz)
+            lineNode.rotation = Quaternion(yaw, Vector3.UP)
+            table.insert(M.lineNodes, lineNode)
+        end
     end
 end
 
 -- ============================================================================
--- 创建建筑（沿 edge 两侧）
+-- 创建建筑（沿路段两侧）
 -- ============================================================================
 
 local function CreateBuildingsAlongEdge(scene, edgeStart, edgeEnd, heading, edgeLength)
-    local fwd = rn.HeadingToForward(heading)
     local right = rn.HeadingToRight(heading)
-
     local numBuildings = CONFIG.BUILDINGS_PER_EDGE
+
+    -- 建筑区域从道路组外侧开始
+    local groupHalfWidth = rn.LANE_SPACING + rn.ROAD_WIDTH * 0.5 + 2.5
+    local buildStart = groupHalfWidth + 2.0
+    local buildEnd = groupHalfWidth + 12.0
+
     for i = 1, numBuildings do
         local t = (i - 0.5) / numBuildings
-        -- 避开路口区域（留空 15%）
         if t > 0.1 and t < 0.9 then
             local px = edgeStart.x + (edgeEnd.x - edgeStart.x) * t
             local pz = edgeStart.z + (edgeEnd.z - edgeStart.z) * t
 
             for _, side in ipairs({-1, 1}) do
-                if math.random() > 0.3 then  -- 70% 概率生成建筑
-                    local lateral = CONFIG.BUILDING_ZONE_START + math.random() * (CONFIG.BUILDING_ZONE_END - CONFIG.BUILDING_ZONE_START)
+                if math.random() > 0.3 then
+                    local lateral = buildStart + math.random() * (buildEnd - buildStart)
                     local bx = px + right.x * side * lateral
                     local bz = pz + right.z * side * lateral
 
@@ -164,7 +168,7 @@ local function CreateBuildingsAlongEdge(scene, edgeStart, edgeEnd, heading, edge
 end
 
 -- ============================================================================
--- 创建路口地面
+-- 创建路口地面（3x3 大方形区域）
 -- ============================================================================
 
 local function CreateIntersection(scene, node)
@@ -172,8 +176,10 @@ local function CreateIntersection(scene, node)
     local model = iNode:CreateComponent("StaticModel")
     model.model = cache:GetResource("Model", "Models/Box.mdl")
     model.material = mats.crossroads
-    -- 3x3 路口区域：尺寸 = INTERSECTION_HALF_SIZE * 2 + 道路宽度余量
-    local areaSize = rn.INTERSECTION_HALF_SIZE * 2.0 + CONFIG.ROAD_WIDTH * 0.5
+    -- 区域尺寸：需覆盖 3 条并行道路的宽度
+    -- 总宽 = LANE_SPACING * 2 + ROAD_WIDTH * 3 （加点余量）
+    local groupWidth = rn.LANE_SPACING * 2 + rn.ROAD_WIDTH
+    local areaSize = math.max(rn.INTERSECTION_HALF_SIZE * 2.0, groupWidth) + 2.0
     iNode.scale = Vector3(areaSize, 0.16, areaSize)
     iNode.position = Vector3(node.worldX, 0.08, node.worldZ)
     table.insert(M.intersectionNodes, iNode)
@@ -184,65 +190,110 @@ end
 -- ============================================================================
 
 function M.Init(scene)
-    print("[Pools] Building road visuals from RoadGraph...")
+    print("[Pools] Building road visuals from RoadGraph (parallel roads)...")
 
     -- 渲染所有路口
     for _, node in pairs(rn.nodes) do
         CreateIntersection(scene, node)
     end
 
-    -- 渲染所有边（只渲染正向避免重复：heading 0 或 1）
-    -- 实际上每条有向边都渲染一次会导致重叠，我们只渲染 "物理道路" 一次
+    -- 渲染并行道路
+    -- 对每对相邻节点只渲染一次（避免正反 edge 重复）
     local renderedPairs = {}
+
     for _, edge in pairs(rn.edges) do
-        -- 用较小的 nodeId 作为 key 避免重复
-        local pairKey = math.min(edge.fromNode, edge.toNode) * 1000 + math.max(edge.fromNode, edge.toNode)
-        if not renderedPairs[pairKey] then
-            renderedPairs[pairKey] = true
+        -- 只处理 heading 0 (+Z) 或 heading 1 (+X) 避免重复
+        if edge.heading == rn.HEADING_POS_Z or edge.heading == rn.HEADING_POS_X then
+            local pairKey = math.min(edge.fromNode, edge.toNode) * 10000 +
+                math.max(edge.fromNode, edge.toNode) * 10 + edge.laneIndex
+            if not renderedPairs[pairKey] then
+                renderedPairs[pairKey] = true
 
-            local start = edge.worldStart
-            local finish = edge.worldEnd
-            local heading = edge.heading
-            local length = edge.length
+                local heading = edge.heading
+                local yaw = rn.HeadingToYaw(heading)
+                local fwd = rn.HeadingToForward(heading)
 
-            -- 道路段铺设（沿 edge 中心线铺设多段）
-            local numSegs = CONFIG.ROAD_SEGMENTS_PER_EDGE
-            local segLen = length / numSegs
-            local yaw = rn.HeadingToYaw(heading)
+                -- 缩短道路，避免与路口区域重叠
+                local shrink = rn.INTERSECTION_HALF_SIZE + 0.5
+                local effectiveStart = Vector3(
+                    edge.worldStart.x + fwd.x * shrink,
+                    0,
+                    edge.worldStart.z + fwd.z * shrink
+                )
+                local effectiveEnd = Vector3(
+                    edge.worldEnd.x - fwd.x * shrink,
+                    0,
+                    edge.worldEnd.z - fwd.z * shrink
+                )
+                local effectiveLength = edge.length - shrink * 2
 
-            -- 缩短道路段，避免与路口区域重叠
-            local shrink = rn.INTERSECTION_HALF_SIZE + 0.5
-            local effectiveStart = Vector3(
-                start.x + rn.HeadingToForward(heading).x * shrink,
-                0,
-                start.z + rn.HeadingToForward(heading).z * shrink
-            )
-            local effectiveEnd = Vector3(
-                finish.x - rn.HeadingToForward(heading).x * shrink,
-                0,
-                finish.z - rn.HeadingToForward(heading).z * shrink
-            )
-            local effectiveLength = length - shrink * 2
-
-            if effectiveLength > 0 then
-                local effSegLen = effectiveLength / numSegs
-                for i = 1, numSegs do
-                    local t = (i - 0.5) / numSegs
-                    local px = effectiveStart.x + (effectiveEnd.x - effectiveStart.x) * t
-                    local pz = effectiveStart.z + (effectiveEnd.z - effectiveStart.z) * t
-                    CreateRoadSegment(scene, Vector3(px, 0, pz), yaw, effSegLen)
+                if effectiveLength > 0 then
+                    -- 铺设道路段
+                    local numSegs = CONFIG.ROAD_SEGMENTS_PER_EDGE
+                    local effSegLen = effectiveLength / numSegs
+                    for i = 1, numSegs do
+                        local t = (i - 0.5) / numSegs
+                        local px = effectiveStart.x + (effectiveEnd.x - effectiveStart.x) * t
+                        local pz = effectiveStart.z + (effectiveEnd.z - effectiveStart.z) * t
+                        CreateRoadSegment(scene, Vector3(px, 0, pz), yaw, effSegLen, rn.ROAD_WIDTH)
+                    end
                 end
-
-                -- 车道线
-                CreateLaneLines(scene, effectiveStart, effectiveEnd, heading, effectiveLength)
             end
-
-            -- 建筑
-            CreateBuildingsAlongEdge(scene, start, finish, heading, length)
         end
     end
 
-    print("[Pools] Created " .. #M.roadSegments .. " road parts, " .. #M.lineNodes .. " lane lines, " .. #M.buildingNodes .. " buildings, " .. #M.intersectionNodes .. " intersections")
+    -- 为每个"道路组"（3条并行道路）渲染分隔线、路缘、人行道、建筑
+    -- 只需要按方向对处理一次
+    local renderedGroups = {}
+    for _, edge in pairs(rn.edges) do
+        if (edge.heading == rn.HEADING_POS_Z or edge.heading == rn.HEADING_POS_X) and edge.laneIndex == 2 then
+            local groupKey = math.min(edge.fromNode, edge.toNode) * 100 + math.max(edge.fromNode, edge.toNode)
+            if not renderedGroups[groupKey] then
+                renderedGroups[groupKey] = true
+
+                local heading = edge.heading
+                local fwd = rn.HeadingToForward(heading)
+                local yaw = rn.HeadingToYaw(heading)
+                local shrink = rn.INTERSECTION_HALF_SIZE + 0.5
+
+                local effectiveStart = Vector3(
+                    edge.worldStart.x + fwd.x * shrink,
+                    0,
+                    edge.worldStart.z + fwd.z * shrink
+                )
+                local effectiveEnd = Vector3(
+                    edge.worldEnd.x - fwd.x * shrink,
+                    0,
+                    edge.worldEnd.z - fwd.z * shrink
+                )
+                local effectiveLength = edge.length - shrink * 2
+
+                if effectiveLength > 0 then
+                    -- 分隔线
+                    CreateLaneMarkers(scene, effectiveStart, effectiveEnd, heading, effectiveLength)
+
+                    -- 路缘和人行道（在道路组的中心线位置）
+                    local midT = 0.5
+                    local midX = effectiveStart.x + (effectiveEnd.x - effectiveStart.x) * midT
+                    local midZ = effectiveStart.z + (effectiveEnd.z - effectiveStart.z) * midT
+                    local halfGroupWidth = rn.LANE_SPACING + rn.ROAD_WIDTH * 0.5
+                    CreateCurbAndSidewalk(scene, Vector3(midX, 0, midZ), yaw, effectiveLength, halfGroupWidth)
+                end
+
+                -- 建筑：使用原始 edge 坐标
+                local fromNode = rn.nodes[edge.fromNode]
+                local toNode = rn.nodes[edge.toNode]
+                local fullStart = Vector3(fromNode.worldX, 0, fromNode.worldZ)
+                local fullEnd = Vector3(toNode.worldX, 0, toNode.worldZ)
+                CreateBuildingsAlongEdge(scene, fullStart, fullEnd, heading, edge.length)
+            end
+        end
+    end
+
+    print("[Pools] Created " .. #M.roadSegments .. " road parts, " ..
+        #M.lineNodes .. " lane markers, " ..
+        #M.buildingNodes .. " buildings, " ..
+        #M.intersectionNodes .. " intersections")
 end
 
 return M

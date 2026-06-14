@@ -1,10 +1,9 @@
 -- ============================================================================
--- 外卖冲冲冲 - 输入处理模块
+-- 外卖冲冲冲 - 输入处理模块（并行道路版）
 -- ============================================================================
 -- 输入状态机：
---   insideIntersection || turnInputActive → 左右滑动 = 选择转向
---   laneChangeLocked → 忽略左右滑动
---   其他 → 左右滑动 = 普通变道
+--   insideIntersection == true → 左右滑动 = 选择转向方向
+--   insideIntersection == false → 左右滑动 = 切换并行道路
 -- ============================================================================
 
 local cfg = require("config")
@@ -29,31 +28,26 @@ local function HandleHorizontalInput(dir)
     local s = path.state
 
     if s.turnInputActive then
-        -- 转向选择窗口内（路口区域内或接近路口）：左右 = 选择转弯方向
-        s.turnChoice = dir --[[@as integer]]
+        -- 路口区域内：左右 = 选择转弯方向
+        s.desiredTurn = dir --[[@as integer]]
         s.hasTurnChoice = true
-        -- 如果已经在路口区域内，实时更新出口方向
-        if s.insideIntersection then
-            path.UpdateExitChoice()
-        end
+        -- 实时更新出口选择
+        path.UpdateExitChoice()
     elseif not s.laneChangeLocked then
-        -- 普通道路：左右 = 变道
-        local targetLane = CONFIG.currentLane + dir
-        player.StartLaneChange(targetLane)
+        -- 普通道路：左右 = 切换并行道路
+        path.ChangeLane(dir)
     end
 end
 
---- 处理上方向输入（跳跃 + 可选直走选择）
+--- 处理上方向输入（跳跃 + 路口内选择直走）
 local function HandleUpInput()
     local s = path.state
 
-    -- 如果在转向选择窗口，上滑同时表示选择直走
     if s.turnInputActive then
-        s.turnChoice = 0
+        -- 路口区域内：上 = 选择直走
+        s.desiredTurn = 0
         s.hasTurnChoice = true
-        if s.insideIntersection then
-            path.UpdateExitChoice()
-        end
+        path.UpdateExitChoice()
     end
 
     -- 跳跃始终生效

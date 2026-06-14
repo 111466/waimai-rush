@@ -1,5 +1,5 @@
 -- ============================================================================
--- 外卖冲冲冲 - 玩家模块（基于 RoadGraph）
+-- 外卖冲冲冲 - 玩家模块（并行道路版）
 -- ============================================================================
 
 local cfg = require("config")
@@ -12,12 +12,6 @@ local M = {}
 -- 玩家节点
 M.node = nil
 M.packageVisualNode = nil
-
--- 变道动画
-M.laneChanging = false
-M.laneChangeFrom = 0.0
-M.laneChangeTo = 0.0
-M.laneChangeTime = 0.0
 
 -- 跳跃
 M.isJumping = false
@@ -73,32 +67,6 @@ function M.Create(scene)
 end
 
 -- ============================================================================
--- 变道
--- ============================================================================
-
-function M.StartLaneChange(targetLane)
-    if M.laneChanging then return end
-    if targetLane < 1 or targetLane > 3 then return end
-
-    M.laneChangeFrom = CONFIG.LANE_X[CONFIG.currentLane]
-    M.laneChangeTo = CONFIG.LANE_X[targetLane]
-    CONFIG.currentLane = targetLane
-    M.laneChangeTime = 0.0
-    M.laneChanging = true
-end
-
-function M.UpdateLaneChange(dt)
-    if not M.laneChanging then return end
-
-    M.laneChangeTime = M.laneChangeTime + dt
-    local t = math.min(1.0, M.laneChangeTime / CONFIG.LANE_CHANGE_DURATION)
-
-    if t >= 1.0 then
-        M.laneChanging = false
-    end
-end
-
--- ============================================================================
 -- 跳跃 / 下滑
 -- ============================================================================
 
@@ -128,7 +96,6 @@ function M.UpdateJumpSlide(dt)
         if M.jumpTime >= CONFIG.JUMP_DURATION then
             M.isJumping = false
             M.jumpTime = 0.0
-            -- 清除过期的 slideBuffered
             if M.slideBuffered then
                 M.slideBuffered = false
                 M.StartSlide()
@@ -144,49 +111,34 @@ function M.UpdateJumpSlide(dt)
         if M.slideTime >= CONFIG.SLIDE_DURATION then
             M.isSliding = false
             M.slideTime = 0.0
-            -- 清除过期的 jumpBuffered
             if M.jumpBuffered then
                 M.jumpBuffered = false
                 M.StartJump()
             end
         end
-        -- 下滑：整体压低（Body压扁 + Head/Hat/DeliveryBox 降低）
         local bodyNode = M.node:GetChild("Body")
         if bodyNode then
             bodyNode.scale = Vector3(0.8, 0.5, 0.6)
             bodyNode.position = Vector3(0, 0.25, 0)
         end
         local headNode = M.node:GetChild("Head")
-        if headNode then
-            headNode.position = Vector3(0, 0.6, 0)  -- 从 1.25 降到 0.6
-        end
+        if headNode then headNode.position = Vector3(0, 0.6, 0) end
         local hatNode = M.node:GetChild("Hat")
-        if hatNode then
-            hatNode.position = Vector3(0, 0.85, 0)  -- 从 1.5 降到 0.85
-        end
+        if hatNode then hatNode.position = Vector3(0, 0.85, 0) end
         local boxNode = M.node:GetChild("DeliveryBox")
-        if boxNode then
-            boxNode.position = Vector3(0, 0.45, -0.3)  -- 从 0.9 降到 0.45
-        end
+        if boxNode then boxNode.position = Vector3(0, 0.45, -0.3) end
     else
-        -- 恢复所有子节点的正常位置
         local bodyNode = M.node:GetChild("Body")
         if bodyNode then
             bodyNode.scale = Vector3(0.6, 1.0, 0.6)
             bodyNode.position = Vector3(0, 0.5, 0)
         end
         local headNode = M.node:GetChild("Head")
-        if headNode then
-            headNode.position = Vector3(0, 1.25, 0)
-        end
+        if headNode then headNode.position = Vector3(0, 1.25, 0) end
         local hatNode = M.node:GetChild("Hat")
-        if hatNode then
-            hatNode.position = Vector3(0, 1.5, 0)
-        end
+        if hatNode then hatNode.position = Vector3(0, 1.5, 0) end
         local boxNode = M.node:GetChild("DeliveryBox")
-        if boxNode then
-            boxNode.position = Vector3(0, 0.9, -0.3)
-        end
+        if boxNode then boxNode.position = Vector3(0, 0.9, -0.3) end
     end
 
     return jumpY
@@ -206,14 +158,8 @@ end
 -- ============================================================================
 
 function M.UpdatePosition(jumpY)
-    local laneX = CONFIG.LANE_X[CONFIG.currentLane]
-    if M.laneChanging then
-        local t = math.min(1.0, M.laneChangeTime / CONFIG.LANE_CHANGE_DURATION)
-        local smoothT = t * t * (3.0 - 2.0 * t)
-        laneX = M.laneChangeFrom + (M.laneChangeTo - M.laneChangeFrom) * smoothT
-    end
-
-    local worldPos = path.GetWorldPosition(laneX)
+    -- 位置直接由 path 模块决定（已含并行道路偏移）
+    local worldPos = path.GetWorldPosition()
     M.node.position = Vector3(worldPos.x, jumpY, worldPos.z)
 
     -- 朝向跟随道路方向
@@ -228,8 +174,6 @@ end
 function M.Reset()
     M.distanceTraveled = 0.0
     M.currentSpeed = CONFIG.BASE_SPEED
-    CONFIG.currentLane = 2
-    M.laneChanging = false
     M.isJumping = false
     M.jumpTime = 0.0
     M.jumpBuffered = false
