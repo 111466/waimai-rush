@@ -242,22 +242,42 @@ local function CreateEntryLine(scene, pos, yaw)
     table.insert(M.lineNodes, node)
 end
 
-local function CreateClosedExitMarker(scene, node, heading)
+local function CreateClosedExitCurb(scene, node, heading)
     local fwd = rn.HeadingToForward(heading)
-    local pos = Vector3(
-        node.worldX + fwd.x * (rn.INTERSECTION_HALF_SIZE + 0.25),
-        0.35,
-        node.worldZ + fwd.z * (rn.INTERSECTION_HALF_SIZE + 0.25)
+    local yaw = rn.HeadingToYaw(heading)
+    local curbDepth = 0.3
+    local sidewalkDepth = 2.5
+    local closureWidth = CONFIG.ROAD_WIDTH + 0.6
+
+    local curbPos = Vector3(
+        node.worldX + fwd.x * (rn.INTERSECTION_HALF_SIZE + curbDepth * 0.5),
+        0.175,
+        node.worldZ + fwd.z * (rn.INTERSECTION_HALF_SIZE + curbDepth * 0.5)
     )
 
-    local marker = scene:CreateChild("ClosedExit")
-    local model = marker:CreateComponent("StaticModel")
-    model.model = cache:GetResource("Model", "Models/Box.mdl")
-    model.material = mats.obstacleBlock
-    marker.scale = Vector3(CONFIG.ROAD_WIDTH * 0.75, 0.38, 0.35)
-    marker.position = pos
-    marker.rotation = Quaternion(rn.HeadingToYaw(heading), Vector3.UP)
-    table.insert(M.intersectionNodes, marker)
+    local curb = scene:CreateChild("ClosedExitCurb")
+    local curbModel = curb:CreateComponent("StaticModel")
+    curbModel.model = cache:GetResource("Model", "Models/Box.mdl")
+    curbModel.material = mats.curb
+    curb.scale = Vector3(closureWidth, 0.35, curbDepth)
+    curb.position = curbPos
+    curb.rotation = Quaternion(yaw, Vector3.UP)
+    table.insert(M.intersectionNodes, curb)
+
+    local sidewalkPos = Vector3(
+        node.worldX + fwd.x * (rn.INTERSECTION_HALF_SIZE + curbDepth + sidewalkDepth * 0.5),
+        0.06,
+        node.worldZ + fwd.z * (rn.INTERSECTION_HALF_SIZE + curbDepth + sidewalkDepth * 0.5)
+    )
+
+    local sidewalk = scene:CreateChild("ClosedExitSidewalk")
+    local sidewalkModel = sidewalk:CreateComponent("StaticModel")
+    sidewalkModel.model = cache:GetResource("Model", "Models/Box.mdl")
+    sidewalkModel.material = mats.sidewalk
+    sidewalk.scale = Vector3(closureWidth, 0.12, sidewalkDepth)
+    sidewalk.position = sidewalkPos
+    sidewalk.rotation = Quaternion(yaw, Vector3.UP)
+    table.insert(M.intersectionNodes, sidewalk)
 end
 
 -- ============================================================================
@@ -273,7 +293,7 @@ function M.Init(scene)
         if CONFIG.SHOW_INTERSECTION_CLOSED_MARKERS then
             for heading = 0, 3 do
                 if not rn.GetEdgeByHeading(node.id, heading) then
-                    CreateClosedExitMarker(scene, node, heading)
+                    CreateClosedExitCurb(scene, node, heading)
                 end
             end
         end

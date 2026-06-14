@@ -146,9 +146,19 @@ local function HandleUpdate(eventType, eventData)
     obstacles.Spawn()
 
     -- 碰撞检测
-    if obstacles.CheckCollisions(CONFIG.currentLane, player.isJumping, player.jumpTime, player.isSliding, player.slideTime) then
+    local collisionType = obstacles.CheckCollisions(
+        CONFIG.currentLane,
+        player.isJumping,
+        player.jumpTime,
+        player.isSliding,
+        player.slideTime,
+        player.GetCollisionState()
+    )
+    if collisionType == "front" then
         GameOver()
         return
+    elseif collisionType == "side" then
+        player.BounceBackFromSideCollision()
     end
 
     -- 回收已过障碍物

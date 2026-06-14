@@ -51,10 +51,42 @@ M.orderLateSeconds = 0.0
 
 function M.CreatePickupNode(scene)
     local node = scene:CreateChild("Pickup")
-    local model = node:CreateComponent("StaticModel")
-    model.model = cache:GetResource("Model", "Models/Box.mdl")
-    model.material = mats.pickup
-    node.scale = Vector3(0.8, 0.8, 0.8)
+
+    local bag = node:CreateChild("Bag")
+    local bagModel = bag:CreateComponent("StaticModel")
+    bagModel.model = cache:GetResource("Model", "Models/Box.mdl")
+    bagModel.material = mats.pickup
+    bag.scale = Vector3(0.8, 0.75, 0.55)
+    bag.position = Vector3(0, 0, 0)
+
+    local flap = node:CreateChild("BagFlap")
+    local flapModel = flap:CreateComponent("StaticModel")
+    flapModel.model = cache:GetResource("Model", "Models/Box.mdl")
+    flapModel.material = mats.pickupAccent
+    flap.scale = Vector3(0.62, 0.08, 0.58)
+    flap.position = Vector3(0, 0.42, 0)
+
+    local handleLeft = node:CreateChild("HandleLeft")
+    local handleLeftModel = handleLeft:CreateComponent("StaticModel")
+    handleLeftModel.model = cache:GetResource("Model", "Models/Box.mdl")
+    handleLeftModel.material = mats.pickupHandle
+    handleLeft.scale = Vector3(0.08, 0.34, 0.08)
+    handleLeft.position = Vector3(-0.22, 0.66, 0)
+
+    local handleRight = node:CreateChild("HandleRight")
+    local handleRightModel = handleRight:CreateComponent("StaticModel")
+    handleRightModel.model = cache:GetResource("Model", "Models/Box.mdl")
+    handleRightModel.material = mats.pickupHandle
+    handleRight.scale = Vector3(0.08, 0.34, 0.08)
+    handleRight.position = Vector3(0.22, 0.66, 0)
+
+    local handleTop = node:CreateChild("HandleTop")
+    local handleTopModel = handleTop:CreateComponent("StaticModel")
+    handleTopModel.model = cache:GetResource("Model", "Models/Box.mdl")
+    handleTopModel.material = mats.pickupHandle
+    handleTop.scale = Vector3(0.52, 0.08, 0.08)
+    handleTop.position = Vector3(0, 0.83, 0)
+
     node.position = Vector3(0, -100, 0)
     M.pickupNode = node
     return node
@@ -62,10 +94,35 @@ end
 
 function M.CreateDeliveryNode(scene)
     local node = scene:CreateChild("Delivery")
-    local model = node:CreateComponent("StaticModel")
-    model.model = cache:GetResource("Model", "Models/Box.mdl")
-    model.material = mats.delivery
-    node.scale = Vector3(1.0, 0.3, 1.0)
+
+    local pad = node:CreateChild("DeliveryPad")
+    local padModel = pad:CreateComponent("StaticModel")
+    padModel.model = cache:GetResource("Model", "Models/Cylinder.mdl")
+    padModel.material = mats.delivery
+    pad.scale = Vector3(0.85, 0.08, 0.85)
+    pad.position = Vector3(0, 0, 0)
+
+    local ring = node:CreateChild("DeliveryRing")
+    local ringModel = ring:CreateComponent("StaticModel")
+    ringModel.model = cache:GetResource("Model", "Models/Cylinder.mdl")
+    ringModel.material = mats.deliveryAccent
+    ring.scale = Vector3(1.05, 0.03, 1.05)
+    ring.position = Vector3(0, 0.08, 0)
+
+    local stem = node:CreateChild("DeliveryStem")
+    local stemModel = stem:CreateComponent("StaticModel")
+    stemModel.model = cache:GetResource("Model", "Models/Box.mdl")
+    stemModel.material = mats.deliveryAccent
+    stem.scale = Vector3(0.12, 0.8, 0.12)
+    stem.position = Vector3(0, 0.52, 0)
+
+    local marker = node:CreateChild("DeliveryMarker")
+    local markerModel = marker:CreateComponent("StaticModel")
+    markerModel.model = cache:GetResource("Model", "Models/Sphere.mdl")
+    markerModel.material = mats.deliveryMarker
+    marker.scale = Vector3(0.34, 0.34, 0.34)
+    marker.position = Vector3(0, 1.05, 0)
+
     node.position = Vector3(0, -100, 0)
     M.deliveryNode = node
     return node

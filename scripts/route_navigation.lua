@@ -15,6 +15,7 @@ M.distanceRemaining = 0.0
 M.replanMessageTimer = 0.0
 M.replanMessage = ""
 M.routeUnreachable = false
+M.MINIMAP_PLAYER_EDGE_STEPS = 16
 
 local REPLAN_MESSAGE_TIME = 1.4
 
@@ -51,6 +52,12 @@ function M.MakeEdgeSlot(edge)
     return M.MakeSegmentKey(edge.fromNode, edge.toNode)
 end
 
+function M.MakePlayerEdgeSlot(edge, stepIndex)
+    local key = M.MakeEdgeSlot(edge)
+    if not key then return nil end
+    return "p" .. key .. "_" .. tostring(stepIndex)
+end
+
 local function HeadingToChoice(arrivalHeading, exitHeading)
     if exitHeading == arrivalHeading then
         return 0
@@ -66,6 +73,10 @@ local function ChoiceToText(choice)
     if choice == -1 then return "左转" end
     if choice == 1 then return "右转" end
     return "直走"
+end
+
+local function Clamp(value, minValue, maxValue)
+    return math.max(minValue, math.min(maxValue, value))
 end
 
 function M.HasTarget()
@@ -309,6 +320,25 @@ local function FindNextRouteEdgeFromNode(nodeId)
     return nil
 end
 
+local function GetPlayerEdgeSlot(pathState)
+    local edge = pathState and pathState.currentEdge
+    if not edge then return nil end
+
+    local effectiveLen = rn.GetEdgeEffectiveLength()
+    local effectiveDist = Clamp(pathState.edgeDistance or 0.0, 0.0, effectiveLen)
+    local actualDist = rn.INTERSECTION_HALF_SIZE + effectiveDist
+    local progress = Clamp(actualDist / edge.length, 0.0, 1.0)
+
+    -- UI 端按较小 nodeId -> 较大 nodeId 的规范方向预生成进度点。
+    if edge.fromNode > edge.toNode then
+        progress = 1.0 - progress
+    end
+
+    local step = math.floor(progress * M.MINIMAP_PLAYER_EDGE_STEPS + 0.5)
+    step = Clamp(step, 0, M.MINIMAP_PLAYER_EDGE_STEPS)
+    return M.MakePlayerEdgeSlot(edge, step)
+end
+
 function M.GetSuggestedTurn(pathState)
     if not pathState or not M.HasRoute() then
         return nil
@@ -358,7 +388,7 @@ function M.GetMinimapData(pathState)
         if pathState.insideIntersection and pathState.intersectionNodeId ~= 0 then
             playerSlot = M.MakeNodeSlot(pathState.intersectionNodeId)
         elseif pathState.currentEdge then
-            playerSlot = M.MakeEdgeSlot(pathState.currentEdge)
+            playerSlot = GetPlayerEdgeSlot(pathState)
         end
     end
 

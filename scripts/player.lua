@@ -18,6 +18,9 @@ M.laneChanging = false
 M.laneChangeFrom = 0.0
 M.laneChangeTo = 0.0
 M.laneChangeTime = 0.0
+M.laneChangeFromLane = 2
+M.laneChangeToLane = 2
+M.currentLaneX = CONFIG.LANE_X[2]
 
 -- 跳跃
 M.isJumping = false
@@ -80,6 +83,8 @@ function M.StartLaneChange(targetLane)
     if M.laneChanging then return end
     if targetLane < 1 or targetLane > 3 then return end
 
+    M.laneChangeFromLane = CONFIG.currentLane
+    M.laneChangeToLane = targetLane
     M.laneChangeFrom = CONFIG.LANE_X[CONFIG.currentLane]
     M.laneChangeTo = CONFIG.LANE_X[targetLane]
     CONFIG.currentLane = targetLane
@@ -95,7 +100,20 @@ function M.UpdateLaneChange(dt)
 
     if t >= 1.0 then
         M.laneChanging = false
+        M.currentLaneX = M.laneChangeTo
     end
+end
+
+function M.BounceBackFromSideCollision()
+    if not M.laneChanging then return end
+
+    local returnLane = M.laneChangeFromLane
+    M.laneChangeFrom = M.currentLaneX
+    M.laneChangeTo = CONFIG.LANE_X[returnLane]
+    M.laneChangeToLane = returnLane
+    CONFIG.currentLane = returnLane
+    M.laneChangeTime = 0.0
+    M.laneChanging = true
 end
 
 -- ============================================================================
@@ -192,6 +210,15 @@ function M.UpdateJumpSlide(dt)
     return jumpY
 end
 
+function M.GetJumpHeight()
+    if not M.isJumping then
+        return 0.0
+    end
+
+    local t = math.max(0.0, math.min(1.0, M.jumpTime / CONFIG.JUMP_DURATION))
+    return 4.0 * CONFIG.JUMP_HEIGHT * t * (1.0 - t)
+end
+
 -- ============================================================================
 -- 速度
 -- ============================================================================
@@ -212,6 +239,7 @@ function M.UpdatePosition(jumpY)
         local smoothT = t * t * (3.0 - 2.0 * t)
         laneX = M.laneChangeFrom + (M.laneChangeTo - M.laneChangeFrom) * smoothT
     end
+    M.currentLaneX = laneX
 
     local worldPos = path.GetWorldPosition(laneX)
     M.node.position = Vector3(worldPos.x, CONFIG.PLAYER_GROUND_Y + jumpY, worldPos.z)
@@ -219,6 +247,16 @@ function M.UpdatePosition(jumpY)
     -- 朝向跟随道路方向
     local yaw = path.GetCurrentYaw()
     M.node.rotation = Quaternion(yaw, Vector3.UP)
+end
+
+function M.GetCollisionState()
+    return {
+        laneChanging = M.laneChanging,
+        fromLane = M.laneChangeFromLane,
+        toLane = M.laneChangeToLane,
+        laneX = M.currentLaneX,
+        jumpY = M.GetJumpHeight(),
+    }
 end
 
 -- ============================================================================
@@ -230,6 +268,12 @@ function M.Reset()
     M.currentSpeed = CONFIG.BASE_SPEED
     CONFIG.currentLane = 2
     M.laneChanging = false
+    M.laneChangeFromLane = 2
+    M.laneChangeToLane = 2
+    M.laneChangeFrom = CONFIG.LANE_X[2]
+    M.laneChangeTo = CONFIG.LANE_X[2]
+    M.laneChangeTime = 0.0
+    M.currentLaneX = CONFIG.LANE_X[2]
     M.isJumping = false
     M.jumpTime = 0.0
     M.jumpBuffered = false

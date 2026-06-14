@@ -91,6 +91,21 @@ local function AddMiniMarker(children, id, x, y, size, color, radius)
     })
 end
 
+local function AddMiniPlayerProgressMarkers(children, key, edge)
+    local nodeA = rn.nodes[math.min(edge.fromNode, edge.toNode)]
+    local nodeB = rn.nodes[math.max(edge.fromNode, edge.toNode)]
+    if not nodeA or not nodeB then return end
+
+    local x1, y1 = MiniPoint(nodeA)
+    local x2, y2 = MiniPoint(nodeB)
+    for step = 0, nav.MINIMAP_PLAYER_EDGE_STEPS do
+        local t = step / nav.MINIMAP_PLAYER_EDGE_STEPS
+        local x = x1 + (x2 - x1) * t
+        local y = y1 + (y2 - y1) * t
+        AddMiniMarker(children, "mini_player_p" .. key .. "_" .. step, x, y, 8, "#00D7FF", 4)
+    end
+end
+
 local function BuildMinimap()
     local children = {}
     local seenSegments = {}
@@ -139,13 +154,7 @@ local function BuildMinimap()
     end
 
     for key, edge in pairs(segmentPositions) do
-        local fromNode = rn.nodes[edge.fromNode]
-        local toNode = rn.nodes[edge.toNode]
-        local x1, y1 = MiniPoint(fromNode)
-        local x2, y2 = MiniPoint(toNode)
-        local x = (x1 + x2) * 0.5
-        local y = (y1 + y2) * 0.5
-        AddMiniMarker(children, "mini_player_" .. key, x, y, 8, "#00D7FF", 4)
+        AddMiniPlayerProgressMarkers(children, key, edge)
     end
 
     for nodeId = 1, #rn.nodes do
@@ -316,8 +325,11 @@ function M.Create(onRestart)
             local key = nav.MakeEdgeSlot(edge)
             if key and not M.minimapRouteSegments[key] then
                 M.minimapRouteSegments[key] = root:FindById("mini_route_" .. key)
-                M.minimapPlayerMarkers[key] = root:FindById("mini_player_" .. key)
                 M.minimapTargetMarkers[key] = root:FindById("mini_target_" .. key)
+                for step = 0, nav.MINIMAP_PLAYER_EDGE_STEPS do
+                    local playerKey = "p" .. key .. "_" .. step
+                    M.minimapPlayerMarkers[playerKey] = root:FindById("mini_player_" .. playerKey)
+                end
             end
         end
     end

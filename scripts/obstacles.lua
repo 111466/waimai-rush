@@ -16,7 +16,7 @@ local M = {}
 -- 障碍物类型定义
 M.types = {
     { name = "block", offsetY = 0.785, jumpable = false, slidable = false },
-    { name = "low",   offsetY = 0.30,  jumpable = true,  slidable = false },
+    { name = "low",   offsetY = 0.30,  jumpable = true,  slidable = false, topLandable = true },
     { name = "high",  offsetY = 1.01,  jumpable = false, slidable = true  },
 }
 
@@ -361,16 +361,23 @@ function M.Spawn()
 end
 
 --- 碰撞检测
-function M.CheckCollisions(playerLane, isJumping, jumpTime, isSliding, slideTime)
+function M.CheckCollisions(playerLane, isJumping, jumpTime, isSliding, slideTime, collisionState)
     local s = path.state
-    if not s.currentEdge then return false end
+    if not s.currentEdge then return nil end
+
+    local playerX = collisionState and collisionState.laneX or CONFIG.LANE_X[playerLane]
+    local isChangingLane = collisionState and collisionState.laneChanging
+    local targetLane = collisionState and collisionState.toLane or playerLane
+    local jumpY = collisionState and collisionState.jumpY or 0.0
 
     for idx = #M.active, 1, -1 do
         local obs = M.active[idx]
         -- 只检测同一条边上的障碍物
         if obs.edgeId == s.currentEdge.id then
             local distDiff = math.abs(s.edgeDistance - (obs.edgeDist or 0))
-            if distDiff < CONFIG.COLLISION_Z_THRESHOLD and obs.lane == playerLane then
+            if distDiff < CONFIG.COLLISION_Z_THRESHOLD then
+                local obstacleX = CONFIG.LANE_X[obs.lane]
+                local xDiff = math.abs(playerX - obstacleX)
                 local canPass = false
                 if obs.info.jumpable and isJumping and jumpTime > 0.1 then
                     canPass = true
@@ -378,13 +385,21 @@ function M.CheckCollisions(playerLane, isJumping, jumpTime, isSliding, slideTime
                 if obs.info.slidable and isSliding and slideTime > 0.05 then
                     canPass = true
                 end
+                if obs.info.topLandable and jumpY >= (CONFIG.LOW_OBSTACLE_TOP_Y + CONFIG.TOP_LANDING_MIN_CLEARANCE) then
+                    canPass = true
+                end
                 if not canPass then
-                    return true
+                    if xDiff <= CONFIG.COLLISION_FRONT_X_THRESHOLD then
+                        return "front"
+                    end
+                    if isChangingLane and obs.lane == targetLane and xDiff <= CONFIG.COLLISION_SIDE_X_THRESHOLD then
+                        return "side"
+                    end
                 end
             end
         end
     end
-    return false
+    return nil
 end
 
 --- 回收已过的障碍物
