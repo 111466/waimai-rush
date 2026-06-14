@@ -1,15 +1,25 @@
 -- ============================================================================
 -- 外卖冲冲冲 - 摄像机模块（基于 RoadGraph）
 -- ============================================================================
+-- 摄像机直接跟随 path.GetCurrentYaw()，使用角度平滑插值
+-- 不再有独立的转弯动画定时器
+-- ============================================================================
 
 local cfg = require("config")
 local CONFIG = cfg.CONFIG
 local path = require("path")
-local rn = require("road_network")
 
 local M = {}
 
 M.node = nil
+M.currentYaw = 0.0  -- 当前摄像机 yaw（平滑跟随用）
+
+--- 角度差归一化到 [-180, 180]
+local function NormalizeAngle(angle)
+    while angle > 180 do angle = angle - 360 end
+    while angle < -180 do angle = angle + 360 end
+    return angle
+end
 
 ---@param scene Scene
 ---@param playerNode Node
@@ -22,6 +32,9 @@ function M.Setup(scene, playerNode)
 
     renderer:SetViewport(0, Viewport:new(scene, camera))
 
+    -- 初始化 yaw 到当前路径方向
+    M.currentYaw = path.GetCurrentYaw()
+
     local pp = playerNode.position
     M.node.position = Vector3(pp.x, pp.y + CONFIG.CAM_OFFSET_Y, pp.z + CONFIG.CAM_OFFSET_Z)
     local lookTarget = Vector3(pp.x, pp.y + 0.5, pp.z + CONFIG.CAM_LOOK_AHEAD)
@@ -30,35 +43,29 @@ end
 
 function M.Update(dt, playerNode, currentSpeed)
     if not playerNode or not M.node then return end
-    local s = path.state
 
     local pp = playerNode.position
 
-    -- 计算当前摄像机 yaw（跟随路径方向，转弯时平滑过渡）
+    -- 直接跟随 path.GetCurrentYaw()，使用平滑插值
     local targetYaw = path.GetCurrentYaw()
-    local currentYaw = targetYaw
+    local yawDiff = NormalizeAngle(targetYaw - M.currentYaw)
 
-    if s.camTurning then
-        s.camTurnAnimTime = s.camTurnAnimTime + dt
-        local t = math.min(1.0, s.camTurnAnimTime / CONFIG.CAM_TURN_DURATION)
-        local smoothT = t * t * (3.0 - 2.0 * t)
-        currentYaw = s.camTurnFrom + (s.camTurnTo - s.camTurnFrom) * smoothT
-        if t >= 1.0 then
-            s.camTurning = false
-            currentYaw = s.camTurnTo
-        end
-    end
+    -- 平滑系数：转弯时也是连续角度变化，只需平滑跟随即可
+    local yawLerp = math.min(1.0, dt * CONFIG.CAM_SMOOTH)
+    M.currentYaw = M.currentYaw + yawDiff * yawLerp
 
-    -- 根据 yaw 计算摄像机位置
-    local yawRad = math.rad(currentYaw)
+    -- 根据 yaw 计算摄像机位置（在玩家后方）
+    local yawRad = math.rad(M.currentYaw)
     local camFwdX = math.sin(yawRad)
     local camFwdZ = math.cos(yawRad)
 
-    local camTargetX = pp.x - camFwdX * (-CONFIG.CAM_OFFSET_Z)
-    local camTargetZ = pp.z - camFwdZ * (-CONFIG.CAM_OFFSET_Z)
+    -- CAM_OFFSET_Z 是负值（在玩家身后），取反得到后方偏移量
+    local backDist = -CONFIG.CAM_OFFSET_Z
+    local camTargetX = pp.x - camFwdX * backDist
+    local camTargetZ = pp.z - camFwdZ * backDist
     local camTargetY = pp.y + CONFIG.CAM_OFFSET_Y
 
-    -- 平滑跟随
+    -- 位置平滑跟随
     local camPos = M.node.position
     local lerpFactor = math.min(1.0, dt * CONFIG.CAM_SMOOTH)
     local newX = camPos.x + (camTargetX - camPos.x) * lerpFactor

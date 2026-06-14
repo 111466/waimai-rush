@@ -95,7 +95,44 @@ local function HandleUpdate(eventType, eventData)
     -- 推进路径（沿边前进 / 弧线过渡）
     path.Advance(moveDist)
 
-    -- 路口逻辑（检测、显示箭头、执行转弯）
+    -- 转弯刚开始时的清理逻辑（之前在 intersection.ExecuteTurn 里）
+    if s.turnJustStarted then
+        -- 清除前方障碍物
+        obstacles.ClearAll()
+
+        -- 清除取件/送件
+        pickup.pickupActive = false
+        if pickup.pickupNode then
+            pickup.pickupNode.position = Vector3(0, -100, 0)
+        end
+        pickup.deliveryActive = false
+        if pickup.deliveryNode then
+            pickup.deliveryNode.position = Vector3(0, -100, 0)
+        end
+
+        -- 奖惩逻辑（持有包裹时，按推荐方向给奖惩）
+        if pickup.hasPackage then
+            local correctDir = s.intersectionHintDir
+            -- 判断玩家实际转弯方向和推荐方向是否一致
+            local actualDir = 0
+            if s.turnArrivalHeading ~= s.turnExitHeading then
+                local leftH = rn.TurnLeft(s.turnArrivalHeading)
+                local rightH = rn.TurnRight(s.turnArrivalHeading)
+                if s.turnExitHeading == leftH then
+                    actualDir = -1
+                elseif s.turnExitHeading == rightH then
+                    actualDir = 1
+                end
+            end
+            if actualDir == correctDir then
+                pickup.timeRemaining = pickup.timeRemaining + CONFIG.CORRECT_TURN_BONUS
+            else
+                pickup.timeRemaining = math.max(2.0, pickup.timeRemaining - CONFIG.WRONG_TURN_PENALTY)
+            end
+        end
+    end
+
+    -- 路口逻辑（检测、显示箭头）
     intersection.Update()
 
     -- 跳跃/下滑

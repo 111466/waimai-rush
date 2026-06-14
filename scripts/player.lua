@@ -128,6 +128,7 @@ function M.UpdateJumpSlide(dt)
         if M.jumpTime >= CONFIG.JUMP_DURATION then
             M.isJumping = false
             M.jumpTime = 0.0
+            -- 清除过期的 slideBuffered
             if M.slideBuffered then
                 M.slideBuffered = false
                 M.StartSlide()
@@ -143,21 +144,48 @@ function M.UpdateJumpSlide(dt)
         if M.slideTime >= CONFIG.SLIDE_DURATION then
             M.isSliding = false
             M.slideTime = 0.0
+            -- 清除过期的 jumpBuffered
             if M.jumpBuffered then
                 M.jumpBuffered = false
                 M.StartJump()
             end
         end
+        -- 下滑：整体压低（Body压扁 + Head/Hat/DeliveryBox 降低）
         local bodyNode = M.node:GetChild("Body")
         if bodyNode then
             bodyNode.scale = Vector3(0.8, 0.5, 0.6)
             bodyNode.position = Vector3(0, 0.25, 0)
         end
+        local headNode = M.node:GetChild("Head")
+        if headNode then
+            headNode.position = Vector3(0, 0.6, 0)  -- 从 1.25 降到 0.6
+        end
+        local hatNode = M.node:GetChild("Hat")
+        if hatNode then
+            hatNode.position = Vector3(0, 0.85, 0)  -- 从 1.5 降到 0.85
+        end
+        local boxNode = M.node:GetChild("DeliveryBox")
+        if boxNode then
+            boxNode.position = Vector3(0, 0.45, -0.3)  -- 从 0.9 降到 0.45
+        end
     else
+        -- 恢复所有子节点的正常位置
         local bodyNode = M.node:GetChild("Body")
         if bodyNode then
             bodyNode.scale = Vector3(0.6, 1.0, 0.6)
             bodyNode.position = Vector3(0, 0.5, 0)
+        end
+        local headNode = M.node:GetChild("Head")
+        if headNode then
+            headNode.position = Vector3(0, 1.25, 0)
+        end
+        local hatNode = M.node:GetChild("Hat")
+        if hatNode then
+            hatNode.position = Vector3(0, 1.5, 0)
+        end
+        local boxNode = M.node:GetChild("DeliveryBox")
+        if boxNode then
+            boxNode.position = Vector3(0, 0.9, -0.3)
         end
     end
 

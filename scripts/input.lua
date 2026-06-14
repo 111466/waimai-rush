@@ -45,6 +45,7 @@ function M.HandleTouchEnd(eventType, eventData)
             else
                 s.turnChoice = 1
             end
+            s.hasTurnChoice = true
             intersection.Show()
         else
             if dx < 0 then
@@ -56,9 +57,10 @@ function M.HandleTouchEnd(eventType, eventData)
     elseif math.abs(dy) > threshold then
         -- 垂直滑动
         if dy < 0 then
-            -- 上滑 = 跳
+            -- 上滑 = 跳（路口时同时表示选择直走）
             if s.intersectionActive then
                 s.turnChoice = 0
+                s.hasTurnChoice = true
                 intersection.Show()
             end
             player.StartJump()
@@ -80,6 +82,7 @@ function M.HandleKeyboard(dt)
     if input:GetKeyPress(KEY_A) or input:GetKeyPress(KEY_LEFT) then
         if s.intersectionActive then
             s.turnChoice = -1
+            s.hasTurnChoice = true
             intersection.Show()
         else
             player.StartLaneChange(CONFIG.currentLane - 1)
@@ -88,16 +91,18 @@ function M.HandleKeyboard(dt)
     if input:GetKeyPress(KEY_D) or input:GetKeyPress(KEY_RIGHT) then
         if s.intersectionActive then
             s.turnChoice = 1
+            s.hasTurnChoice = true
             intersection.Show()
         else
             player.StartLaneChange(CONFIG.currentLane + 1)
         end
     end
 
-    -- 跳跃
+    -- 跳跃（路口时同时表示选择直走）
     if input:GetKeyPress(KEY_W) or input:GetKeyPress(KEY_UP) or input:GetKeyPress(KEY_SPACE) then
         if s.intersectionActive then
             s.turnChoice = 0
+            s.hasTurnChoice = true
             intersection.Show()
         end
         player.StartJump()

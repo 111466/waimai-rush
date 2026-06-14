@@ -2,6 +2,7 @@
 -- 外卖冲冲冲 - 路径系统模块（基于 RoadGraph）
 -- ============================================================================
 -- 管理玩家在路网中的状态：当前边、进度、转弯等
+-- 转弯采用连续过渡：到达 turnStartDist 后自动开始弧线
 -- ============================================================================
 
 local cfg = require("config")
@@ -26,25 +27,21 @@ M.state = {
     lastNodeId = 0,
 
     -- 路口状态
-    intersectionActive = false,   -- 是否在路口选择阶段
-    intersectionHintDir = 0,      -- 推荐方向 -1左/0直/1右
-    turnChoice = 0,               -- 玩家选择 -1左/0直/1右
-    availableTurns = {},          -- 当前路口可用转向
+    intersectionActive = false,   -- 是否在路口选择阶段（显示箭头）
+    intersectionHintDir = 0,      -- 推荐方向 -1左/0直/1右（仅用于UI提示）
+    turnChoice = 0,               -- 玩家实际选择 -1左/0直/1右
+    hasTurnChoice = false,        -- 玩家是否已做出选择
+    availableTurns = {},          -- 当前路口可用转向列表
 
     -- 转弯执行状态
     turnExecuting = false,
+    turnJustStarted = false,     -- 本帧刚进入转弯（用于外部清理逻辑）
     turnArcProgress = 0.0,       -- 0..1 转弯弧线进度
     turnArrivalHeading = 0,
     turnExitHeading = 0,
     turnNodeWorldPos = nil,      -- 转弯路口世界坐标
     turnNextEdge = nil,          -- 转弯后的下一条边
     turnLength = 0.0,            -- 弧线总长度
-
-    -- 摄像机转弯
-    camTurning = false,
-    camTurnFrom = 0.0,
-    camTurnTo = 0.0,
-    camTurnAnimTime = 0.0,
 
     -- 全局里程（用于计分/难度等）
     totalDistance = 0.0,
@@ -72,11 +69,14 @@ function M.Init()
     s.currentHeading = startEdge.heading
     s.lastNodeId = startNodeId
     s.intersectionActive = false
+    s.intersectionHintDir = 0
     s.turnChoice = 0
+    s.hasTurnChoice = false
     s.turnExecuting = false
+    s.turnJustStarted = false
     s.totalDistance = 0.0
-    s.camTurning = false
     s.availableTurns = {}
+    s.turnArcProgress = 0.0
 
     print("[Path] Initialized on edge " .. startEdge.id .. " heading " .. startEdge.heading)
 end
@@ -107,7 +107,7 @@ function M.GetWorldPosition(laneOffset)
     return Vector3(0, 0, 0)
 end
 
---- 获取当前 yaw 角度
+--- 获取当前 yaw 角度（转弯时连续插值）
 function M.GetCurrentYaw()
     local s = M.state
 
@@ -140,7 +140,7 @@ function M.GetRightVector(heading)
     return rn.HeadingToRight(heading)
 end
 
---- 判断某个距离是否在当前路口安全区内
+--- 判断某个边距离是否在安全区内
 function M.IsInSafeZone(distFromEdgeStart)
     local s = M.state
     if not s.currentEdge then return false end
@@ -157,46 +157,75 @@ function M.IsInSafeZone(distFromEdgeStart)
 end
 
 -- ============================================================================
--- 移动逻辑：前进 / 到达路口 / 执行转弯
+-- 核心：移动逻辑（连续过渡，无跳变）
 -- ============================================================================
 
---- 每帧前进
---- 返回 true 表示到达了路口末端需要转弯
+--- 每帧前进。返回 false 正常，不需要外部处理
 function M.Advance(moveDist)
     local s = M.state
 
+    -- 清除上一帧的 turnJustStarted 标记
+    s.turnJustStarted = false
+
     s.totalDistance = s.totalDistance + moveDist
 
-    -- 如果在转弯中
+    -- ==========================================
+    -- 情况 A：当前正在转弯弧线上
+    -- ==========================================
     if s.turnExecuting then
         local arcAdvance = moveDist / s.turnLength
         s.turnArcProgress = s.turnArcProgress + arcAdvance
 
         if s.turnArcProgress >= 1.0 then
-            -- 转弯完成，进入新边
-            M.FinishTurn()
+            -- 弧线走完，多余距离带入新边
+            local overshoot = (s.turnArcProgress - 1.0) * s.turnLength
+            M.FinishTurn(overshoot)
         end
         return false
     end
 
-    -- 正常沿边前进
+    -- ==========================================
+    -- 情况 B：沿边前进
+    -- ==========================================
     if not s.currentEdge then return false end
 
     s.edgeDistance = s.edgeDistance + moveDist
     s.edgeProgress = s.edgeDistance / s.currentEdge.length
 
-    -- 检查是否到达边的末端
-    if s.edgeProgress >= 1.0 then
-        -- 到达路口，需要执行转弯
-        M.ExecuteTurnAtNode()
-        return true
+    -- 计算转弯起始距离（距边末端 TURN_RADIUS 处）
+    local turnStartDist = s.currentEdge.length - rn.TURN_RADIUS
+
+    -- 到达转弯起始点
+    if s.edgeDistance >= turnStartDist then
+        -- 计算多余距离（超过转弯起始点的部分）
+        local overshoot = s.edgeDistance - turnStartDist
+
+        -- 固定 edgeProgress/edgeDistance 到转弯起始点
+        s.edgeDistance = turnStartDist
+        s.edgeProgress = turnStartDist / s.currentEdge.length
+
+        -- 开始转弯
+        M.StartTurnAtNode()
+
+        -- 把多余距离应用到弧线
+        if s.turnExecuting and overshoot > 0 then
+            local arcAdvance = overshoot / s.turnLength
+            s.turnArcProgress = s.turnArcProgress + arcAdvance
+            if s.turnArcProgress >= 1.0 then
+                local arcOvershoot = (s.turnArcProgress - 1.0) * s.turnLength
+                M.FinishTurn(arcOvershoot)
+            end
+        end
     end
 
     return false
 end
 
---- 到达路口节点，执行转弯
-function M.ExecuteTurnAtNode()
+-- ============================================================================
+-- 开始转弯（解析玩家选择，设置弧线参数）
+-- ============================================================================
+
+function M.StartTurnAtNode()
     local s = M.state
     local edge = s.currentEdge
     local targetNodeId = edge.toNode
@@ -209,24 +238,35 @@ function M.ExecuteTurnAtNode()
 
     -- 确定出口方向
     local exitHeading = s.currentHeading  -- 默认直走
-    local choice = s.turnChoice
 
-    if choice == -1 then
-        exitHeading = rn.TurnLeft(s.currentHeading)
-    elseif choice == 1 then
-        exitHeading = rn.TurnRight(s.currentHeading)
+    if s.hasTurnChoice then
+        -- 玩家已做出选择
+        local choice = s.turnChoice
+        if choice == -1 then
+            exitHeading = rn.TurnLeft(s.currentHeading)
+        elseif choice == 1 then
+            exitHeading = rn.TurnRight(s.currentHeading)
+        else
+            exitHeading = s.currentHeading  -- 直走
+        end
     end
+    -- 如果没有选择，exitHeading 保持直走
 
     -- 检查该方向是否有边
     local nextEdge = rn.GetEdgeByHeading(targetNodeId, exitHeading)
     if not nextEdge then
         -- 该方向无路，尝试直走
-        nextEdge = rn.GetEdgeByHeading(targetNodeId, s.currentHeading)
+        if exitHeading ~= s.currentHeading then
+            nextEdge = rn.GetEdgeByHeading(targetNodeId, s.currentHeading)
+            if nextEdge then
+                exitHeading = s.currentHeading
+            end
+        end
         if not nextEdge then
-            -- 直走也无路，随机选一条（不掉头）
+            -- 直走也无路，选一条可用方向（不掉头）
             local turns = rn.GetAvailableTurns(targetNodeId, s.currentHeading)
             if #turns > 0 then
-                local pick = turns[math.random(1, #turns)]
+                local pick = turns[1]
                 nextEdge = pick.edge
                 exitHeading = pick.heading
             else
@@ -234,8 +274,6 @@ function M.ExecuteTurnAtNode()
                 exitHeading = rn.ReverseHeading(s.currentHeading)
                 nextEdge = rn.GetEdgeByHeading(targetNodeId, exitHeading)
             end
-        else
-            exitHeading = s.currentHeading
         end
     end
 
@@ -244,8 +282,9 @@ function M.ExecuteTurnAtNode()
         return
     end
 
-    -- 开始转弯动画
+    -- 设置转弯参数
     s.turnExecuting = true
+    s.turnJustStarted = true
     s.turnArcProgress = 0.0
     s.turnArrivalHeading = s.currentHeading
     s.turnExitHeading = exitHeading
@@ -253,40 +292,39 @@ function M.ExecuteTurnAtNode()
     s.turnNextEdge = nextEdge
     s.turnLength = rn.GetTurnLength(s.currentHeading, exitHeading)
 
-    -- 启动摄像机转弯
-    if s.currentHeading ~= exitHeading then
-        s.camTurning = true
-        s.camTurnFrom = rn.HeadingToYaw(s.currentHeading)
-        s.camTurnTo = rn.HeadingToYaw(exitHeading)
-        -- 处理 yaw 环绕
-        local diff = s.camTurnTo - s.camTurnFrom
-        if diff > 180 then s.camTurnTo = s.camTurnTo - 360
-        elseif diff < -180 then s.camTurnTo = s.camTurnTo + 360 end
-        s.camTurnAnimTime = 0.0
-    end
-
     -- 重置路口状态
     s.intersectionActive = false
     s.turnChoice = 0
+    s.hasTurnChoice = false
+
+    print("[Path] Turn started: heading " .. s.currentHeading .. " -> " .. exitHeading .. " at node " .. targetNodeId)
 end
 
---- 转弯完成
-function M.FinishTurn()
+-- ============================================================================
+-- 转弯完成
+-- ============================================================================
+
+function M.FinishTurn(overshootDist)
     local s = M.state
 
     s.turnExecuting = false
+    s.turnArcProgress = 1.0  -- 钳位
+
+    -- 进入新边
     s.currentEdge = s.turnNextEdge
     s.currentHeading = s.turnExitHeading
     s.lastNodeId = s.turnNextEdge.fromNode
-    s.edgeProgress = 0.0
-    s.edgeDistance = 0.0
     s.turnNextEdge = nil
+
+    -- 从新边起点开始 + 多余距离
+    s.edgeDistance = overshootDist or 0
+    s.edgeProgress = s.edgeDistance / s.currentEdge.length
 
     print("[Path] Entered edge " .. s.currentEdge.id .. " heading " .. s.currentHeading)
 end
 
 -- ============================================================================
--- 路口检测与提示
+-- 路口检测与提示（只负责显示箭头，不触发转弯）
 -- ============================================================================
 
 --- 每帧检查是否应该显示路口提示
@@ -303,7 +341,7 @@ function M.CheckIntersection()
 
         if #s.availableTurns > 0 then
             s.intersectionActive = true
-            -- 随机推荐一个方向
+            -- 随机推荐一个方向（仅用于 UI 提示）
             local r = math.random(1, #s.availableTurns)
             local recommended = s.availableTurns[r]
             if recommended.direction == "left" then
@@ -313,21 +351,10 @@ function M.CheckIntersection()
             else
                 s.intersectionHintDir = 0
             end
-            s.turnChoice = s.intersectionHintDir
+            -- 不自动设置 turnChoice！玩家必须手动选择
+            -- s.turnChoice 和 s.hasTurnChoice 保持不变
         end
     end
-end
-
---- 检查是否到达执行点
-function M.CheckExecutePoint()
-    local s = M.state
-    if not s.intersectionActive then return false end
-    if s.turnExecuting then return false end
-
-    if s.edgeProgress >= CONFIG.INTERSECTION_EXECUTE_PROGRESS then
-        return true
-    end
-    return false
 end
 
 return M

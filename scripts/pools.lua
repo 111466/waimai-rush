@@ -172,8 +172,8 @@ local function CreateIntersection(scene, node)
     local model = iNode:CreateComponent("StaticModel")
     model.model = cache:GetResource("Model", "Models/Box.mdl")
     model.material = mats.crossroads
-    -- 路口是正方形区域
-    local size = CONFIG.ROAD_WIDTH + 1.0
+    -- 路口正方形区域需覆盖转弯半径（TURN_RADIUS=6.0 从路口中心向外）
+    local size = CONFIG.ROAD_WIDTH + rn.TURN_RADIUS * 2
     iNode.scale = Vector3(size, 0.16, size)
     iNode.position = Vector3(node.worldX, 0.08, node.worldZ)
     table.insert(M.intersectionNodes, iNode)
