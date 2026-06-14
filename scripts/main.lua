@@ -105,12 +105,18 @@ local PATH = {
     INTERVAL_MAX = 220.0,
 
     -- 转弯输入窗口
-    TURN_INPUT_WINDOW = 20.0,       -- 路口前多少米开始接受转弯输入
-    TURN_EXECUTE_DIST = 2.0,        -- 到路口多近时执行转弯
+    TURN_INPUT_WINDOW = 45.0,       -- 弯道前多少米开始接受转弯输入
+    TURN_EXECUTE_DIST = 0.0,        -- 到达弯道起点时开始沿弧线转弯
+
+    -- 弯道几何
+    TURN_RADIUS = 14.0,             -- 90 度弯道半径
+    TURN_ARC_LENGTH = 14.0 * math.pi * 0.5,
+    TURN_VISUAL_SEGMENTS = 9,       -- 弯道路面预览分段数
+    TURN_EXIT_PREVIEW_LENGTH = 24.0,
 
     -- 动画
-    TURN_ANIM_DURATION = 0.40,      -- 转弯动画时长(秒)
-    CAM_TURN_DURATION = 0.45,       -- 摄像机转弯动画时长
+    TURN_ANIM_DURATION = 0.40,      -- 保留给兼容旧变量
+    CAM_TURN_DURATION = 0.45,       -- 保留给兼容旧变量
 
     -- 安全区
     SAFE_ZONE_BEFORE = 25.0,        -- 路口前安全区（无障碍）
@@ -121,8 +127,8 @@ local PATH = {
     WRONG_TURN_PENALTY = 3.0,       -- 错误转弯 -3秒（最低2秒）
 
     -- 视觉
-    CROSSROADS_SIZE = 12.0,         -- 十字路口平台尺寸
-    PREVIEW_ROAD_LENGTH = 30.0,     -- 预览路段长度
+    CROSSROADS_SIZE = 8.0,          -- 弯道入口提示平台尺寸
+    PREVIEW_ROAD_LENGTH = 6.0,      -- 弯道预览分段长度
 }
 
 -- ============================================================================
@@ -142,6 +148,11 @@ local turnAnimTime_ = 0.0              -- 转弯动画已用时间
 local turnFromHeading_ = 0             -- 转弯前朝向
 local turnToHeading_ = 0               -- 转弯后朝向
 local turnWorldPos_ = nil              -- 转弯点世界坐标
+local turnDir_ = 0                     -- 当前真实弯道方向 -1=左, 1=右
+local turnStartDist_ = 0.0             -- 弯道起点路径距离
+local turnEndDist_ = 0.0               -- 弯道终点路径距离
+local turnStartOrigin_ = nil           -- 弯道起点世界坐标
+local turnEndOrigin_ = nil             -- 弯道终点世界坐标
 
 -- 摄像机转弯
 local camTurnAnimTime_ = 0.0
@@ -166,6 +177,7 @@ local GetForwardVector
 local GetRightVector
 local GetWorldPosOnTrack
 local HeadingToYaw
+local ApplyForwardRoadPreview
 
 -- ============================================================================
 -- 其他运行时状态
@@ -261,8 +273,81 @@ HeadingToYaw = function(heading)
     return heading * 90.0
 end
 
+local function NormalizeHeading(heading)
+    return ((heading % 4) + 4) % 4
+end
+
+local function SmoothStep(t)
+    return t * t * (3.0 - 2.0 * t)
+end
+
+local function GetTurnEndHeading(fromHeading, turnDir)
+    if turnDir == 1 then
+        return NormalizeHeading(fromHeading + 1)
+    elseif turnDir == -1 then
+        return NormalizeHeading(fromHeading + 3)
+    end
+    return fromHeading
+end
+
+local function GetTurnPoint(startOrigin, startHeading, turnDir, arcDist, laneOffset)
+    local radius = PATH.TURN_RADIUS
+    local angle = math.min(math.max(arcDist / radius, 0.0), math.pi * 0.5)
+    local fwd = GetForwardVector(startHeading)
+    local right = GetRightVector(startHeading)
+    local turnSide = turnDir
+
+    local center = Vector3(
+        startOrigin.x + right.x * turnSide * radius,
+        0,
+        startOrigin.z + right.z * turnSide * radius
+    )
+
+    local radialStart = Vector3(-right.x * turnSide, 0, -right.z * turnSide)
+    local cosA = math.cos(angle)
+    local sinA = math.sin(angle)
+
+    local radial = Vector3(
+        radialStart.x * cosA + fwd.x * sinA,
+        0,
+        radialStart.z * cosA + fwd.z * sinA
+    )
+    local tangent = Vector3(
+        radialStart.x * (-math.sin(angle)) + fwd.x * math.cos(angle),
+        0,
+        radialStart.z * (-math.sin(angle)) + fwd.z * math.cos(angle)
+    )
+    local laneRight = Vector3(tangent.z, 0, -tangent.x)
+
+    local pos = Vector3(
+        center.x + radial.x * radius + laneRight.x * laneOffset,
+        0,
+        center.z + radial.z * radius + laneRight.z * laneOffset
+    )
+
+    return pos, tangent
+end
+
+local function GetTrackYawAt(pathDist)
+    if turnExecuting_ and pathDist >= turnStartDist_ and pathDist <= turnEndDist_ then
+        local t = math.min(math.max((pathDist - turnStartDist_) / PATH.TURN_ARC_LENGTH, 0.0), 1.0)
+        local fromYaw = HeadingToYaw(turnFromHeading_)
+        local toYaw = HeadingToYaw(turnToHeading_)
+        local diff = toYaw - fromYaw
+        if diff > 180 then toYaw = toYaw - 360
+        elseif diff < -180 then toYaw = toYaw + 360 end
+        return fromYaw + (toYaw - fromYaw) * t
+    end
+    return HeadingToYaw(currentHeading_)
+end
+
 --- 根据路程和车道偏移计算世界坐标
 GetWorldPosOnTrack = function(pathDist, laneOffset)
+    if turnExecuting_ and pathDist >= turnStartDist_ and pathDist <= turnEndDist_ then
+        local pos = GetTurnPoint(turnStartOrigin_, turnFromHeading_, turnDir_, pathDist - turnStartDist_, laneOffset)
+        return pos
+    end
+
     local localDist = pathDist - currentSegmentStartDist_
     local fwd = GetForwardVector(currentHeading_)
     local right = GetRightVector(currentHeading_)
@@ -281,7 +366,7 @@ IsInSafeZone = function(pathDist)
     if distToIntersection > 0 and distToIntersection < PATH.SAFE_ZONE_BEFORE then
         return true
     end
-    if distToIntersection <= 0 and distToIntersection > -PATH.SAFE_ZONE_AFTER then
+    if distToIntersection <= 0 and distToIntersection > -(PATH.TURN_ARC_LENGTH + PATH.SAFE_ZONE_AFTER) then
         return true
     end
     return false
@@ -289,6 +374,11 @@ end
 
 --- 根据路程距离计算世界坐标（通用版，考虑转弯点）
 local function GetWorldPosForObject(pathDist, laneOffset)
+    if turnExecuting_ and pathDist >= turnStartDist_ and pathDist <= turnEndDist_ then
+        local pos = GetTurnPoint(turnStartOrigin_, turnFromHeading_, turnDir_, pathDist - turnStartDist_, laneOffset)
+        return pos
+    end
+
     -- 如果对象在当前段，直接计算
     local localDist = pathDist - currentSegmentStartDist_
     local fwd = GetForwardVector(currentHeading_)
@@ -395,14 +485,18 @@ end
 local function PositionRoadSegment(seg, pathDist)
     seg.pathDist = pathDist
     seg.active = true
-    local fwd = GetForwardVector(currentHeading_)
-    local right = GetRightVector(currentHeading_)
-    local localDist = pathDist - currentSegmentStartDist_
-    local cx = currentSegmentOrigin_.x + fwd.x * localDist
-    local cz = currentSegmentOrigin_.z + fwd.z * localDist
+    local center = GetWorldPosForObject(pathDist, 0.0)
+    local right
+    if turnExecuting_ and pathDist >= turnStartDist_ and pathDist <= turnEndDist_ then
+        local yawRad = math.rad(GetTrackYawAt(pathDist))
+        right = Vector3(math.cos(yawRad), 0, -math.sin(yawRad))
+    else
+        right = GetRightVector(currentHeading_)
+    end
 
-    -- 根据朝向设置路段旋转
-    local yaw = HeadingToYaw(currentHeading_)
+    local cx = center.x
+    local cz = center.z
+    local yaw = GetTrackYawAt(pathDist)
 
     seg.road.position = Vector3(cx, 0.075, cz)
     seg.road.rotation = Quaternion(yaw, Vector3.UP)
@@ -458,12 +552,12 @@ end
 local function PositionLaneLine(item, pathDist)
     item.pathDist = pathDist
     item.active = true
-    local fwd = GetForwardVector(currentHeading_)
-    local right = GetRightVector(currentHeading_)
-    local localDist = pathDist - currentSegmentStartDist_
-    local cx = currentSegmentOrigin_.x + fwd.x * localDist
-    local cz = currentSegmentOrigin_.z + fwd.z * localDist
-    local yaw = HeadingToYaw(currentHeading_)
+    local center = GetWorldPosForObject(pathDist, 0.0)
+    local yaw = GetTrackYawAt(pathDist)
+    local yawRad = math.rad(yaw)
+    local right = Vector3(math.cos(yawRad), 0, -math.sin(yawRad))
+    local cx = center.x
+    local cz = center.z
 
     -- 左线偏移 -1.0（相对右方向取反）
     item.nodeL.position = Vector3(cx - right.x * 1.0, 0.16, cz - right.z * 1.0)
@@ -525,12 +619,12 @@ local function PositionBuilding(item, pathDist, side, lateralOffset)
     item.lateralOffset = lateralOffset
     item.active = true
 
-    local fwd = GetForwardVector(currentHeading_)
-    local right = GetRightVector(currentHeading_)
-    local localDist = pathDist - currentSegmentStartDist_
-    local cx = currentSegmentOrigin_.x + fwd.x * localDist
-    local cz = currentSegmentOrigin_.z + fwd.z * localDist
-    local yaw = HeadingToYaw(currentHeading_)
+    local center = GetWorldPosForObject(pathDist, 0.0)
+    local yaw = GetTrackYawAt(pathDist)
+    local yawRad = math.rad(yaw)
+    local right = Vector3(math.cos(yawRad), 0, -math.sin(yawRad))
+    local cx = center.x
+    local cz = center.z
 
     local offset = side * lateralOffset
     local px = cx + right.x * offset
@@ -649,6 +743,8 @@ end
 
 --- 尝试生成障碍物
 local function SpawnObstacles()
+    if turnExecuting_ then return end
+
     local spawnAhead = routeDistance_ + CONFIG.OBSTACLE_SPAWN_AHEAD
     local spacing = GetCurrentSpacing()
 
@@ -720,6 +816,7 @@ local function CreatePickupNode()
 end
 
 local function TrySpawnPickup()
+    if turnExecuting_ then return end
     if pickupActive_ or hasPackage_ then return end
     if routeDistance_ < nextPickupDist_ then return end
 
@@ -775,6 +872,7 @@ local function CreateDeliveryNode()
 end
 
 local function TrySpawnDelivery()
+    if turnExecuting_ then return end
     if deliveryActive_ or not hasPackage_ then return end
     if routeDistance_ < nextDeliveryDist_ then return end
 
@@ -830,16 +928,16 @@ end
 
 --- 创建十字路口视觉节点
 local function CreateCrossroadsVisuals()
-    -- 十字路口平台
+    -- 弯道入口平台
     crossroadsNode_ = scene_:CreateChild("Crossroads")
     local model = crossroadsNode_:CreateComponent("StaticModel")
     model.model = cache:GetResource("Model", "Models/Box.mdl")
     model.material = mat_crossroads_
-    crossroadsNode_.scale = Vector3(PATH.CROSSROADS_SIZE, 0.16, PATH.CROSSROADS_SIZE)
+    crossroadsNode_.scale = Vector3(CONFIG.ROAD_WIDTH, 0.16, PATH.CROSSROADS_SIZE)
     crossroadsNode_.position = Vector3(0, -100, 0)
 
-    -- 预览路段（左/右/直 三个方向）
-    for i = 1, 3 do
+    -- L 形弯道由多个短路面段拼出，最后 2 段作为出弯直路预览
+    for i = 1, PATH.TURN_VISUAL_SEGMENTS + 2 do
         local pNode = scene_:CreateChild("PreviewRoad" .. i)
         local pm = pNode:CreateComponent("StaticModel")
         pm.model = cache:GetResource("Model", "Models/Box.mdl")
@@ -868,61 +966,64 @@ local function ShowIntersection()
     -- 计算路口世界位置
     local intLocalDist = nextIntersectionDist_ - currentSegmentStartDist_
     local fwd = GetForwardVector(currentHeading_)
-    local right = GetRightVector(currentHeading_)
     local intX = currentSegmentOrigin_.x + fwd.x * intLocalDist
     local intZ = currentSegmentOrigin_.z + fwd.z * intLocalDist
 
     turnWorldPos_ = Vector3(intX, 0, intZ)
 
-    -- 十字路口平台
+    -- 入口平台
     crossroadsNode_.position = Vector3(intX, 0.08, intZ)
     crossroadsNode_.rotation = Quaternion(HeadingToYaw(currentHeading_), Vector3.UP)
 
-    -- 三个预览路段：直/左/右
-    local previewOffset = PATH.CROSSROADS_SIZE * 0.5 + PATH.PREVIEW_ROAD_LENGTH * 0.5
+    local displayDir = turnChoice_
+    if displayDir == nil then displayDir = intersectionHintDir_ end
+    ApplyForwardRoadPreview(displayDir)
 
-    -- 直走
-    local straightFwd = fwd
-    previewRoadNodes_[1].position = Vector3(
-        intX + straightFwd.x * previewOffset,
-        0.07,
-        intZ + straightFwd.z * previewOffset
-    )
-    previewRoadNodes_[1].rotation = Quaternion(HeadingToYaw(currentHeading_), Vector3.UP)
+    for _, node in ipairs(previewRoadNodes_) do
+        node.position = Vector3(0, -100, 0)
+    end
+    for _, node in ipairs(arrowNodes_) do
+        node.position = Vector3(0, -100, 0)
+    end
 
-    -- 左转（heading - 1）
-    local leftHeading = (currentHeading_ + 3) % 4
-    local leftFwd = GetForwardVector(leftHeading)
-    previewRoadNodes_[2].position = Vector3(
-        intX + leftFwd.x * previewOffset,
-        0.07,
-        intZ + leftFwd.z * previewOffset
-    )
-    previewRoadNodes_[2].rotation = Quaternion(HeadingToYaw(leftHeading), Vector3.UP)
+    if displayDir == 0 then
+        -- 直行时只显示一条连续前路，不显示左右假岔路
+        for i = 1, math.min(#previewRoadNodes_, 5) do
+            local dist = PATH.CROSSROADS_SIZE * 0.5 + PATH.PREVIEW_ROAD_LENGTH * (i - 0.5)
+            local node = previewRoadNodes_[i]
+            node.position = Vector3(intX + fwd.x * dist, 0.07, intZ + fwd.z * dist)
+            node.rotation = Quaternion(HeadingToYaw(currentHeading_), Vector3.UP)
+        end
+        arrowNodes_[1].position = Vector3(intX + fwd.x * 3.5, 0.5, intZ + fwd.z * 3.5)
+        arrowNodes_[1].rotation = Quaternion(HeadingToYaw(currentHeading_) - 90, Vector3.UP)
+        return
+    end
 
-    -- 右转（heading + 1）
-    local rightHeading = (currentHeading_ + 1) % 4
-    local rightFwd = GetForwardVector(rightHeading)
-    previewRoadNodes_[3].position = Vector3(
-        intX + rightFwd.x * previewOffset,
-        0.07,
-        intZ + rightFwd.z * previewOffset
-    )
-    previewRoadNodes_[3].rotation = Quaternion(HeadingToYaw(rightHeading), Vector3.UP)
+    -- 左/右转时显示一条真实 L 形弧线和出弯直路
+    local startOrigin = Vector3(intX, 0, intZ)
+    for i = 1, PATH.TURN_VISUAL_SEGMENTS do
+        local arcDist = (i - 0.35) / PATH.TURN_VISUAL_SEGMENTS * PATH.TURN_ARC_LENGTH
+        local pos = GetTurnPoint(startOrigin, currentHeading_, displayDir, arcDist, 0.0)
+        local yaw = HeadingToYaw(currentHeading_) + displayDir * math.deg(arcDist / PATH.TURN_RADIUS)
+        local node = previewRoadNodes_[i]
+        node.position = Vector3(pos.x, 0.07, pos.z)
+        node.rotation = Quaternion(yaw, Vector3.UP)
+    end
 
-    -- 箭头
-    local arrowDist = PATH.CROSSROADS_SIZE * 0.3
-    -- 直走箭头
-    arrowNodes_[1].position = Vector3(intX + fwd.x * arrowDist, 0.5, intZ + fwd.z * arrowDist)
-    arrowNodes_[1].rotation = Quaternion(HeadingToYaw(currentHeading_) - 90, Vector3.UP)
+    local exitHeading = GetTurnEndHeading(currentHeading_, displayDir)
+    local exitFwd = GetForwardVector(exitHeading)
+    local exitPos = GetTurnPoint(startOrigin, currentHeading_, displayDir, PATH.TURN_ARC_LENGTH, 0.0)
+    for i = 1, 2 do
+        local node = previewRoadNodes_[PATH.TURN_VISUAL_SEGMENTS + i]
+        local dist = PATH.PREVIEW_ROAD_LENGTH * (i - 0.5)
+        node.position = Vector3(exitPos.x + exitFwd.x * dist, 0.07, exitPos.z + exitFwd.z * dist)
+        node.rotation = Quaternion(HeadingToYaw(exitHeading), Vector3.UP)
+    end
 
-    -- 左箭头
-    arrowNodes_[2].position = Vector3(intX + leftFwd.x * arrowDist, 0.5, intZ + leftFwd.z * arrowDist)
-    arrowNodes_[2].rotation = Quaternion(HeadingToYaw(leftHeading) - 90, Vector3.UP)
-
-    -- 右箭头
-    arrowNodes_[3].position = Vector3(intX + rightFwd.x * arrowDist, 0.5, intZ + rightFwd.z * arrowDist)
-    arrowNodes_[3].rotation = Quaternion(HeadingToYaw(rightHeading) - 90, Vector3.UP)
+    local arrowIdx = displayDir < 0 and 2 or 3
+    local arrowPos = GetTurnPoint(startOrigin, currentHeading_, displayDir, PATH.TURN_ARC_LENGTH * 0.45, 0.0)
+    arrowNodes_[arrowIdx].position = Vector3(arrowPos.x, 0.5, arrowPos.z)
+    arrowNodes_[arrowIdx].rotation = Quaternion(HeadingToYaw(exitHeading) - 90, Vector3.UP)
 end
 
 --- 隐藏路口视觉
@@ -930,12 +1031,46 @@ local function HideIntersection()
     if crossroadsNode_ then
         crossroadsNode_.position = Vector3(0, -100, 0)
     end
-    for i = 1, 3 do
+    for i = 1, #previewRoadNodes_ do
         if previewRoadNodes_[i] then
             previewRoadNodes_[i].position = Vector3(0, -100, 0)
         end
+    end
+    for i = 1, #arrowNodes_ do
         if arrowNodes_[i] then
             arrowNodes_[i].position = Vector3(0, -100, 0)
+        end
+    end
+end
+
+local function HideRoadSegment(seg)
+    seg.road.position = Vector3(0, -100, 0)
+    seg.curbL.position = Vector3(0, -100, 0)
+    seg.curbR.position = Vector3(0, -100, 0)
+    seg.swL.position = Vector3(0, -100, 0)
+    seg.swR.position = Vector3(0, -100, 0)
+end
+
+local function HideLaneLine(item)
+    item.nodeL.position = Vector3(0, -100, 0)
+    item.nodeR.position = Vector3(0, -100, 0)
+end
+
+ApplyForwardRoadPreview = function(displayDir)
+    local cutoff = nextIntersectionDist_ + PATH.CROSSROADS_SIZE * 0.25
+    for _, seg in ipairs(roadPool_) do
+        if displayDir ~= 0 and seg.pathDist >= cutoff then
+            HideRoadSegment(seg)
+        else
+            PositionRoadSegment(seg, seg.pathDist)
+        end
+    end
+
+    for _, item in ipairs(linePool_) do
+        if displayDir ~= 0 and item.pathDist >= cutoff then
+            HideLaneLine(item)
+        else
+            PositionLaneLine(item, item.pathDist)
         end
     end
 end
@@ -957,23 +1092,18 @@ local function ExecuteTurn(turnDir)
         ScheduleNextIntersection()
 
         -- 奖惩判断
-        if intersectionCorrectDir_ == 0 then
+        if hasPackage_ and intersectionCorrectDir_ == 0 then
             timeRemaining_ = timeRemaining_ + PATH.CORRECT_TURN_BONUS
-        else
+        elseif hasPackage_ then
             timeRemaining_ = math.max(2.0, timeRemaining_ - PATH.WRONG_TURN_PENALTY)
         end
         return
     end
 
-    -- 计算新朝向
+    -- 计算弯道起止
     turnFromHeading_ = currentHeading_
-    if turnDir == 1 then
-        -- 右转
-        turnToHeading_ = (currentHeading_ + 1) % 4
-    else
-        -- 左转
-        turnToHeading_ = (currentHeading_ + 3) % 4
-    end
+    turnToHeading_ = GetTurnEndHeading(currentHeading_, turnDir)
+    turnDir_ = turnDir
 
     -- 记录转弯点信息
     local intLocalDist = nextIntersectionDist_ - currentSegmentStartDist_
@@ -981,73 +1111,33 @@ local function ExecuteTurn(turnDir)
     local intX = currentSegmentOrigin_.x + fwd.x * intLocalDist
     local intZ = currentSegmentOrigin_.z + fwd.z * intLocalDist
     turnWorldPos_ = Vector3(intX, 0, intZ)
+    turnStartOrigin_ = Vector3(turnWorldPos_.x, 0, turnWorldPos_.z)
+    turnStartDist_ = nextIntersectionDist_
+    turnEndDist_ = turnStartDist_ + PATH.TURN_ARC_LENGTH
+    turnEndOrigin_ = GetTurnPoint(turnStartOrigin_, turnFromHeading_, turnDir_, PATH.TURN_ARC_LENGTH, 0.0)
 
-    -- 立即更新路径系统
-    currentHeading_ = turnToHeading_
-    currentSegmentOrigin_ = Vector3(turnWorldPos_.x, 0, turnWorldPos_.z)
-    currentSegmentStartDist_ = nextIntersectionDist_
-
-    -- 启动转弯动画
+    -- 进入弯道：路径坐标仍由弧线函数接管，出弯后再切换到新直道
     turnExecuting_ = true
     turnAnimTime_ = 0.0
+    camTurning_ = false
 
-    -- 启动摄像机转弯动画
-    camTurning_ = true
-    camTurnAnimTime_ = 0.0
-    camTurnFrom_ = HeadingToYaw(turnFromHeading_)
-    camTurnTo_ = HeadingToYaw(turnToHeading_)
-
-    -- 处理角度差（选最短路径）
-    local diff = camTurnTo_ - camTurnFrom_
-    if diff > 180 then camTurnTo_ = camTurnTo_ - 360
-    elseif diff < -180 then camTurnTo_ = camTurnTo_ + 360 end
-
-    -- 隐藏路口视觉
-    HideIntersection()
-
-    -- 重新定位所有已有的路段/线/建筑
-    -- 沿新方向重新铺设道路
-    for i = 1, CONFIG.ROAD_SEGMENTS do
-        local dist = currentSegmentStartDist_ + (i - 1) * CONFIG.ROAD_SEGMENT_LENGTH
-        PositionRoadSegment(roadPool_[i], dist)
-    end
-    for i = 1, CONFIG.LINE_POOL_SIZE do
-        local dist = currentSegmentStartDist_ + (i - 1) * CONFIG.LINE_SPACING
-        PositionLaneLine(linePool_[i], dist)
-    end
-    for i = 1, CONFIG.BUILDING_POOL_SIZE do
-        local item = buildingPool_[i]
-        local dist = currentSegmentStartDist_ + (i - 1) * 8.0
-        local side = (i % 2 == 0) and 1 or -1
-        local lateral = CONFIG.BUILDING_ZONE_START + math.random() * (CONFIG.BUILDING_ZONE_END - CONFIG.BUILDING_ZONE_START)
-        PositionBuilding(item, dist, side, lateral)
-    end
-
-    -- 清除所有活跃障碍物（转弯后重新生成）
+    -- 弯道前后清场，避免拐弯过程中被障碍/订单打断
     for _, obs in ipairs(activeObstacles_) do
         obs.active = false
         obs.node.position = Vector3(0, -100, 0)
     end
     activeObstacles_ = {}
-    lastObstacleSpawnDist_ = currentSegmentStartDist_ + PATH.SAFE_ZONE_AFTER
+    lastObstacleSpawnDist_ = turnEndDist_ + PATH.SAFE_ZONE_AFTER
 
-    -- 隐藏取件/送件（如果在视野外）
-    if pickupActive_ and pickupPathDist_ < currentSegmentStartDist_ then
-        pickupActive_ = false
-        pickupNode_.position = Vector3(0, -100, 0)
-    end
-    if deliveryActive_ and deliveryPathDist_ < currentSegmentStartDist_ then
-        deliveryActive_ = false
-        deliveryNode_.position = Vector3(0, -100, 0)
-    end
-
-    -- 安排下一个路口
-    ScheduleNextIntersection()
+    pickupActive_ = false
+    pickupNode_.position = Vector3(0, -100, 0)
+    deliveryActive_ = false
+    deliveryNode_.position = Vector3(0, -100, 0)
 
     -- 奖惩判断
-    if intersectionCorrectDir_ == turnDir then
+    if hasPackage_ and intersectionCorrectDir_ == turnDir then
         timeRemaining_ = timeRemaining_ + PATH.CORRECT_TURN_BONUS
-    else
+    elseif hasPackage_ then
         timeRemaining_ = math.max(2.0, timeRemaining_ - PATH.WRONG_TURN_PENALTY)
     end
 end
@@ -1062,13 +1152,14 @@ local function UpdateIntersection()
     -- 进入输入窗口：显示路口
     if distToInt < PATH.TURN_INPUT_WINDOW and distToInt > 0 and not intersectionActive_ then
         intersectionActive_ = true
-        ShowIntersection()
 
         -- 随机推荐方向
         local r = math.random()
         if r < 0.33 then intersectionHintDir_ = -1
         elseif r < 0.66 then intersectionHintDir_ = 1
         else intersectionHintDir_ = 0 end
+        turnChoice_ = intersectionHintDir_
+        ShowIntersection()
     end
 
     -- 到达路口执行点
@@ -1084,24 +1175,36 @@ local function UpdateTurnAnimation(dt)
     if not turnExecuting_ then return end
 
     turnAnimTime_ = turnAnimTime_ + dt
-    local t = math.min(1.0, turnAnimTime_ / PATH.TURN_ANIM_DURATION)
 
-    -- 使用平滑插值
-    local smoothT = t * t * (3.0 - 2.0 * t)
-
-    -- 玩家模型旋转
-    local fromYaw = HeadingToYaw(turnFromHeading_)
-    local toYaw = HeadingToYaw(turnToHeading_)
-    local diff = toYaw - fromYaw
-    if diff > 180 then toYaw = toYaw - 360
-    elseif diff < -180 then toYaw = toYaw + 360 end
-
-    local currentYaw = fromYaw + (toYaw - fromYaw) * smoothT
-    playerNode_.rotation = Quaternion(currentYaw, Vector3.UP)
-
-    if t >= 1.0 then
+    if routeDistance_ >= turnEndDist_ then
         turnExecuting_ = false
+        currentHeading_ = turnToHeading_
+        currentSegmentOrigin_ = Vector3(turnEndOrigin_.x, 0, turnEndOrigin_.z)
+        currentSegmentStartDist_ = turnEndDist_
         playerNode_.rotation = Quaternion(HeadingToYaw(currentHeading_), Vector3.UP)
+
+        -- 出弯后沿新方向重新铺设后续对象池
+        for i = 1, CONFIG.ROAD_SEGMENTS do
+            local dist = currentSegmentStartDist_ + (i - 1) * CONFIG.ROAD_SEGMENT_LENGTH
+            PositionRoadSegment(roadPool_[i], dist)
+        end
+        for i = 1, CONFIG.LINE_POOL_SIZE do
+            local dist = currentSegmentStartDist_ + (i - 1) * CONFIG.LINE_SPACING
+            PositionLaneLine(linePool_[i], dist)
+        end
+        for i = 1, CONFIG.BUILDING_POOL_SIZE do
+            local item = buildingPool_[i]
+            local dist = currentSegmentStartDist_ + (i - 1) * 8.0
+            local side = (i % 2 == 0) and 1 or -1
+            local lateral = CONFIG.BUILDING_ZONE_START + math.random() * (CONFIG.BUILDING_ZONE_END - CONFIG.BUILDING_ZONE_START)
+            PositionBuilding(item, dist, side, lateral)
+        end
+
+        lastObstacleSpawnDist_ = currentSegmentStartDist_ + PATH.SAFE_ZONE_AFTER
+        nextPickupDist_ = routeDistance_ + 30.0
+        nextDeliveryDist_ = routeDistance_ + 50.0
+        HideIntersection()
+        ScheduleNextIntersection()
     end
 end
 
@@ -1315,7 +1418,7 @@ local function UpdateCamera(dt)
     local pp = playerNode_.position
 
     -- 计算摄像机当前的 yaw
-    local targetYaw = HeadingToYaw(currentHeading_)
+    local targetYaw = GetTrackYawAt(routeDistance_)
     local currentYaw = targetYaw
 
     if camTurning_ then
@@ -1450,6 +1553,8 @@ end
 -- ============================================================================
 
 local function RecycleObjects()
+    local suppressForwardRoad = intersectionActive_ and turnChoice_ ~= 0
+
     -- 回收道路段：如果路程距离远远落后于玩家，移到前方
     local behindThreshold = routeDistance_ - CONFIG.ROAD_SEGMENT_LENGTH * 1.5
     local aheadTarget = routeDistance_ + CONFIG.ROAD_SEGMENT_LENGTH * (CONFIG.ROAD_SEGMENTS - 1)
@@ -1457,7 +1562,12 @@ local function RecycleObjects()
     for _, seg in ipairs(roadPool_) do
         if seg.pathDist < behindThreshold then
             aheadTarget = aheadTarget + CONFIG.ROAD_SEGMENT_LENGTH
-            PositionRoadSegment(seg, aheadTarget)
+            seg.pathDist = aheadTarget
+            if suppressForwardRoad and aheadTarget >= nextIntersectionDist_ then
+                HideRoadSegment(seg)
+            else
+                PositionRoadSegment(seg, aheadTarget)
+            end
         end
     end
 
@@ -1468,7 +1578,12 @@ local function RecycleObjects()
     for _, item in ipairs(linePool_) do
         if item.pathDist < lineBehind then
             lineAhead = lineAhead + CONFIG.LINE_SPACING
-            PositionLaneLine(item, lineAhead)
+            item.pathDist = lineAhead
+            if suppressForwardRoad and lineAhead >= nextIntersectionDist_ then
+                HideLaneLine(item)
+            else
+                PositionLaneLine(item, lineAhead)
+            end
         end
     end
 
@@ -1636,6 +1751,7 @@ local function HandleTouchEnd(eventType, eventData)
             else
                 turnChoice_ = 1   -- 右转
             end
+            ShowIntersection()
         else
             -- 正常变道
             if dx < 0 then
@@ -1650,6 +1766,7 @@ local function HandleTouchEnd(eventType, eventData)
             -- 上滑 = 跳
             if intersectionActive_ then
                 turnChoice_ = 0  -- 直走
+                ShowIntersection()
             end
             StartJump()
         else
@@ -1666,6 +1783,7 @@ local function HandleKeyboard(dt)
     if input:GetKeyPress(KEY_A) or input:GetKeyPress(KEY_LEFT) then
         if intersectionActive_ then
             turnChoice_ = -1
+            ShowIntersection()
         else
             StartLaneChange(CONFIG.currentLane - 1)
         end
@@ -1673,6 +1791,7 @@ local function HandleKeyboard(dt)
     if input:GetKeyPress(KEY_D) or input:GetKeyPress(KEY_RIGHT) then
         if intersectionActive_ then
             turnChoice_ = 1
+            ShowIntersection()
         else
             StartLaneChange(CONFIG.currentLane + 1)
         end
@@ -1682,6 +1801,7 @@ local function HandleKeyboard(dt)
     if input:GetKeyPress(KEY_W) or input:GetKeyPress(KEY_UP) or input:GetKeyPress(KEY_SPACE) then
         if intersectionActive_ then
             turnChoice_ = 0  -- 直走
+            ShowIntersection()
         end
         StartJump()
     end
@@ -1714,6 +1834,9 @@ local function HandleUpdate(eventType, eventData)
     routeDistance_ = routeDistance_ + moveDist
     distanceTraveled_ = distanceTraveled_ + moveDist
 
+    -- 弯道状态可能在这一帧出弯并切回直线路段
+    UpdateTurnAnimation(dt)
+
     -- 跳跃/下滑
     local jumpY = UpdateJumpSlide(dt)
 
@@ -1731,13 +1854,8 @@ local function HandleUpdate(eventType, eventData)
     local worldPos = GetWorldPosOnTrack(routeDistance_, laneX)
     playerNode_.position = Vector3(worldPos.x, jumpY, worldPos.z)
 
-    -- 玩家朝向（如果不在转弯动画中）
-    if not turnExecuting_ then
-        playerNode_.rotation = Quaternion(HeadingToYaw(currentHeading_), Vector3.UP)
-    end
-
-    -- 转弯动画
-    UpdateTurnAnimation(dt)
+    -- 玩家朝向跟随当前路径切线，弯道内连续旋转
+    playerNode_.rotation = Quaternion(GetTrackYawAt(routeDistance_), Vector3.UP)
 
     -- 路口逻辑
     UpdateIntersection()
