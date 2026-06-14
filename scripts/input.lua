@@ -2,16 +2,15 @@
 -- 外卖冲冲冲 - 输入处理模块
 -- ============================================================================
 -- 输入状态机：
---   turnInputActive  → 左右滑动 = 选择转向
---   laneChangeLocked → 忽略左右滑动（路口/弯道过渡中）
---   其他             → 左右滑动 = 普通变道
+--   insideIntersection || turnInputActive → 左右滑动 = 选择转向
+--   laneChangeLocked → 忽略左右滑动
+--   其他 → 左右滑动 = 普通变道
 -- ============================================================================
 
 local cfg = require("config")
 local CONFIG = cfg.CONFIG
 local path = require("path")
 local player = require("player")
-local intersection = require("intersection")
 
 local M = {}
 
@@ -30,15 +29,18 @@ local function HandleHorizontalInput(dir)
     local s = path.state
 
     if s.turnInputActive then
-        -- 转向选择窗口内：左右 = 选择转弯方向
+        -- 转向选择窗口内（路口区域内或接近路口）：左右 = 选择转弯方向
         s.turnChoice = dir --[[@as integer]]
         s.hasTurnChoice = true
+        -- 如果已经在路口区域内，实时更新出口方向
+        if s.insideIntersection then
+            path.UpdateExitChoice()
+        end
     elseif not s.laneChangeLocked then
         -- 普通道路：左右 = 变道
         local targetLane = CONFIG.currentLane + dir
         player.StartLaneChange(targetLane)
     end
-    -- laneChangeLocked == true 时忽略左右滑动
 end
 
 --- 处理上方向输入（跳跃 + 可选直走选择）
@@ -49,9 +51,12 @@ local function HandleUpInput()
     if s.turnInputActive then
         s.turnChoice = 0
         s.hasTurnChoice = true
+        if s.insideIntersection then
+            path.UpdateExitChoice()
+        end
     end
 
-    -- 无论是否在转向窗口，跳跃始终生效
+    -- 跳跃始终生效
     player.StartJump()
 end
 
@@ -82,7 +87,6 @@ function M.HandleTouchEnd(eventType, eventData)
     local threshold = 40
 
     if math.abs(dx) > math.abs(dy) and math.abs(dx) > threshold then
-        -- 水平滑动
         if dx < 0 then
             HandleHorizontalInput(-1)
         else
@@ -90,10 +94,8 @@ function M.HandleTouchEnd(eventType, eventData)
         end
     elseif math.abs(dy) > threshold then
         if dy < 0 then
-            -- 上滑
             HandleUpInput()
         else
-            -- 下滑
             HandleDownInput()
         end
     end
@@ -104,21 +106,15 @@ end
 -- ============================================================================
 
 function M.HandleKeyboard(dt)
-    -- 左
     if input:GetKeyPress(KEY_A) or input:GetKeyPress(KEY_LEFT) then
         HandleHorizontalInput(-1)
     end
-    -- 右
     if input:GetKeyPress(KEY_D) or input:GetKeyPress(KEY_RIGHT) then
         HandleHorizontalInput(1)
     end
-
-    -- 跳跃 / 直走
     if input:GetKeyPress(KEY_W) or input:GetKeyPress(KEY_UP) or input:GetKeyPress(KEY_SPACE) then
         HandleUpInput()
     end
-
-    -- 下滑
     if input:GetKeyPress(KEY_S) or input:GetKeyPress(KEY_DOWN) then
         HandleDownInput()
     end

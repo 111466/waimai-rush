@@ -23,7 +23,7 @@ M.types = {
 M.pool = {}
 M.active = {}
 M.lastSpawnEdgeId = 0
-M.lastSpawnProgress = 0.0
+M.lastSpawnDist = 0.0
 M.distanceTraveled = 0.0
 
 function M.CreateOne(scene, typeIdx)
@@ -44,7 +44,7 @@ function M.CreateOne(scene, typeIdx)
         typeIdx = typeIdx,
         info = info,
         edgeId = 0,
-        edgeProgress = 0.0,
+        edgeDist = 0.0,
         lane = 2,
         active = false,
     }
@@ -79,14 +79,15 @@ local function GetCurrentSpacing()
 end
 
 --- 在指定边上指定位置放置障碍物
-local function PositionObstacle(obs, edge, progress, lane)
+--- edgeDist: 在有效区段内的距离（0 = 刚出路口区域）
+local function PositionObstacle(obs, edge, edgeDist, lane)
     obs.edgeId = edge.id
-    obs.edgeProgress = progress
+    obs.edgeDist = edgeDist
     obs.lane = lane
     obs.active = true
 
     local laneX = CONFIG.LANE_X[lane]
-    local worldPos = rn.GetPositionOnEdge(edge, progress, laneX)
+    local worldPos = rn.GetPositionOnEdgeByDist(edge, edgeDist, laneX)
     obs.node.position = Vector3(worldPos.x, obs.info.offsetY, worldPos.z)
     obs.node.rotation = Quaternion(rn.HeadingToYaw(edge.heading), Vector3.UP)
 end
@@ -94,33 +95,30 @@ end
 --- 生成障碍物（在当前边的前方）
 function M.Spawn()
     local s = path.state
-    if s.turnExecuting then return end
+    if s.insideIntersection then return end
     if not s.currentEdge then return end
 
     local edge = s.currentEdge
-    local playerProgress = s.edgeProgress
-    local edgeLength = edge.length
+    local effectiveLen = rn.GetEdgeEffectiveLength()
+    local playerDist = s.edgeDistance
     local spacing = GetCurrentSpacing()
-    local spacingProgress = spacing / edgeLength
 
-    -- 计算生成范围（玩家前方）
-    local spawnAheadProgress = math.min(1.0, playerProgress + CONFIG.OBSTACLE_SPAWN_AHEAD / edgeLength)
+    -- 计算生成范围（玩家前方 effectiveDist）
+    local spawnAheadDist = math.min(effectiveLen, playerDist + CONFIG.OBSTACLE_SPAWN_AHEAD)
 
-    -- 确定下次生成的位置
+    -- 确定下次生成的位置（距离有效区段起点的距离）
     if M.lastSpawnEdgeId ~= edge.id then
         -- 进入新边，从安全区之后开始
         M.lastSpawnEdgeId = edge.id
-        M.lastSpawnProgress = CONFIG.SAFE_ZONE_DIST / edgeLength
+        M.lastSpawnDist = CONFIG.SAFE_ZONE_DIST
     end
 
-    while M.lastSpawnProgress + spacingProgress < spawnAheadProgress do
-        local spawnProgress = M.lastSpawnProgress + spacingProgress
-        M.lastSpawnProgress = spawnProgress
+    while (M.lastSpawnDist or 0) + spacing < spawnAheadDist do
+        local spawnDist = (M.lastSpawnDist or 0) + spacing
+        M.lastSpawnDist = spawnDist
 
-        -- 跳过安全区
-        local distFromStart = spawnProgress * edgeLength
-        local distFromEnd = (1.0 - spawnProgress) * edgeLength
-        if distFromStart < CONFIG.SAFE_ZONE_DIST or distFromEnd < CONFIG.SAFE_ZONE_DIST then
+        -- 跳过安全区（靠近两端路口区域边界的位置）
+        if spawnDist < CONFIG.SAFE_ZONE_DIST or (effectiveLen - spawnDist) < CONFIG.SAFE_ZONE_DIST then
             goto continue_spawn
         end
 
@@ -146,7 +144,7 @@ function M.Spawn()
                 obs = GetInactive(1) or GetInactive(2) or GetInactive(3)
             end
             if obs then
-                PositionObstacle(obs, edge, spawnProgress, lane)
+                PositionObstacle(obs, edge, spawnDist, lane)
                 table.insert(M.active, obs)
                 placed = placed + 1
             end
@@ -165,7 +163,7 @@ function M.CheckCollisions(playerLane, isJumping, jumpTime, isSliding, slideTime
         local obs = M.active[idx]
         -- 只检测同一条边上的障碍物
         if obs.edgeId == s.currentEdge.id then
-            local distDiff = math.abs(s.edgeProgress - obs.edgeProgress) * s.currentEdge.length
+            local distDiff = math.abs(s.edgeDistance - (obs.edgeDist or 0))
             if distDiff < CONFIG.COLLISION_Z_THRESHOLD and obs.lane == playerLane then
                 local canPass = false
                 if obs.info.jumpable and isJumping and jumpTime > 0.1 then
@@ -194,7 +192,7 @@ function M.Recycle()
         local shouldRemove = false
         if obs.edgeId ~= s.currentEdge.id then
             shouldRemove = true
-        elseif obs.edgeProgress < s.edgeProgress - 0.15 then
+        elseif (obs.edgeDist or 0) < s.edgeDistance - 10.0 then
             shouldRemove = true
         end
 
@@ -212,7 +210,7 @@ function M.ClearAll()
         obs.node.position = Vector3(0, -100, 0)
     end
     M.active = {}
-    M.lastSpawnProgress = 0.0
+    M.lastSpawnDist = 0.0
 end
 
 return M

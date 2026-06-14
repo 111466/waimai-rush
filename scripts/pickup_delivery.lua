@@ -16,7 +16,7 @@ local M = {}
 M.pickupNode = nil
 M.pickupActive = false
 M.pickupEdgeId = 0
-M.pickupEdgeProgress = 0.0
+M.pickupEdgeDist = 0.0
 M.pickupLane = 2
 M.lastPickupEdgeId = 0
 M.nextPickupDistance = 0.0  -- 走多远后才能再生成下一个
@@ -25,7 +25,7 @@ M.nextPickupDistance = 0.0  -- 走多远后才能再生成下一个
 M.deliveryNode = nil
 M.deliveryActive = false
 M.deliveryEdgeId = 0
-M.deliveryEdgeProgress = 0.0
+M.deliveryEdgeDist = 0.0
 M.deliveryLane = 2
 M.lastDeliveryEdgeId = 0
 M.nextDeliveryDistance = 0.0
@@ -71,40 +71,37 @@ end
 
 function M.TrySpawnPickup()
     local s = path.state
-    if s.turnExecuting then return end
+    if s.insideIntersection then return end
     if M.pickupActive or M.hasPackage then return end
     if not s.currentEdge then return end
 
     -- 检查走过的距离是否满足间隔要求
     if s.totalDistance < M.nextPickupDistance then return end
 
-    -- 生成位置：当前 edge 上玩家前方
-    local spawnProgress = s.edgeProgress + CONFIG.PICKUP_SPAWN_AHEAD / s.currentEdge.length
-    if spawnProgress >= 0.85 then return end  -- 太靠近末端不生成
+    -- 生成位置：当前 edge 有效区段上玩家前方
+    local effectiveLen = rn.GetEdgeEffectiveLength()
+    local spawnDist = s.edgeDistance + CONFIG.PICKUP_SPAWN_AHEAD
+    if spawnDist >= effectiveLen - CONFIG.SAFE_ZONE_DIST then return end  -- 太靠近末端不生成
 
     -- 安全区检测
-    local distFromStart = spawnProgress * s.currentEdge.length
-    local distFromEnd = (1.0 - spawnProgress) * s.currentEdge.length
-    if distFromStart < CONFIG.SAFE_ZONE_DIST or distFromEnd < CONFIG.SAFE_ZONE_DIST then
-        return
-    end
+    if spawnDist < CONFIG.SAFE_ZONE_DIST then return end
 
     local lane = math.random(1, 3)
     M.pickupEdgeId = s.currentEdge.id
-    M.pickupEdgeProgress = spawnProgress
+    M.pickupEdgeDist = spawnDist
     M.pickupLane = lane
     M.pickupActive = true
 
     -- 计算世界位置
     local laneX = CONFIG.LANE_X[lane]
-    local worldPos = rn.GetPositionOnEdge(s.currentEdge, spawnProgress, laneX)
+    local worldPos = rn.GetPositionOnEdgeByDist(s.currentEdge, spawnDist, laneX)
     M.pickupNode.position = Vector3(worldPos.x, 0.6, worldPos.z)
     M.pickupNode.rotation = Quaternion(rn.HeadingToYaw(s.currentEdge.heading), Vector3.UP)
 
     M.lastPickupEdgeId = s.currentEdge.id
     M.nextPickupDistance = s.totalDistance + CONFIG.PICKUP_INTERVAL_MIN + math.random() * (CONFIG.PICKUP_INTERVAL_MAX - CONFIG.PICKUP_INTERVAL_MIN)
 
-    print("[Pickup] Spawned at edge " .. s.currentEdge.id .. " progress " .. string.format("%.2f", spawnProgress))
+    print("[Pickup] Spawned at edge " .. s.currentEdge.id .. " dist " .. string.format("%.1f", spawnDist))
 end
 
 -- ============================================================================
@@ -124,7 +121,7 @@ function M.CheckPickup()
         return
     end
 
-    local distDiff = (s.edgeProgress - M.pickupEdgeProgress) * s.currentEdge.length
+    local distDiff = s.edgeDistance - (M.pickupEdgeDist or 0)
     if math.abs(distDiff) < CONFIG.COLLISION_Z_THRESHOLD and CONFIG.currentLane == M.pickupLane then
         -- 成功取件
         M.hasPackage = true
@@ -148,7 +145,7 @@ end
 
 function M.TrySpawnDelivery()
     local s = path.state
-    if s.turnExecuting then return end
+    if s.insideIntersection then return end
     if M.deliveryActive or not M.hasPackage then return end
     if not s.currentEdge then return end
 
@@ -156,25 +153,22 @@ function M.TrySpawnDelivery()
     if s.totalDistance < M.nextDeliveryDistance then return end
 
     -- 生成位置
-    local spawnProgress = s.edgeProgress + CONFIG.DELIVERY_SPAWN_AHEAD / s.currentEdge.length
-    if spawnProgress >= 0.85 then return end
+    local effectiveLen = rn.GetEdgeEffectiveLength()
+    local spawnDist = s.edgeDistance + CONFIG.DELIVERY_SPAWN_AHEAD
+    if spawnDist >= effectiveLen - CONFIG.SAFE_ZONE_DIST then return end
 
     -- 安全区检测
-    local distFromStart = spawnProgress * s.currentEdge.length
-    local distFromEnd = (1.0 - spawnProgress) * s.currentEdge.length
-    if distFromStart < CONFIG.SAFE_ZONE_DIST or distFromEnd < CONFIG.SAFE_ZONE_DIST then
-        return
-    end
+    if spawnDist < CONFIG.SAFE_ZONE_DIST then return end
 
     local lane = math.random(1, 3)
     M.deliveryEdgeId = s.currentEdge.id
-    M.deliveryEdgeProgress = spawnProgress
+    M.deliveryEdgeDist = spawnDist
     M.deliveryLane = lane
     M.deliveryActive = true
 
     -- 计算世界位置
     local laneX = CONFIG.LANE_X[lane]
-    local worldPos = rn.GetPositionOnEdge(s.currentEdge, spawnProgress, laneX)
+    local worldPos = rn.GetPositionOnEdgeByDist(s.currentEdge, spawnDist, laneX)
     M.deliveryNode.position = Vector3(worldPos.x, 0.15, worldPos.z)
     M.deliveryNode.rotation = Quaternion(rn.HeadingToYaw(s.currentEdge.heading), Vector3.UP)
 
@@ -184,7 +178,7 @@ function M.TrySpawnDelivery()
     -- 设置推荐方向（lane 偏左→推荐左转，偏右→推荐右转）
     path.state.intersectionHintDir = (lane <= 1) and -1 or ((lane >= 3) and 1 or 0)
 
-    print("[Delivery] Spawned at edge " .. s.currentEdge.id .. " progress " .. string.format("%.2f", spawnProgress))
+    print("[Delivery] Spawned at edge " .. s.currentEdge.id .. " dist " .. string.format("%.1f", spawnDist))
 end
 
 -- ============================================================================
@@ -205,7 +199,7 @@ function M.CheckDelivery()
         return
     end
 
-    local distDiff = (s.edgeProgress - M.deliveryEdgeProgress) * s.currentEdge.length
+    local distDiff = s.edgeDistance - (M.deliveryEdgeDist or 0)
     if math.abs(distDiff) < CONFIG.COLLISION_Z_THRESHOLD and CONFIG.currentLane == M.deliveryLane then
         -- 成功送达
         M.comboCount = M.comboCount + 1
@@ -253,11 +247,11 @@ function M.Reset()
     M.pickupActive = false
     M.pickupNode.position = Vector3(0, -100, 0)
     M.pickupEdgeId = 0
-    M.pickupEdgeProgress = 0.0
+    M.pickupEdgeDist = 0.0
     M.deliveryActive = false
     M.deliveryNode.position = Vector3(0, -100, 0)
     M.deliveryEdgeId = 0
-    M.deliveryEdgeProgress = 0.0
+    M.deliveryEdgeDist = 0.0
     M.hasPackage = false
     if M.packageVisualNode then M.packageVisualNode.enabled = false end
     M.nextPickupDistance = 30.0

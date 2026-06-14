@@ -1,8 +1,10 @@
 -- ============================================================================
--- 外卖冲冲冲 - 路径系统模块（基于 RoadGraph）
+-- 外卖冲冲冲 - 路径系统模块（基于 RoadGraph + 3x3 路口区域）
 -- ============================================================================
--- 管理玩家在路网中的状态：当前边、进度、转弯等
--- 转弯采用连续过渡：到达 turnStartDist 后自动开始弧线
+-- 状态机：
+--   onEdge → 沿边前进（有效区段）
+--   insideIntersection → 进入路口区域（选择方向、穿越区域）
+--   提交出口 → 进入新边
 -- ============================================================================
 
 local cfg = require("config")
@@ -15,10 +17,9 @@ local M = {}
 -- 玩家在路网中的运行时状态
 -- ============================================================================
 M.state = {
-    -- 当前所在边
+    -- 当前所在边（在 onEdge 阶段有效）
     currentEdge = nil,       -- edge 对象
-    edgeProgress = 0.0,      -- 0..1 在当前边上的进度
-    edgeDistance = 0.0,      -- 当前边上已走的距离
+    edgeDistance = 0.0,      -- 有效区段内走的距离（0 = 刚出路口区域）
 
     -- 当前 heading（前进方向）
     currentHeading = 0,
@@ -26,30 +27,33 @@ M.state = {
     -- 上一个经过的节点（用于判断来路方向）
     lastNodeId = 0,
 
-    -- 路口状态（仅用于UI提示）
-    intersectionActive = false,   -- 是否在路口提示阶段
-    intersectionHintDir = 0,      -- 推荐方向 -1左/0直/1右（仅用于UI提示）
-    availableTurns = {},          -- 当前路口可用转向列表
+    -- =========== 路口区域状态 ===========
+    insideIntersection = false,   -- 是否在路口区域内
+    intersectionProgress = 0.0,   -- 0..1 路口区域穿越进度
+    intersectionNodeId = 0,       -- 当前路口的节点 ID
+    intersectionNodePos = nil,    -- 路口世界坐标 Vector3
+    intersectionArrivalHeading = 0, -- 进入路口时的 heading
+    intersectionExitHeading = 0,    -- 确定的出口 heading（默认=arrivalHeading，即直走）
 
-    -- 输入状态机（新增）
-    turnInputActive = false,      -- 当前左右滑动是否为转向选择
-    laneChangeLocked = false,     -- 当前是否禁止变道
-    distanceToNode = 0.0,         -- 当前离目标路口中心的距离
+    -- =========== 输入状态机 ===========
+    turnInputActive = false,      -- 当前左右滑动是否为转向选择（在路口区域内为 true）
+    laneChangeLocked = false,     -- 当前是否禁止变道（在路口区域内为 true）
+    distanceToNode = 0.0,         -- 距离下一个路口中心的距离
     routeBlocked = false,         -- 是否撞到死路/无路可走
 
     -- 玩家转向选择
     turnChoice = 0,               -- 玩家实际选择 -1左/0直/1右
     hasTurnChoice = false,        -- 玩家是否已做出选择
 
-    -- 转弯执行状态
-    turnExecuting = false,
-    turnJustStarted = false,     -- 本帧刚进入转弯（用于外部清理逻辑）
-    turnArcProgress = 0.0,       -- 0..1 转弯弧线进度
-    turnArrivalHeading = 0,
-    turnExitHeading = 0,
-    turnNodeWorldPos = nil,      -- 转弯路口世界坐标
-    turnNextEdge = nil,          -- 转弯后的下一条边
-    turnLength = 0.0,            -- 弧线总长度
+    -- UI 提示
+    intersectionActive = false,   -- 是否在路口提示阶段（兼容旧 UI）
+    intersectionHintDir = 0,      -- 推荐方向 -1左/0直/1右
+    availableTurns = {},          -- 当前路口可用转向列表
+
+    -- 转弯记录（用于外部奖惩逻辑）
+    turnJustCommitted = false,    -- 本帧刚确定出口
+    turnArrivalHeading = 0,       -- 记录（供外部读取）
+    turnExitHeading = 0,          -- 记录（供外部读取）
 
     -- 全局里程（用于计分/难度等）
     totalDistance = 0.0,
@@ -72,25 +76,28 @@ function M.Init()
 
     local s = M.state
     s.currentEdge = startEdge
-    s.edgeProgress = 0.05  -- 稍微离开起始路口
-    s.edgeDistance = startEdge.length * s.edgeProgress
+    s.edgeDistance = 5.0  -- 稍微离开起始路口
     s.currentHeading = startEdge.heading
     s.lastNodeId = startNodeId
-    s.intersectionActive = false
-    s.intersectionHintDir = 0
+    s.insideIntersection = false
+    s.intersectionProgress = 0.0
+    s.intersectionNodeId = 0
+    s.intersectionNodePos = nil
+    s.intersectionArrivalHeading = 0
+    s.intersectionExitHeading = 0
     s.turnChoice = 0
     s.hasTurnChoice = false
-    s.turnExecuting = false
-    s.turnJustStarted = false
     s.totalDistance = 0.0
     s.availableTurns = {}
-    s.turnArcProgress = 0.0
-
-    -- 新状态机字段
     s.turnInputActive = false
     s.laneChangeLocked = false
-    s.distanceToNode = startEdge.length - s.edgeDistance
+    s.distanceToNode = 0.0
     s.routeBlocked = false
+    s.intersectionActive = false
+    s.intersectionHintDir = 0
+    s.turnJustCommitted = false
+    s.turnArrivalHeading = 0
+    s.turnExitHeading = 0
 
     print("[Path] Initialized on edge " .. startEdge.id .. " heading " .. startEdge.heading)
 end
@@ -103,34 +110,34 @@ end
 function M.GetWorldPosition(laneOffset)
     local s = M.state
 
-    if s.turnExecuting then
-        local pos, _ = rn.GetTurnPosition(
-            s.turnNodeWorldPos,
-            s.turnArrivalHeading,
-            s.turnExitHeading,
-            s.turnArcProgress,
+    if s.insideIntersection then
+        local pos, _ = rn.GetIntersectionPosition(
+            s.intersectionNodePos,
+            s.intersectionArrivalHeading,
+            s.intersectionExitHeading,
+            s.intersectionProgress,
             laneOffset
         )
         return pos
     end
 
     if s.currentEdge then
-        return rn.GetPositionOnEdge(s.currentEdge, s.edgeProgress, laneOffset)
+        return rn.GetPositionOnEdgeByDist(s.currentEdge, s.edgeDistance, laneOffset)
     end
 
     return Vector3(0, 0, 0)
 end
 
---- 获取当前 yaw 角度（转弯时连续插值）
+--- 获取当前 yaw 角度
 function M.GetCurrentYaw()
     local s = M.state
 
-    if s.turnExecuting then
-        local _, yaw = rn.GetTurnPosition(
-            s.turnNodeWorldPos,
-            s.turnArrivalHeading,
-            s.turnExitHeading,
-            s.turnArcProgress,
+    if s.insideIntersection then
+        local _, yaw = rn.GetIntersectionPosition(
+            s.intersectionNodePos,
+            s.intersectionArrivalHeading,
+            s.intersectionExitHeading,
+            s.intersectionProgress,
             0
         )
         return yaw
@@ -157,49 +164,43 @@ end
 --- 判断某个边距离是否在安全区内
 function M.IsInSafeZone(distFromEdgeStart)
     local s = M.state
+    if s.insideIntersection then return true end  -- 路口区域内不生成障碍
     if not s.currentEdge then return false end
-    local edgeLen = s.currentEdge.length
-    -- 靠近末端的安全区
-    if (edgeLen - distFromEdgeStart) < CONFIG.SAFE_ZONE_DIST then
-        return true
-    end
-    -- 刚离开路口的安全区
-    if distFromEdgeStart < CONFIG.SAFE_ZONE_DIST then
-        return true
-    end
+    local effectiveLen = rn.GetEdgeEffectiveLength()
+    if distFromEdgeStart < CONFIG.SAFE_ZONE_DIST then return true end
+    if (effectiveLen - distFromEdgeStart) < CONFIG.SAFE_ZONE_DIST then return true end
     return false
 end
 
 -- ============================================================================
--- 输入状态机更新（每帧调用，在 Advance 之前或之后均可）
+-- 输入状态机更新（每帧调用）
 -- ============================================================================
 
 function M.UpdateInputState()
     local s = M.state
 
-    -- 已经死路，不再更新
     if s.routeBlocked then return end
 
-    -- 转弯执行中：禁止变道，禁止转向选择
-    if s.turnExecuting then
-        s.turnInputActive = false
+    if s.insideIntersection then
+        -- 路口区域内：接受转向选择，锁定变道
+        s.turnInputActive = true
         s.laneChangeLocked = true
         return
     end
 
-    -- 不在转弯中：允许变道
+    -- 在边上
     s.laneChangeLocked = false
 
-    -- 计算距离目标路口中心的距离
+    -- 计算到下一个路口中心的距离
     if s.currentEdge then
-        s.distanceToNode = s.currentEdge.length - s.edgeDistance
+        local effectiveLen = rn.GetEdgeEffectiveLength()
+        s.distanceToNode = effectiveLen - s.edgeDistance + rn.INTERSECTION_HALF_SIZE
     else
         s.distanceToNode = 999.0
     end
 
-    -- 判断是否在转向选择窗口
-    -- 条件：距路口 <= TURN_INPUT_START_DIST 且 > TURN_RADIUS
-    if s.distanceToNode <= CONFIG.TURN_INPUT_START_DIST and s.distanceToNode > rn.TURN_RADIUS then
+    -- 接近路口时开启转向选择提前窗口（在边上也可以提前选择方向）
+    if s.distanceToNode <= CONFIG.TURN_INPUT_START_DIST then
         s.turnInputActive = true
     else
         s.turnInputActive = false
@@ -207,82 +208,57 @@ function M.UpdateInputState()
 end
 
 -- ============================================================================
--- 核心：移动逻辑（连续过渡，无跳变）
+-- 核心：移动逻辑
 -- ============================================================================
 
---- 每帧前进。返回 false 正常，不需要外部处理
+--- 每帧前进
 function M.Advance(moveDist)
     local s = M.state
 
-    -- 已经死路，不再移动
-    if s.routeBlocked then return false end
+    if s.routeBlocked then return end
 
-    -- 清除上一帧的 turnJustStarted 标记
-    s.turnJustStarted = false
+    -- 清除上一帧的标记
+    s.turnJustCommitted = false
 
     s.totalDistance = s.totalDistance + moveDist
 
     -- ==========================================
-    -- 情况 A：当前正在转弯弧线上
+    -- 情况 A：在路口区域内穿越
     -- ==========================================
-    if s.turnExecuting then
-        local arcAdvance = moveDist / s.turnLength
-        s.turnArcProgress = s.turnArcProgress + arcAdvance
+    if s.insideIntersection then
+        local traverseLen = rn.GetIntersectionTraverseLength()
+        local advance = moveDist / traverseLen
+        s.intersectionProgress = s.intersectionProgress + advance
 
-        if s.turnArcProgress >= 1.0 then
-            -- 弧线走完，多余距离带入新边
-            local overshoot = (s.turnArcProgress - 1.0) * s.turnLength
-            M.FinishTurn(overshoot)
+        if s.intersectionProgress >= 1.0 then
+            -- 穿越完毕，多余距离带入新边
+            local overshoot = (s.intersectionProgress - 1.0) * traverseLen
+            M.ExitIntersection(overshoot)
         end
-        return false
+        return
     end
 
     -- ==========================================
-    -- 情况 B：沿边前进
+    -- 情况 B：沿边有效区段前进
     -- ==========================================
-    if not s.currentEdge then return false end
+    if not s.currentEdge then return end
 
+    local effectiveLen = rn.GetEdgeEffectiveLength()
     s.edgeDistance = s.edgeDistance + moveDist
-    s.edgeProgress = s.edgeDistance / s.currentEdge.length
 
-    -- 计算转弯起始距离（距边末端 TURN_RADIUS 处）
-    local turnStartDist = s.currentEdge.length - rn.TURN_RADIUS
-
-    -- 到达转弯起始点
-    if s.edgeDistance >= turnStartDist then
-        -- 计算多余距离（超过转弯起始点的部分）
-        local overshoot = s.edgeDistance - turnStartDist
-
-        -- 固定 edgeProgress/edgeDistance 到转弯起始点
-        s.edgeDistance = turnStartDist
-        s.edgeProgress = turnStartDist / s.currentEdge.length
-
-        -- 开始转弯
-        M.StartTurnAtNode()
-
-        -- 如果死路了，不再推进
-        if s.routeBlocked then return false end
-
-        -- 把多余距离应用到弧线
-        if s.turnExecuting and overshoot > 0 then
-            local arcAdvance = overshoot / s.turnLength
-            s.turnArcProgress = s.turnArcProgress + arcAdvance
-            if s.turnArcProgress >= 1.0 then
-                local arcOvershoot = (s.turnArcProgress - 1.0) * s.turnLength
-                M.FinishTurn(arcOvershoot)
-            end
-        end
+    -- 到达边有效区段末端 → 进入路口区域
+    if s.edgeDistance >= effectiveLen then
+        local overshoot = s.edgeDistance - effectiveLen
+        s.edgeDistance = effectiveLen
+        M.EnterIntersection(overshoot)
     end
-
-    return false
 end
 
 -- ============================================================================
--- 开始转弯（解析玩家选择，设置弧线参数）
--- 不再自动选择方向 —— 没路就触发死路状态
+-- 进入路口区域
 -- ============================================================================
 
-function M.StartTurnAtNode()
+function M.EnterIntersection(overshoot)
     local s = M.state
     local edge = s.currentEdge
     local targetNodeId = edge.toNode
@@ -294,103 +270,171 @@ function M.StartTurnAtNode()
         return
     end
 
-    -- 确定出口方向
-    local exitHeading = s.currentHeading  -- 默认直走
+    -- 设置路口区域状态
+    s.insideIntersection = true
+    s.intersectionProgress = 0.0
+    s.intersectionNodeId = targetNodeId
+    s.intersectionNodePos = Vector3(targetNode.worldX, 0, targetNode.worldZ)
+    s.intersectionArrivalHeading = s.currentHeading
 
+    -- 确定出口方向：如果玩家已经提前选择了方向就用，否则默认直走
     if s.hasTurnChoice then
-        -- 玩家已做出选择
         local choice = s.turnChoice
         if choice == -1 then
-            exitHeading = rn.TurnLeft(s.currentHeading)
+            s.intersectionExitHeading = rn.TurnLeft(s.currentHeading)
         elseif choice == 1 then
-            exitHeading = rn.TurnRight(s.currentHeading)
+            s.intersectionExitHeading = rn.TurnRight(s.currentHeading)
         else
-            exitHeading = s.currentHeading  -- 玩家明确选择直走
+            s.intersectionExitHeading = s.currentHeading
         end
+    else
+        s.intersectionExitHeading = s.currentHeading  -- 默认直走
     end
-    -- 如果没有选择（hasTurnChoice == false），exitHeading 保持直走
 
-    -- 检查该方向是否有边
-    local nextEdge = rn.GetEdgeByHeading(targetNodeId, exitHeading)
-
-    if not nextEdge then
-        -- 选择的方向无路 → 死路！
-        -- 不自动选择其他方向，直接触发失败
-        print("[Path] DEAD END: No road in heading " .. exitHeading .. " at node " .. targetNodeId)
+    -- 检查出口方向是否有效
+    local exitEdge = rn.GetEdgeByHeading(targetNodeId, s.intersectionExitHeading)
+    if not exitEdge then
+        -- 选择的方向无路 → 死路
+        print("[Path] DEAD END at node " .. targetNodeId .. " heading " .. s.intersectionExitHeading)
         s.routeBlocked = true
-        s.turnExecuting = false
-        s.laneChangeLocked = true
         return
     end
 
-    -- 设置转弯参数
-    s.turnExecuting = true
-    s.turnJustStarted = true
-    s.turnArcProgress = 0.0
-    s.turnArrivalHeading = s.currentHeading
-    s.turnExitHeading = exitHeading
-    s.turnNodeWorldPos = Vector3(targetNode.worldX, 0, targetNode.worldZ)
-    s.turnNextEdge = nextEdge
-    s.turnLength = rn.GetTurnLength(s.currentHeading, exitHeading)
+    -- 激活 UI 提示
+    s.availableTurns = rn.GetAvailableTurns(targetNodeId, s.currentHeading)
+    s.intersectionActive = true
+    if #s.availableTurns > 0 then
+        local r = math.random(1, #s.availableTurns)
+        local recommended = s.availableTurns[r]
+        if recommended.direction == "left" then
+            s.intersectionHintDir = -1
+        elseif recommended.direction == "right" then
+            s.intersectionHintDir = 1
+        else
+            s.intersectionHintDir = 0
+        end
+    end
 
-    -- 重置路口状态
-    s.intersectionActive = false
+    -- 记录（供外部奖惩用）
+    s.turnJustCommitted = true
+    s.turnArrivalHeading = s.currentHeading
+    s.turnExitHeading = s.intersectionExitHeading
+
+    print("[Path] Entered intersection at node " .. targetNodeId ..
+        " heading " .. s.currentHeading .. " -> " .. s.intersectionExitHeading)
+
+    -- 把 overshoot 应用到路口穿越
+    if overshoot > 0 then
+        local traverseLen = rn.GetIntersectionTraverseLength()
+        s.intersectionProgress = overshoot / traverseLen
+        if s.intersectionProgress >= 1.0 then
+            local remainOvershoot = (s.intersectionProgress - 1.0) * traverseLen
+            M.ExitIntersection(remainOvershoot)
+        end
+    end
+end
+
+-- ============================================================================
+-- 离开路口区域 → 进入新边
+-- ============================================================================
+
+function M.ExitIntersection(overshoot)
+    local s = M.state
+
+    -- 确定出口车道（根据路口内位置）
+    local exitLane = rn.SelectExitLane(
+        s.intersectionArrivalHeading,
+        s.intersectionExitHeading,
+        math.min(1.0, s.intersectionProgress),
+        CONFIG.currentLane
+    )
+
+    -- 获取出口边
+    local exitEdge = rn.GetEdgeByHeading(s.intersectionNodeId, s.intersectionExitHeading)
+    if not exitEdge then
+        print("[Path] ERROR: Exit edge disappeared!")
+        s.routeBlocked = true
+        return
+    end
+
+    -- 更新车道（转弯时根据进度决定出口车道）
+    CONFIG.currentLane = exitLane
+
+    -- 进入新边
+    s.currentEdge = exitEdge
+    s.currentHeading = s.intersectionExitHeading
+    s.lastNodeId = exitEdge.fromNode
+    s.edgeDistance = overshoot or 0
+
+    -- 清除路口状态
+    s.insideIntersection = false
+    s.intersectionProgress = 1.0
+    s.intersectionNodeId = 0
+    s.intersectionNodePos = nil
+
+    -- 解锁变道，清除转向选择
+    s.laneChangeLocked = false
     s.turnInputActive = false
     s.turnChoice = 0
     s.hasTurnChoice = false
+    s.intersectionActive = false
 
-    print("[Path] Turn started: heading " .. s.currentHeading .. " -> " .. exitHeading .. " at node " .. targetNodeId)
+    print("[Path] Exited intersection -> edge " .. exitEdge.id ..
+        " heading " .. s.currentHeading .. " exitLane " .. exitLane)
 end
 
 -- ============================================================================
--- 转弯完成
+-- 路口区域内实时更新出口方向（玩家可以在区域内改变主意）
 -- ============================================================================
 
-function M.FinishTurn(overshootDist)
+function M.UpdateExitChoice()
     local s = M.state
+    if not s.insideIntersection then return end
+    if s.routeBlocked then return end
 
-    s.turnExecuting = false
-    s.turnArcProgress = 1.0  -- 钳位
+    -- 玩家在路口区域内做出新选择
+    if s.hasTurnChoice then
+        local choice = s.turnChoice
+        local newExitHeading = s.currentHeading  -- 从 arrivalHeading 出发计算
+        if choice == -1 then
+            newExitHeading = rn.TurnLeft(s.intersectionArrivalHeading)
+        elseif choice == 1 then
+            newExitHeading = rn.TurnRight(s.intersectionArrivalHeading)
+        else
+            newExitHeading = s.intersectionArrivalHeading
+        end
 
-    -- 进入新边
-    s.currentEdge = s.turnNextEdge
-    s.currentHeading = s.turnExitHeading
-    s.lastNodeId = s.turnNextEdge.fromNode
-    s.turnNextEdge = nil
-
-    -- 弧线结束时角色已在新边离路口中心 TURN_RADIUS 处
-    -- 所以新边起始 edgeDistance = TURN_RADIUS + overshoot
-    local startDist = rn.TURN_RADIUS + (overshootDist or 0)
-    s.edgeDistance = math.min(startDist, s.currentEdge.length * 0.95)  -- clamp 防溢
-    s.edgeProgress = s.edgeDistance / s.currentEdge.length
-
-    -- 进入新边后解锁变道
-    s.laneChangeLocked = false
-    s.turnInputActive = false
-
-    print("[Path] Entered edge " .. s.currentEdge.id .. " heading " .. s.currentHeading)
+        -- 验证新方向是否有边
+        local exitEdge = rn.GetEdgeByHeading(s.intersectionNodeId, newExitHeading)
+        if exitEdge then
+            s.intersectionExitHeading = newExitHeading
+        else
+            -- 新方向无路 → 死路
+            print("[Path] DEAD END (in-area choice): heading " .. newExitHeading)
+            s.routeBlocked = true
+        end
+    end
 end
 
 -- ============================================================================
--- 路口检测与提示（只负责UI提示状态，不控制输入含义）
+-- 路口检测与提示（边上时的预判显示）
 -- ============================================================================
 
---- 每帧检查是否应该显示路口提示
 function M.CheckIntersection()
     local s = M.state
-    if s.turnExecuting then return end
+    if s.insideIntersection then return end
     if s.routeBlocked then return end
     if s.intersectionActive then return end
     if not s.currentEdge then return end
 
-    -- 当进度达到阈值时，激活路口提示（仅用于UI）
-    if s.edgeProgress >= CONFIG.INTERSECTION_HINT_PROGRESS then
+    -- 距路口较近时提前显示提示
+    local effectiveLen = rn.GetEdgeEffectiveLength()
+    local progress = s.edgeDistance / effectiveLen
+    if progress >= CONFIG.INTERSECTION_HINT_PROGRESS then
         local targetNodeId = s.currentEdge.toNode
         s.availableTurns = rn.GetAvailableTurns(targetNodeId, s.currentHeading)
-
         if #s.availableTurns > 0 then
             s.intersectionActive = true
-            -- 随机推荐一个方向（仅用于 UI 提示和奖惩）
             local r = math.random(1, #s.availableTurns)
             local recommended = s.availableTurns[r]
             if recommended.direction == "left" then

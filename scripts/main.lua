@@ -110,13 +110,12 @@ local function HandleUpdate(eventType, eventData)
         return
     end
 
-    -- 转弯刚开始时的逻辑（仅在实际转向时清理，直行不清）
-    if s.turnJustStarted then
+    -- 刚确定路口出口时的逻辑（仅在实际转向时清理，直行不清）
+    if s.turnJustCommitted then
         local actuallyTurning = (s.turnArrivalHeading ~= s.turnExitHeading)
 
         if actuallyTurning then
             -- 只有实际转弯（左/右）时才清除旧边上的障碍物
-            -- 直行通过路口时障碍物自然由 Recycle() 回收
             obstacles.ClearAll()
         end
 

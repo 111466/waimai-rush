@@ -270,107 +270,135 @@ function M.GetStartEdge()
 end
 
 -- ============================================================================
--- 转弯几何（圆弧过渡）
+-- 路口区域（3x3 复合模型）
 -- ============================================================================
-M.TURN_RADIUS = 6.0         -- 转弯半径
-M.TURN_ARC_LENGTH = 6.0 * math.pi * 0.5  -- 四分之一圆弧
+-- 路口中心是一个正方形区域，尺寸 = INTERSECTION_HALF_SIZE * 2
+-- 玩家物理进入区域后选择方向，根据区域内位置决定出口车道
+-- ============================================================================
 
---- 计算转弯圆弧上的点
---- nodeWorldPos: 路口中心世界坐标
---- arrivalHeading: 进入路口时的 heading
---- exitHeading: 离开路口时的 heading
---- arcProgress: 0..1 圆弧进度
---- laneOffset: 车道偏移
-function M.GetTurnPosition(nodeWorldPos, arrivalHeading, exitHeading, arcProgress, laneOffset)
-    local radius = M.TURN_RADIUS
-    local angle = math.min(math.max(arcProgress, 0.0), 1.0) * math.pi * 0.5
+M.INTERSECTION_HALF_SIZE = CONFIG.INTERSECTION_HALF_SIZE  -- 引用 config
 
-    local fwd = M.HeadingToForward(arrivalHeading)
-    local right = M.HeadingToRight(arrivalHeading)
-
-    -- 判断转弯方向
-    local turnDir  -- 1=右转, -1=左转
-    local diff = (exitHeading - arrivalHeading + 4) % 4
-    if diff == 1 then
-        turnDir = 1   -- 右转
-    elseif diff == 3 then
-        turnDir = -1  -- 左转
-    else
-        -- 直走不需要弧线，线性插值即可
-        local startPos = Vector3(
-            nodeWorldPos.x - fwd.x * radius,
-            0,
-            nodeWorldPos.z - fwd.z * radius
-        )
-        local endFwd = M.HeadingToForward(exitHeading)
-        local endPos = Vector3(
-            nodeWorldPos.x + endFwd.x * radius,
-            0,
-            nodeWorldPos.z + endFwd.z * radius
-        )
-        local px = startPos.x + (endPos.x - startPos.x) * arcProgress
-        local pz = startPos.z + (endPos.z - startPos.z) * arcProgress
-        local tangentRight = M.HeadingToRight(arrivalHeading)
-        px = px + tangentRight.x * laneOffset
-        pz = pz + tangentRight.z * laneOffset
-        return Vector3(px, 0, pz), arrivalHeading
-    end
-
-    -- 圆弧中心
-    local center = Vector3(
-        nodeWorldPos.x + right.x * turnDir * radius - fwd.x * radius,
-        0,
-        nodeWorldPos.z + right.z * turnDir * radius - fwd.z * radius
-    )
-
-    -- 从圆心出发的径向 起始方向
-    local radialStart = Vector3(-right.x * turnDir, 0, -right.z * turnDir)
-
-    local cosA = math.cos(angle)
-    local sinA = math.sin(angle)
-
-    local radial = Vector3(
-        radialStart.x * cosA + fwd.x * sinA,
-        0,
-        radialStart.z * cosA + fwd.z * sinA
-    )
-
-    -- 切线方向（用于车道偏移）
-    -- tangent 是沿弧线前进方向的切线向量
-    local tangent = Vector3(
-        -radialStart.x * sinA + fwd.x * cosA,
-        0,
-        -radialStart.z * sinA + fwd.z * cosA
-    )
-    -- tangentRight 始终是切线方向的右侧，不因转弯方向反转
-    -- 这样左/中/右车道偏移在整个弧线中保持连续
-    local tangentRight = Vector3(tangent.z, 0, -tangent.x)
-
-    local pos = Vector3(
-        center.x + radial.x * radius + tangentRight.x * laneOffset,
-        0,
-        center.z + radial.z * radius + tangentRight.z * laneOffset
-    )
-
-    -- 计算当前 yaw
-    local fromYaw = M.HeadingToYaw(arrivalHeading)
-    local toYaw = M.HeadingToYaw(exitHeading)
-    local yawDiff = toYaw - fromYaw
-    if yawDiff > 180 then toYaw = toYaw - 360
-    elseif yawDiff < -180 then toYaw = toYaw + 360 end
-    local currentYaw = fromYaw + (toYaw - fromYaw) * arcProgress
-
-    return pos, currentYaw
+--- 获取路口区域穿越的总距离（从入边界到出边界 = 整个区域对角方向不需要，实际就是全宽）
+function M.GetIntersectionTraverseLength()
+    return M.INTERSECTION_HALF_SIZE * 2.0
 end
 
---- 获取弧线过渡的总长度
-function M.GetTurnLength(arrivalHeading, exitHeading)
-    local diff = (exitHeading - arrivalHeading + 4) % 4
-    if diff == 1 or diff == 3 then
-        return M.TURN_ARC_LENGTH  -- 90度弧
+--- 计算玩家在路口区域内的世界坐标
+--- nodeWorldPos: 路口中心世界坐标
+--- arrivalHeading: 进入路口时的 heading
+--- exitHeading: 离开路口时的 heading（可能和 arrival 不同，即转弯）
+--- progress: 0..1 在路口区域内的线性进度
+--- laneOffset: 车道偏移（进入路口时的车道偏移）
+function M.GetIntersectionPosition(nodeWorldPos, arrivalHeading, exitHeading, progress, laneOffset)
+    local halfSize = M.INTERSECTION_HALF_SIZE
+    local t = math.max(0.0, math.min(1.0, progress))
+
+    local entryFwd = M.HeadingToForward(arrivalHeading)
+    local exitFwd = M.HeadingToForward(exitHeading)
+    local entryRight = M.HeadingToRight(arrivalHeading)
+
+    -- 入口点：路口中心 - halfSize * 入口方向（区域边缘）
+    local entryPos = Vector3(
+        nodeWorldPos.x - entryFwd.x * halfSize,
+        0,
+        nodeWorldPos.z - entryFwd.z * halfSize
+    )
+
+    -- 出口点：路口中心 + halfSize * 出口方向（区域边缘）
+    local exitPos = Vector3(
+        nodeWorldPos.x + exitFwd.x * halfSize,
+        0,
+        nodeWorldPos.z + exitFwd.z * halfSize
+    )
+
+    -- 路口中心（可选：S型曲线的中间控制点）
+    local centerPos = Vector3(nodeWorldPos.x, 0, nodeWorldPos.z)
+
+    -- 使用二次贝塞尔曲线让转弯更自然
+    -- B(t) = (1-t)² * P0 + 2(1-t)t * P1 + t² * P2
+    local omt = 1.0 - t
+    local px = omt * omt * entryPos.x + 2 * omt * t * centerPos.x + t * t * exitPos.x
+    local pz = omt * omt * entryPos.z + 2 * omt * t * centerPos.z + t * t * exitPos.z
+
+    -- 切线方向（贝塞尔导数）：B'(t) = 2(1-t)(P1-P0) + 2t(P2-P1)
+    local tangentX = 2 * omt * (centerPos.x - entryPos.x) + 2 * t * (exitPos.x - centerPos.x)
+    local tangentZ = 2 * omt * (centerPos.z - entryPos.z) + 2 * t * (exitPos.z - centerPos.z)
+    local tangentLen = math.sqrt(tangentX * tangentX + tangentZ * tangentZ)
+    if tangentLen > 0.001 then
+        tangentX = tangentX / tangentLen
+        tangentZ = tangentZ / tangentLen
     else
-        return M.TURN_RADIUS * 2  -- 直走穿过路口
+        tangentX = entryFwd.x
+        tangentZ = entryFwd.z
     end
+
+    -- 切线的右侧方向（用于车道偏移）
+    local tangentRightX = tangentZ
+    local tangentRightZ = -tangentX
+
+    -- 应用车道偏移（在进入的方向右侧偏移，进入后沿切线右侧偏移）
+    px = px + tangentRightX * laneOffset
+    pz = pz + tangentRightZ * laneOffset
+
+    -- 计算 yaw（从切线方向得到）
+    local yaw = math.deg(math.atan(tangentX, tangentZ))
+
+    return Vector3(px, 0, pz), yaw
+end
+
+--- 根据玩家在路口区域内的前进进度决定出口车道
+--- 规则：
+---   转弯（左转/右转）时：按前进进度三分 → 后1/3=lane1, 中1/3=lane2, 前1/3=lane3
+---   直行时：保持当前车道不变（横向位置直接映射）
+--- @param arrivalHeading integer 进入方向
+--- @param exitHeading integer 出口方向
+--- @param progress number 0..1 路口内前进进度
+--- @param currentLane integer 当前车道 1/2/3
+--- @return integer exitLane 出口车道 1/2/3
+function M.SelectExitLane(arrivalHeading, exitHeading, progress, currentLane)
+    local diff = (exitHeading - arrivalHeading + 4) % 4
+    if diff == 0 then
+        -- 直行：保持当前车道
+        return currentLane
+    else
+        -- 转弯（左转 diff=3 或右转 diff=1）：按前进进度三分
+        if progress < 0.333 then
+            return 1  -- 后 1/3 → 出口左车道
+        elseif progress < 0.667 then
+            return 2  -- 中 1/3 → 出口中车道
+        else
+            return 3  -- 前 1/3 → 出口右车道
+        end
+    end
+end
+
+--- 获取边的有效起始距离（从路口区域边界开始）
+--- 边的世界坐标包含路口区域内的部分，实际可行驶长度需要扣除两端路口区域
+function M.GetEdgeEffectiveLength()
+    return M.BLOCK_SIZE - M.INTERSECTION_HALF_SIZE * 2.0
+end
+
+--- 获取边上某进度对应的世界坐标（考虑路口区域扣除）
+--- effectiveDist: 在有效区段内走了多远（0 = 刚出路口区域）
+function M.GetPositionOnEdgeByDist(edge, effectiveDist, laneOffset)
+    local halfSize = M.INTERSECTION_HALF_SIZE
+    local effectiveLen = M.GetEdgeEffectiveLength()
+
+    -- 实际在完整边上的距离（跳过起始路口区域）
+    local actualDist = halfSize + math.max(0, math.min(effectiveLen, effectiveDist))
+    local t = actualDist / edge.length
+
+    local sx, sz = edge.worldStart.x, edge.worldStart.z
+    local ex, ez = edge.worldEnd.x, edge.worldEnd.z
+    local px = sx + (ex - sx) * t
+    local pz = sz + (ez - sz) * t
+
+    -- 车道偏移
+    local right = M.HeadingToRight(edge.heading)
+    px = px + right.x * laneOffset
+    pz = pz + right.z * laneOffset
+
+    return Vector3(px, 0, pz)
 end
 
 return M
