@@ -21,6 +21,7 @@ M.deliveryAccent = nil
 M.deliveryMarker = nil
 M.arrow = nil
 M.crossroads = nil
+M.shadow = nil
 
 function M.CreatePBRMaterial(diffuseColor, metallic, roughness)
     local mat = Material:new()
@@ -48,6 +49,7 @@ function M.Init()
     M.deliveryMarker = M.CreatePBRMaterial(Color(1.0, 0.95, 0.35, 1.0), 0.2, 0.4)
     M.arrow = M.CreatePBRMaterial(Color(0.2, 0.9, 1.0, 1.0), 0.3, 0.4)
     M.crossroads = M.CreatePBRMaterial(Color(0.85, 0.85, 0.82, 1.0), 0.0, 0.9)
+    M.shadow = M.CreatePBRMaterial(Color(0.18, 0.20, 0.18, 1.0), 0.0, 1.0)
 end
 
 return M

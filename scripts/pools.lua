@@ -140,23 +140,31 @@ local function CreateBuildingsAlongEdge(scene, edgeStart, edgeEnd, heading, edge
 
             for _, side in ipairs({-1, 1}) do
                 if math.random() > 0.3 then  -- 70% 概率生成建筑
-                    local lateral = CONFIG.BUILDING_ZONE_START + math.random() * (CONFIG.BUILDING_ZONE_END - CONFIG.BUILDING_ZONE_START)
-                    local bx = px + right.x * side * lateral
-                    local bz = pz + right.z * side * lateral
-
                     local h = math.random() * 8 + 3
                     local w = math.random() * 2.5 + 1.5
                     local d = math.random() * 2.5 + 1.5
+                    local buildingRadius = math.max(w, d) * 0.5
+                    local roadHalfWidth = CONFIG.ROAD_WIDTH * 0.5
+                    local minLateral = math.max(
+                        CONFIG.BUILDING_ZONE_START,
+                        roadHalfWidth + 0.3 + 2.5 + CONFIG.BUILDING_SIDEWALK_SETBACK + buildingRadius
+                    )
 
-                    local node = scene:CreateChild("Building")
-                    local model = node:CreateComponent("StaticModel")
-                    model.model = cache:GetResource("Model", "Models/Box.mdl")
-                    local colorIdx = math.random(1, #buildingColors)
-                    model.material = mats.CreatePBRMaterial(buildingColors[colorIdx], 0.0, 0.7)
-                    node.scale = Vector3(w, h, d)
-                    node.position = Vector3(bx, h * 0.5, bz)
-                    node.rotation = Quaternion(rn.HeadingToYaw(heading) + math.random(-5, 5), Vector3.UP)
-                    table.insert(M.buildingNodes, node)
+                    if minLateral <= CONFIG.BUILDING_ZONE_END then
+                        local lateral = minLateral + math.random() * (CONFIG.BUILDING_ZONE_END - minLateral)
+                        local bx = px + right.x * side * lateral
+                        local bz = pz + right.z * side * lateral
+
+                        local node = scene:CreateChild("Building")
+                        local model = node:CreateComponent("StaticModel")
+                        model.model = cache:GetResource("Model", "Models/Box.mdl")
+                        local colorIdx = math.random(1, #buildingColors)
+                        model.material = mats.CreatePBRMaterial(buildingColors[colorIdx], 0.0, 0.7)
+                        node.scale = Vector3(w, h, d)
+                        node.position = Vector3(bx, h * 0.5, bz)
+                        node.rotation = Quaternion(rn.HeadingToYaw(heading) + math.random(-5, 5), Vector3.UP)
+                        table.insert(M.buildingNodes, node)
+                    end
                 end
             end
         end

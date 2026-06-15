@@ -279,8 +279,6 @@ function CreateGameContent()
     -- 创建取件/送件节点
     pickup.CreatePickupNode(scene_)
     pickup.CreateDeliveryNode(scene_)
-    pickup.nextPickupDistance = 30.0
-    pickup.nextDeliveryDistance = 100.0
 
     -- 创建路口视觉（方向箭头）
     intersection.CreateVisuals(scene_)
@@ -288,6 +286,7 @@ function CreateGameContent()
     -- 创建玩家
     player.Create(scene_)
     pickup.packageVisualNode = player.packageVisualNode
+    pickup.Reset()
 
     -- 初始化玩家位置
     player.UpdatePosition(0)

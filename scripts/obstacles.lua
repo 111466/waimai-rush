@@ -24,12 +24,28 @@ local TYPE_BLOCK = 1
 local TYPE_LOW = 2
 local TYPE_HIGH = 3
 
+local OBSTACLE_SHADOW_SCALE = {
+    [TYPE_BLOCK] = { x = 0.95, z = 0.55 },
+    [TYPE_LOW] = { x = 1.10, z = 0.65 },
+    [TYPE_HIGH] = { x = 1.05, z = 0.55 },
+}
+
 -- 对象池和活跃列表
 M.pool = {}
 M.active = {}
 M.lastSpawnEdgeId = 0
 M.lastSpawnDist = 0.0
 M.distanceTraveled = 0.0
+
+local function AddObstacleShadow(node, typeIdx, offsetY)
+    local scale = OBSTACLE_SHADOW_SCALE[typeIdx] or OBSTACLE_SHADOW_SCALE[TYPE_BLOCK]
+    local shadow = node:CreateChild("Shadow")
+    local model = shadow:CreateComponent("StaticModel")
+    model.model = cache:GetResource("Model", "Models/Cylinder.mdl")
+    model.material = mats.shadow
+    shadow.scale = Vector3(scale.x, 0.012, scale.z)
+    shadow.position = Vector3(0, CONFIG.PLAYER_GROUND_Y + 0.012 - offsetY, 0)
+end
 
 function M.CreateOne(scene, typeIdx)
     local info = M.types[typeIdx]
@@ -87,6 +103,8 @@ function M.CreateOne(scene, typeIdx)
         bar.position = Vector3(0, 0.58, 0)
     end
 
+    AddObstacleShadow(node, typeIdx, info.offsetY)
+
     return {
         node = node,
         typeIdx = typeIdx,
@@ -95,6 +113,8 @@ function M.CreateOne(scene, typeIdx)
         edgeDist = 0.0,
         lane = 2,
         active = false,
+        cleared = false,
+        passReady = false,
     }
 end
 
@@ -243,6 +263,8 @@ local function PositionObstacle(obs, edge, edgeDist, lane)
     obs.edgeDist = edgeDist
     obs.lane = lane
     obs.active = true
+    obs.cleared = false
+    obs.passReady = false
 
     local laneX = CONFIG.LANE_X[lane]
     local worldPos = rn.GetPositionOnEdgeByDist(edge, edgeDist, laneX)
@@ -374,10 +396,16 @@ function M.CheckCollisions(playerLane, isJumping, jumpTime, isSliding, slideTime
         local obs = M.active[idx]
         -- 只检测同一条边上的障碍物
         if obs.edgeId == s.currentEdge.id then
-            local distDiff = math.abs(s.edgeDistance - (obs.edgeDist or 0))
-            if distDiff < CONFIG.COLLISION_Z_THRESHOLD then
+            local signedDist = (obs.edgeDist or 0) - s.edgeDistance
+            local backThreshold = CONFIG.COLLISION_BACK_Z_THRESHOLD or CONFIG.COLLISION_Z_THRESHOLD
+            if not obs.cleared and signedDist <= CONFIG.COLLISION_Z_THRESHOLD and signedDist >= -backThreshold then
                 local obstacleX = CONFIG.LANE_X[obs.lane]
                 local xDiff = math.abs(playerX - obstacleX)
+                if obs.passReady and signedDist <= 0.0 and xDiff <= CONFIG.COLLISION_FRONT_X_THRESHOLD then
+                    obs.cleared = true
+                    goto continue_collision
+                end
+
                 local canPass = false
                 if obs.info.jumpable and isJumping and jumpTime > 0.1 then
                     canPass = true
@@ -388,7 +416,14 @@ function M.CheckCollisions(playerLane, isJumping, jumpTime, isSliding, slideTime
                 if obs.info.topLandable and jumpY >= (CONFIG.LOW_OBSTACLE_TOP_Y + CONFIG.TOP_LANDING_MIN_CLEARANCE) then
                     canPass = true
                 end
-                if not canPass then
+                if canPass then
+                    if xDiff <= CONFIG.COLLISION_FRONT_X_THRESHOLD and signedDist <= 0.5 then
+                        obs.passReady = true
+                    end
+                    if signedDist <= 0.0 and xDiff <= CONFIG.COLLISION_FRONT_X_THRESHOLD then
+                        obs.cleared = true
+                    end
+                else
                     if xDiff <= CONFIG.COLLISION_FRONT_X_THRESHOLD then
                         return "front"
                     end
@@ -398,6 +433,7 @@ function M.CheckCollisions(playerLane, isJumping, jumpTime, isSliding, slideTime
                 end
             end
         end
+        ::continue_collision::
     end
     return nil
 end

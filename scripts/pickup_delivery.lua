@@ -13,17 +13,45 @@ local nav = require("route_navigation")
 
 local M = {}
 
+local SHADOW_Y = CONFIG.PLAYER_GROUND_Y + 0.012
+
+local function CreateContactShadow(scene, name, scaleX, scaleZ)
+    local shadow = scene:CreateChild(name)
+    local model = shadow:CreateComponent("StaticModel")
+    model.model = cache:GetResource("Model", "Models/Cylinder.mdl")
+    model.material = mats.shadow
+    shadow.scale = Vector3(scaleX, 0.012, scaleZ)
+    shadow.position = Vector3(0, -100, 0)
+    return shadow
+end
+
+local function HideNode(node)
+    if node then
+        node.position = Vector3(0, -100, 0)
+    end
+end
+
+local function PlaceShadow(node, worldPos, yaw)
+    if node then
+        node.position = Vector3(worldPos.x, SHADOW_Y, worldPos.z)
+        node.rotation = Quaternion(yaw, Vector3.UP)
+    end
+end
+
 -- 取件点状态
 M.pickupNode = nil
+M.pickupShadowNode = nil
 M.pickupActive = false
 M.pickupEdgeId = 0
 M.pickupEdgeDist = 0.0
 M.pickupLane = 2
 M.lastPickupEdgeId = 0
+M.firstPickupPending = true
 M.nextPickupDistance = 0.0  -- 走多远后才能再生成下一个
 
 -- 送件点状态
 M.deliveryNode = nil
+M.deliveryShadowNode = nil
 M.deliveryActive = false
 M.deliveryEdgeId = 0
 M.deliveryEdgeDist = 0.0
@@ -87,6 +115,7 @@ function M.CreatePickupNode(scene)
     handleTop.scale = Vector3(0.52, 0.08, 0.08)
     handleTop.position = Vector3(0, 0.83, 0)
 
+    M.pickupShadowNode = CreateContactShadow(scene, "PickupShadow", 0.62, 0.46)
     node.position = Vector3(0, -100, 0)
     M.pickupNode = node
     return node
@@ -123,6 +152,7 @@ function M.CreateDeliveryNode(scene)
     marker.scale = Vector3(0.34, 0.34, 0.34)
     marker.position = Vector3(0, 1.05, 0)
 
+    M.deliveryShadowNode = CreateContactShadow(scene, "DeliveryShadow", 0.66, 0.66)
     node.position = Vector3(0, -100, 0)
     M.deliveryNode = node
     return node
@@ -133,9 +163,8 @@ end
 -- ============================================================================
 
 local function HideDeliveryNode()
-    if M.deliveryNode then
-        M.deliveryNode.position = Vector3(0, -100, 0)
-    end
+    HideNode(M.deliveryNode)
+    HideNode(M.deliveryShadowNode)
 end
 
 local function Clamp(value, minValue, maxValue)
@@ -208,6 +237,7 @@ local function PlaceDeliveryOnCandidate(candidate, currentSpeed)
     local worldPos = rn.GetPositionOnEdgeByDist(edge, targetDist, laneX)
     M.deliveryNode.position = Vector3(worldPos.x, 0.15, worldPos.z)
     M.deliveryNode.rotation = Quaternion(rn.HeadingToYaw(edge.heading), Vector3.UP)
+    PlaceShadow(M.deliveryShadowNode, worldPos, rn.HeadingToYaw(edge.heading))
 
     M.lastDeliveryEdgeId = edge.id
     M.nextDeliveryDistance = s.totalDistance + CONFIG.DELIVERY_INTERVAL_MIN + math.random() * (CONFIG.DELIVERY_INTERVAL_MAX - CONFIG.DELIVERY_INTERVAL_MIN)
@@ -252,7 +282,8 @@ function M.TrySpawnPickup()
 
     -- 生成位置：当前 edge 有效区段上玩家前方
     local effectiveLen = rn.GetEdgeEffectiveLength()
-    local spawnDist = s.edgeDistance + CONFIG.PICKUP_SPAWN_AHEAD
+    local spawnAhead = M.firstPickupPending and (CONFIG.PICKUP_INITIAL_SPAWN_AHEAD or CONFIG.PICKUP_SPAWN_AHEAD) or CONFIG.PICKUP_SPAWN_AHEAD
+    local spawnDist = s.edgeDistance + spawnAhead
     if spawnDist >= effectiveLen - CONFIG.ORDER_EDGE_END_BUFFER then return end  -- 太靠近末端不生成
 
     -- 安全区检测
@@ -269,8 +300,10 @@ function M.TrySpawnPickup()
     local worldPos = rn.GetPositionOnEdgeByDist(s.currentEdge, spawnDist, laneX)
     M.pickupNode.position = Vector3(worldPos.x, 0.6, worldPos.z)
     M.pickupNode.rotation = Quaternion(rn.HeadingToYaw(s.currentEdge.heading), Vector3.UP)
+    PlaceShadow(M.pickupShadowNode, worldPos, rn.HeadingToYaw(s.currentEdge.heading))
 
     M.lastPickupEdgeId = s.currentEdge.id
+    M.firstPickupPending = false
     M.nextPickupDistance = s.totalDistance + CONFIG.PICKUP_INTERVAL_MIN + math.random() * (CONFIG.PICKUP_INTERVAL_MAX - CONFIG.PICKUP_INTERVAL_MIN)
 
     print("[Pickup] Spawned at edge " .. s.currentEdge.id .. " dist " .. string.format("%.1f", spawnDist))
@@ -289,7 +322,8 @@ function M.CheckPickup()
     if M.pickupEdgeId ~= s.currentEdge.id then
         -- 玩家已离开该边，取件点消失
         M.pickupActive = false
-        M.pickupNode.position = Vector3(0, -100, 0)
+        HideNode(M.pickupNode)
+        HideNode(M.pickupShadowNode)
         return
     end
 
@@ -298,7 +332,8 @@ function M.CheckPickup()
         -- 成功取件
         M.hasPackage = true
         M.pickupActive = false
-        M.pickupNode.position = Vector3(0, -100, 0)
+        HideNode(M.pickupNode)
+        HideNode(M.pickupShadowNode)
         if M.packageVisualNode then
             M.packageVisualNode.enabled = true
         end
@@ -307,7 +342,8 @@ function M.CheckPickup()
     elseif distDiff > 3.0 then
         -- 错过了
         M.pickupActive = false
-        M.pickupNode.position = Vector3(0, -100, 0)
+        HideNode(M.pickupNode)
+        HideNode(M.pickupShadowNode)
     end
 end
 
@@ -477,6 +513,14 @@ function M.UpdateAnimation()
         local pos = M.deliveryNode.position
         M.deliveryNode.position = Vector3(pos.x, 0.15 + math.sin(time.elapsedTime * 2.5) * 0.1, pos.z)
     end
+    if M.pickupActive and M.pickupShadowNode and M.pickupNode then
+        M.pickupShadowNode.rotation = M.pickupNode.rotation
+        M.pickupShadowNode.scale = Vector3(0.62, 0.012, 0.46)
+    end
+    if M.deliveryActive and M.deliveryShadowNode and M.deliveryNode then
+        M.deliveryShadowNode.rotation = M.deliveryNode.rotation
+        M.deliveryShadowNode.scale = Vector3(0.66, 0.012, 0.66)
+    end
 end
 
 -- ============================================================================
@@ -485,13 +529,15 @@ end
 
 function M.Reset()
     M.pickupActive = false
-    M.pickupNode.position = Vector3(0, -100, 0)
+    HideNode(M.pickupNode)
+    HideNode(M.pickupShadowNode)
     M.pickupEdgeId = 0
     M.pickupEdgeDist = 0.0
     ClearDeliveryTarget()
     M.hasPackage = false
     if M.packageVisualNode then M.packageVisualNode.enabled = false end
-    M.nextPickupDistance = 30.0
+    M.firstPickupPending = true
+    M.nextPickupDistance = 0.0
     M.nextDeliveryDistance = 100.0
     StopOrderTimer()
     M.totalIncome = 0

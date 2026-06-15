@@ -12,6 +12,7 @@ local M = {}
 -- 玩家节点
 M.node = nil
 M.packageVisualNode = nil
+M.shadowNode = nil
 
 -- 变道动画
 M.laneChanging = false
@@ -73,6 +74,14 @@ function M.Create(scene)
     hatm.material = mats.CreatePBRMaterial(Color(1.0, 0.8, 0.1, 1.0), 0.0, 0.7)
     hat.scale = Vector3(0.5, 0.12, 0.5)
     hat.position = Vector3(0, 1.5, 0)
+
+    local shadow = scene:CreateChild("PlayerShadow")
+    local sm = shadow:CreateComponent("StaticModel")
+    sm.model = cache:GetResource("Model", "Models/Cylinder.mdl")
+    sm.material = mats.shadow
+    shadow.scale = Vector3(0.55, 0.015, 0.38)
+    shadow.position = Vector3(0, CONFIG.PLAYER_GROUND_Y + 0.012, 0)
+    M.shadowNode = shadow
 end
 
 -- ============================================================================
@@ -247,6 +256,17 @@ function M.UpdatePosition(jumpY)
     -- 朝向跟随道路方向
     local yaw = path.GetCurrentYaw()
     M.node.rotation = Quaternion(yaw, Vector3.UP)
+
+    if M.shadowNode then
+        local jumpFactor = 0.0
+        if CONFIG.JUMP_HEIGHT > 0 then
+            jumpFactor = math.min(1.0, jumpY / CONFIG.JUMP_HEIGHT)
+        end
+        local shadowScale = 1.0 - jumpFactor * 0.35
+        M.shadowNode.position = Vector3(worldPos.x, CONFIG.PLAYER_GROUND_Y + 0.012, worldPos.z)
+        M.shadowNode.rotation = Quaternion(yaw, Vector3.UP)
+        M.shadowNode.scale = Vector3(0.55 * shadowScale, 0.015, 0.38 * shadowScale)
+    end
 end
 
 function M.GetCollisionState()
@@ -282,6 +302,11 @@ function M.Reset()
     M.slideBuffered = false
     M.node.position = Vector3(0, CONFIG.PLAYER_GROUND_Y, 0)
     M.node.rotation = Quaternion(0, Vector3.UP)
+    if M.shadowNode then
+        M.shadowNode.position = Vector3(0, CONFIG.PLAYER_GROUND_Y + 0.012, 0)
+        M.shadowNode.rotation = Quaternion(0, Vector3.UP)
+        M.shadowNode.scale = Vector3(0.55, 0.015, 0.38)
+    end
 end
 
 return M
