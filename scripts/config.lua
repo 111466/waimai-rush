@@ -16,6 +16,12 @@ M.CONFIG = {
     PLAYER_GROUND_Y = 0.16,
 
     -- 跑道参数
+    ROAD_GRID_SIZE = 8,
+    ROAD_BLOCK_BASE = 86.0,
+    ROAD_BLOCK_JITTER = 22.0,
+    ROAD_CLOSURE_RATE = 0.18,
+    ROAD_MIN_REACHABLE_RATIO = 0.8,
+    ROAD_RANDOMIZE_ON_RESTART = true,
     ROAD_WIDTH = 7.0,
     ROAD_SEGMENT_LENGTH = 10.0,  -- 每段道路长度（用于铺路段贴片）
     ROAD_SEGMENTS_PER_EDGE = 8,  -- 每条边上铺多少段道路

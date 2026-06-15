@@ -64,9 +64,9 @@ M.state = {
 -- 初始化
 -- ============================================================================
 
-function M.Init()
+function M.Init(seed)
     -- 生成路网
-    rn.Generate()
+    rn.Generate(seed)
 
     -- 获取起始边
     local startEdge, startNodeId = rn.GetStartEdge()
@@ -168,7 +168,7 @@ function M.IsInSafeZone(distFromEdgeStart)
     local s = M.state
     if s.insideIntersection then return true end  -- 路口区域内不生成障碍
     if not s.currentEdge then return false end
-    local effectiveLen = rn.GetEdgeEffectiveLength()
+    local effectiveLen = rn.GetEdgeEffectiveLength(s.currentEdge)
     if distFromEdgeStart < CONFIG.SAFE_ZONE_DIST then return true end
     if (effectiveLen - distFromEdgeStart) < CONFIG.SAFE_ZONE_DIST then return true end
     return false
@@ -196,7 +196,7 @@ function M.UpdateInputState()
 
     -- 计算到下一个路口中心的距离（仅用于 UI 提示）
     if s.currentEdge then
-        local effectiveLen = rn.GetEdgeEffectiveLength()
+        local effectiveLen = rn.GetEdgeEffectiveLength(s.currentEdge)
         s.distanceToNode = effectiveLen - s.edgeDistance + rn.INTERSECTION_HALF_SIZE
     else
         s.distanceToNode = 999.0
@@ -238,7 +238,7 @@ function M.Advance(moveDist)
     -- ==========================================
     if not s.currentEdge then return end
 
-    local effectiveLen = rn.GetEdgeEffectiveLength()
+    local effectiveLen = rn.GetEdgeEffectiveLength(s.currentEdge)
     s.edgeDistance = s.edgeDistance + moveDist
 
     -- 到达边有效区段末端 → 进入路口区域
@@ -420,7 +420,7 @@ function M.CheckIntersection()
     if not s.currentEdge then return end
 
     -- 距路口较近时提前显示提示
-    local effectiveLen = rn.GetEdgeEffectiveLength()
+    local effectiveLen = rn.GetEdgeEffectiveLength(s.currentEdge)
     local progress = s.edgeDistance / effectiveLen
     if progress >= CONFIG.INTERSECTION_HINT_PROGRESS then
         local targetNodeId = s.currentEdge.toNode

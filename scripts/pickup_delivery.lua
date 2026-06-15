@@ -216,7 +216,7 @@ local function PlaceDeliveryOnCandidate(candidate, currentSpeed)
     if not candidate or not candidate.edge then return false end
 
     local edge = candidate.edge
-    local effectiveLen = rn.GetEdgeEffectiveLength()
+    local effectiveLen = rn.GetEdgeEffectiveLength(edge)
     local minDist = CONFIG.ORDER_EDGE_START_BUFFER
     local maxDist = effectiveLen - CONFIG.ORDER_EDGE_END_BUFFER
     if maxDist <= minDist then return false end
@@ -281,7 +281,7 @@ function M.TrySpawnPickup()
     if s.totalDistance < M.nextPickupDistance then return end
 
     -- 生成位置：当前 edge 有效区段上玩家前方
-    local effectiveLen = rn.GetEdgeEffectiveLength()
+    local effectiveLen = rn.GetEdgeEffectiveLength(s.currentEdge)
     local spawnAhead = M.firstPickupPending and (CONFIG.PICKUP_INITIAL_SPAWN_AHEAD or CONFIG.PICKUP_SPAWN_AHEAD) or CONFIG.PICKUP_SPAWN_AHEAD
     local spawnDist = s.edgeDistance + spawnAhead
     if spawnDist >= effectiveLen - CONFIG.ORDER_EDGE_END_BUFFER then return end  -- 太靠近末端不生成

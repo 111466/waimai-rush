@@ -205,7 +205,6 @@ local function EstimateRemainingDistance(pathState)
     end
 
     local currentEdge = pathState.currentEdge
-    local effectiveLen = rn.GetEdgeEffectiveLength()
 
     if currentEdge.id == M.targetEdgeId then
         return math.max(0.0, M.targetEdgeDist - pathState.edgeDistance)
@@ -217,13 +216,13 @@ local function EstimateRemainingDistance(pathState)
     for _, edgeId in ipairs(M.routeEdges) do
         if edgeId == currentEdge.id then
             foundCurrent = true
-            distance = distance + math.max(0.0, effectiveLen - pathState.edgeDistance)
+            distance = distance + math.max(0.0, rn.GetEdgeEffectiveLength(currentEdge) - pathState.edgeDistance)
         elseif foundCurrent then
             if edgeId == M.targetEdgeId then
                 distance = distance + M.targetEdgeDist
                 return distance
             else
-                distance = distance + effectiveLen
+                distance = distance + rn.GetEdgeEffectiveLength(rn.edges[edgeId])
             end
         end
     end
@@ -324,7 +323,7 @@ local function GetPlayerEdgeSlot(pathState)
     local edge = pathState and pathState.currentEdge
     if not edge then return nil end
 
-    local effectiveLen = rn.GetEdgeEffectiveLength()
+    local effectiveLen = rn.GetEdgeEffectiveLength(edge)
     local effectiveDist = Clamp(pathState.edgeDistance or 0.0, 0.0, effectiveLen)
     local actualDist = rn.INTERSECTION_HALF_SIZE + effectiveDist
     local progress = Clamp(actualDist / edge.length, 0.0, 1.0)

@@ -344,7 +344,7 @@ function M.Spawn()
     if not s.currentEdge then return end
 
     local edge = s.currentEdge
-    local effectiveLen = rn.GetEdgeEffectiveLength()
+    local effectiveLen = rn.GetEdgeEffectiveLength(edge)
     local playerDist = s.edgeDistance
     local spacing = GetCurrentSpacing()
 

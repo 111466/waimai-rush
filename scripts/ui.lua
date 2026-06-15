@@ -38,9 +38,11 @@ local MINI_MARGIN = 10
 
 local function MiniPoint(node)
     local usable = MINI_MAP_SIZE - MINI_MARGIN * 2
-    local step = usable / (rn.GRID_SIZE - 1)
-    local x = MINI_LEFT + MINI_MARGIN + (node.gridX - 1) * step
-    local y = MINI_TOP + MINI_MARGIN + (rn.GRID_SIZE - node.gridZ) * step
+    local bounds = rn.bounds or { minX = 0, maxX = 1, minZ = 0, maxZ = 1 }
+    local width = math.max(1.0, bounds.maxX - bounds.minX)
+    local depth = math.max(1.0, bounds.maxZ - bounds.minZ)
+    local x = MINI_LEFT + MINI_MARGIN + ((node.worldX - bounds.minX) / width) * usable
+    local y = MINI_TOP + MINI_MARGIN + (1.0 - ((node.worldZ - bounds.minZ) / depth)) * usable
     return x, y
 end
 

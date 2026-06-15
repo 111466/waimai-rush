@@ -28,6 +28,13 @@ local scene_ = nil
 -- 游戏状态: "running" / "gameOver"
 local gameState_ = "running"
 
+local function NextRoadSeed()
+    if CONFIG.ROAD_RANDOMIZE_ON_RESTART then
+        return os.time() + math.random(1, 1000000)
+    end
+    return rn.currentSeed or rn.DEFAULT_SEED
+end
+
 -- ============================================================================
 -- 游戏结束
 -- ============================================================================
@@ -46,15 +53,17 @@ local function RestartGame()
     gameState_ = "running"
 
     -- 重置路径系统（重新选择起始边，内部会重置所有状态机字段）
-    path.Init()
+    path.Init(NextRoadSeed())
+    pools.Clear()
+    pools.Init(scene_)
 
     -- 重置玩家
     player.Reset()
+    player.UpdatePosition(0)
 
     -- 重置障碍物
     obstacles.ClearAll()
     obstacles.lastSpawnEdgeId = 0
-    obstacles.lastSpawnProgress = 0.0
     obstacles.distanceTraveled = 0.0
 
     -- 重置取件/送件
@@ -65,9 +74,9 @@ local function RestartGame()
     intersection.Hide()
 
     -- 隐藏结算面板
-    ui.HideGameOver()
+    ui.Create(RestartGame)
 
-    print("[Game] Restarted!")
+    print("[Game] Restarted with road seed " .. rn.currentSeed)
 end
 
 -- ============================================================================
@@ -222,6 +231,16 @@ local function CreateScene()
     scene_ = Scene()
     scene_:CreateComponent("Octree")
 
+    local gridSize = CONFIG.ROAD_GRID_SIZE or 8
+    local maxBlock = (CONFIG.ROAD_BLOCK_BASE or 86.0) + (CONFIG.ROAD_BLOCK_JITTER or 22.0)
+    local span = math.max(600.0, (gridSize - 1) * maxBlock + 320.0)
+    local centerX = 0.0
+    local centerZ = 0.0
+    local groundSizeX = span
+    local groundSizeZ = span
+    local zoneHalfX = groundSizeX * 0.5 + 120.0
+    local zoneHalfZ = groundSizeZ * 0.5 + 120.0
+
     -- 方向光
     local lightNode = scene_:CreateChild("DirectionalLight")
     lightNode.direction = Vector3(0.3, -1.0, 0.5):Normalized()
@@ -234,7 +253,10 @@ local function CreateScene()
 
     -- 环境光 / 雾效
     local zone = scene_:CreateComponent("Zone")
-    zone.boundingBox = BoundingBox(Vector3(-500, -50, -500), Vector3(500, 100, 500))
+    zone.boundingBox = BoundingBox(
+        Vector3(centerX - zoneHalfX, -50, centerZ - zoneHalfZ),
+        Vector3(centerX + zoneHalfX, 120, centerZ + zoneHalfZ)
+    )
     zone.ambientColor = Color(0.55, 0.6, 0.7)
     zone.fogColor = Color(0.75, 0.85, 0.95)
     zone.fogStart = 100.0
@@ -245,8 +267,8 @@ local function CreateScene()
     local gm = groundNode:CreateComponent("StaticModel")
     gm.model = cache:GetResource("Model", "Models/Box.mdl")
     gm.material = mats.CreatePBRMaterial(Color(0.35, 0.55, 0.3, 1.0), 0.0, 0.9)
-    groundNode.scale = Vector3(600, 0.1, 600)
-    groundNode.position = Vector3(0, -0.05, 150)
+    groundNode.scale = Vector3(groundSizeX, 0.1, groundSizeZ)
+    groundNode.position = Vector3(centerX, -0.05, centerZ)
 end
 
 -- ============================================================================
@@ -261,7 +283,7 @@ function CreateGameContent()
     math.randomseed(os.time())
 
     -- 初始化路径系统（生成路网 + 选择起始边）
-    path.Init()
+    path.Init(NextRoadSeed())
     nav.Reset()
 
     -- 创建场景
@@ -307,7 +329,10 @@ function CreateGameContent()
     print("[Game] ==============================")
     print("[Game] 操作: ← → 变道/转弯 | ↑/空格 跳跃 | ↓ 下滑")
     print("[Game] 路口出现时：←/→ 选择转弯方向，↑ 直走")
-    print("[Game] 路网规模: " .. rn.GRID_SIZE .. "x" .. rn.GRID_SIZE .. " 网格, 间距 " .. rn.BLOCK_SIZE .. "m")
+    print("[Game] 路网规模: " .. rn.GRID_SIZE .. "x" .. rn.GRID_SIZE ..
+        " seed " .. rn.currentSeed ..
+        " reachable " .. string.format("%.0f%%", rn.reachableRatio * 100) ..
+        " edges " .. #rn.edges)
 end
 
 

@@ -18,6 +18,25 @@ M.buildingNodes = {}   -- 所有建筑节点
 M.intersectionNodes = {} -- 所有路口地面节点
 
 -- 建筑色板
+local function RemoveNodes(list)
+    for _, node in ipairs(list or {}) do
+        if node then
+            node:Remove()
+        end
+    end
+end
+
+function M.Clear()
+    RemoveNodes(M.roadSegments)
+    RemoveNodes(M.lineNodes)
+    RemoveNodes(M.buildingNodes)
+    RemoveNodes(M.intersectionNodes)
+    M.roadSegments = {}
+    M.lineNodes = {}
+    M.buildingNodes = {}
+    M.intersectionNodes = {}
+end
+
 local buildingColors = {
     Color(0.55, 0.78, 0.82, 1.0),
     Color(0.75, 0.85, 0.60, 1.0),

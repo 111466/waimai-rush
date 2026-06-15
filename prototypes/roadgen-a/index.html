@@ -1,0 +1,1629 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RoadGen A Prototype</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Inter, "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+      background: #dce3df;
+      color: #f7fbff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+    }
+
+    body {
+      background: linear-gradient(#d7dde0, #cad6cf);
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas.webgl {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    .hud {
+      position: fixed;
+      z-index: 10;
+      pointer-events: none;
+      text-shadow: 0 1px 8px rgba(35, 54, 57, 0.18);
+    }
+
+    .stats {
+      top: 22px;
+      left: 24px;
+      display: grid;
+      gap: 6px;
+      min-width: 255px;
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    .stats .title {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    .stats .line {
+      font-size: 14px;
+      color: rgba(255, 255, 255, 0.78);
+    }
+
+    .money {
+      top: 26px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #ffd422;
+      font-size: 34px;
+      font-weight: 700;
+    }
+
+    .speed {
+      top: 33px;
+      right: 108px;
+      font-size: 24px;
+      color: rgba(245, 248, 247, 0.62);
+    }
+
+    .minimap-wrap {
+      top: 98px;
+      right: 22px;
+      width: 206px;
+      border-radius: 10px;
+      background: rgba(20, 35, 38, 0.78);
+      box-shadow: 0 16px 34px rgba(23, 40, 44, 0.22);
+      backdrop-filter: blur(5px);
+      overflow: hidden;
+      pointer-events: none;
+    }
+
+    #minimap {
+      display: block;
+      width: 206px;
+      height: 206px;
+    }
+
+    .minimap-label {
+      padding: 0 12px 13px;
+      color: rgba(255, 255, 255, 0.9);
+      font-size: 20px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+
+    .controls {
+      position: fixed;
+      z-index: 12;
+      left: 50%;
+      bottom: 18px;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: end;
+      gap: 12px;
+      max-width: calc(100vw - 32px);
+      padding: 12px;
+      border-radius: 10px;
+      background: rgba(22, 36, 38, 0.78);
+      box-shadow: 0 14px 30px rgba(27, 45, 49, 0.22);
+      backdrop-filter: blur(7px);
+      color: rgba(255, 255, 255, 0.92);
+    }
+
+    .control {
+      display: grid;
+      gap: 6px;
+      min-width: 116px;
+    }
+
+    .control.seed {
+      min-width: 150px;
+    }
+
+    .control label {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.72);
+      white-space: nowrap;
+    }
+
+    .control output {
+      color: rgba(255, 255, 255, 0.92);
+      font-variant-numeric: tabular-nums;
+    }
+
+    input[type="text"],
+    input[type="range"],
+    button {
+      font: inherit;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      height: 34px;
+      padding: 0 10px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 7px;
+      outline: none;
+      color: #f8fbff;
+      background: rgba(255, 255, 255, 0.12);
+    }
+
+    input[type="range"] {
+      width: 122px;
+      accent-color: #8ec7df;
+    }
+
+    button {
+      height: 34px;
+      padding: 0 14px;
+      border: 0;
+      border-radius: 7px;
+      color: #213033;
+      background: #d9eff4;
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    button.secondary {
+      color: #eef8fa;
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    .hint {
+      position: fixed;
+      right: 24px;
+      bottom: 20px;
+      z-index: 11;
+      max-width: 260px;
+      color: rgba(255, 255, 255, 0.56);
+      font-size: 12px;
+      line-height: 1.55;
+      text-align: right;
+      pointer-events: none;
+    }
+
+    .gameover {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      display: grid;
+      place-items: center;
+      background: rgba(12, 20, 22, 0.34);
+      pointer-events: auto;
+    }
+
+    .gameover.hidden {
+      display: none;
+    }
+
+    .gameover-box {
+      width: min(320px, calc(100vw - 36px));
+      padding: 20px;
+      border-radius: 10px;
+      background: rgba(20, 34, 37, 0.88);
+      box-shadow: 0 18px 46px rgba(18, 31, 35, 0.32);
+      backdrop-filter: blur(7px);
+      text-align: center;
+    }
+
+    .gameover-box h2 {
+      margin: 0 0 8px;
+      font-size: 24px;
+      letter-spacing: 0;
+    }
+
+    .gameover-box p {
+      margin: 0 0 16px;
+      color: rgba(244, 249, 250, 0.72);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    @media (max-width: 760px) {
+      .stats .title {
+        font-size: 22px;
+      }
+
+      .money {
+        display: none;
+      }
+
+      .speed {
+        display: none;
+      }
+
+      .minimap-wrap {
+        top: 82px;
+        right: 12px;
+        width: 154px;
+      }
+
+      #minimap {
+        width: 154px;
+        height: 154px;
+      }
+
+      .minimap-label {
+        font-size: 16px;
+      }
+
+      .controls {
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+        transform: none;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      .control,
+      .control.seed {
+        min-width: 130px;
+        flex: 1 1 130px;
+      }
+
+      input[type="range"] {
+        width: 100%;
+      }
+
+      .hint {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <section class="hud stats" aria-live="polite">
+    <div class="title">等待订单</div>
+    <div class="line" id="statsLineA">Grid 8 x 8 · Seed metro-1842</div>
+    <div class="line" id="statsLineB">Reachable 100% · Roads 112</div>
+  </section>
+
+  <div class="hud money">¥0</div>
+  <div class="hud speed">8m/s</div>
+
+  <section class="hud minimap-wrap">
+    <canvas id="minimap" width="206" height="206" aria-label="Road network minimap"></canvas>
+    <div class="minimap-label" id="minimapLabel">Seed metro-1842</div>
+  </section>
+
+  <form class="controls" id="controls">
+    <div class="control seed">
+      <label for="seedInput">Seed</label>
+      <input id="seedInput" type="text" value="metro-1842" spellcheck="false" autocomplete="off">
+    </div>
+    <div class="control">
+      <label for="gridInput">Grid <output id="gridOutput">8 x 8</output></label>
+      <input id="gridInput" type="range" min="5" max="11" step="1" value="8">
+    </div>
+    <div class="control">
+      <label for="closureInput">Closure <output id="closureOutput">18%</output></label>
+      <input id="closureInput" type="range" min="0" max="42" step="1" value="18">
+    </div>
+    <div class="control">
+      <label for="jitterInput">Jitter <output id="jitterOutput">22m</output></label>
+      <input id="jitterInput" type="range" min="0" max="38" step="1" value="22">
+    </div>
+    <button type="submit">Regenerate</button>
+    <button type="button" class="secondary" id="randomSeedButton">Random Seed</button>
+  </form>
+
+  <div class="hint">鼠标左键旋转 · 右键平移 · 滚轮缩放</div>
+
+  <section class="gameover hidden" id="gameOverPanel" aria-live="polite">
+    <div class="gameover-box">
+      <h2>配送中断</h2>
+      <p id="gameOverText">撞上障碍了，按 R 或点击按钮重试当前地图。</p>
+      <button type="button" id="restartRunButton">Retry Run</button>
+    </div>
+  </section>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.165.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.165.0/examples/jsm/"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+    const app = document.querySelector("#app");
+    const seedInput = document.querySelector("#seedInput");
+    const gridInput = document.querySelector("#gridInput");
+    const closureInput = document.querySelector("#closureInput");
+    const jitterInput = document.querySelector("#jitterInput");
+    const gridOutput = document.querySelector("#gridOutput");
+    const closureOutput = document.querySelector("#closureOutput");
+    const jitterOutput = document.querySelector("#jitterOutput");
+    const statsLineA = document.querySelector("#statsLineA");
+    const statsLineB = document.querySelector("#statsLineB");
+    const minimap = document.querySelector("#minimap");
+    const minimapLabel = document.querySelector("#minimapLabel");
+    const controlsForm = document.querySelector("#controls");
+    const randomSeedButton = document.querySelector("#randomSeedButton");
+    const gameOverPanel = document.querySelector("#gameOverPanel");
+    const gameOverText = document.querySelector("#gameOverText");
+    const restartRunButton = document.querySelector("#restartRunButton");
+    const distanceHud = document.querySelector(".money");
+    const speedHud = document.querySelector(".speed");
+
+    const ROAD_WIDTH = 7.2;
+    const SIDEWALK_WIDTH = 4.7;
+    const CURB_WIDTH = 0.34;
+    const LANE_MARK_WIDTH = 0.18;
+    const LANE_MARK_LEN = 2.6;
+    const INTERSECTION_SIZE = 9.2;
+    const BASE_BLOCK = 86;
+    const MIN_REACHABLE = 0.8;
+    const MAX_ATTEMPTS = 30;
+    const LANE_OFFSETS = [-2.2, 0, 2.2];
+    const RUNNER_GROUND_Y = 0.2;
+    const RUN_SPEED_BASE = 24;
+    const RUN_SPEED_MAX = 42;
+    const RUN_ACCEL = 1.5;
+    const LANE_CHANGE_TIME = 0.18;
+    const JUMP_DURATION = 0.62;
+    const JUMP_HEIGHT = 8.5;
+    const SLIDE_DURATION = 0.52;
+    const SAFE_EDGE_BUFFER = 16;
+    const OBSTACLE_CLEARANCE = 4.2;
+    const COLLISION_Z = 3.6;
+    const COLLISION_X = 1.35;
+    const FOLLOW_DISTANCE = 42;
+    const FOLLOW_HEIGHT = 26;
+    const FOLLOW_LOOK_AHEAD = 22;
+
+    const colorSets = {
+      road: 0xc7cecc,
+      roadDark: 0x7e918d,
+      sidewalk: 0xd6dcda,
+      lane: 0x9ec0cf,
+      grass: 0x92b692,
+      curb: 0x80938f,
+      start: 0x8d6cff,
+      building: [0xaaa4b7, 0xaebba6, 0xb7ad99, 0x93aaa4, 0xb5a2aa, 0xb9c4c5, 0x9e9caa],
+      obstacle: 0xb6826d,
+    };
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xd9e0df);
+    scene.fog = new THREE.FogExp2(0xd9e0df, 0.0038);
+
+    const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 2400);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.domElement.className = "webgl";
+    app.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.maxPolarAngle = Math.PI * 0.47;
+    controls.minDistance = 32;
+    controls.maxDistance = 760;
+    controls.screenSpacePanning = false;
+    controls.enabled = false;
+
+    const hemi = new THREE.HemisphereLight(0xffffff, 0xb9c3b7, 2.6);
+    scene.add(hemi);
+
+    const sun = new THREE.DirectionalLight(0xffffff, 2.4);
+    sun.position.set(-90, 160, -70);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.near = 20;
+    sun.shadow.camera.far = 420;
+    sun.shadow.camera.left = -260;
+    sun.shadow.camera.right = 260;
+    sun.shadow.camera.top = 260;
+    sun.shadow.camera.bottom = -260;
+    scene.add(sun);
+    const sunTarget = new THREE.Object3D();
+    scene.add(sunTarget);
+    sun.target = sunTarget;
+
+    const materials = {
+      road: matte(colorSets.road, 0.92),
+      sidewalk: matte(colorSets.sidewalk, 0.92),
+      curb: matte(colorSets.curb, 0.86),
+      lane: matte(colorSets.lane, 0.92),
+      grass: matte(colorSets.grass, 0.94),
+      start: matte(colorSets.start, 0.78),
+      obstacle: matte(colorSets.obstacle, 0.75),
+      obstacleLow: matte(0xc7a05a, 0.78),
+      obstacleHigh: matte(0x9d6fb0, 0.76),
+      head: matte(0xd8cec0, 0.78),
+      shirt: matte(0x72a9c2, 0.72),
+      helmet: matte(0xd0c63e, 0.72),
+      pants: matte(0x3e5969, 0.86),
+      shoe: matte(0x283134, 0.8),
+    };
+
+    let currentRoot = new THREE.Group();
+    scene.add(currentRoot);
+    let currentGraph = null;
+    let runner = null;
+    let obstacles = [];
+    let lastFrameTime = performance.now();
+    const pressedKeys = new Set();
+    const cameraTarget = new THREE.Vector3();
+    const cameraDesired = new THREE.Vector3();
+    const lookDesired = new THREE.Vector3();
+
+    const runState = {
+      graph: null,
+      adjacency: [],
+      edge: null,
+      edgeDistance: 0,
+      insideIntersection: false,
+      intersectionNodeId: null,
+      intersectionProgress: 0,
+      arrivalHeading: 0,
+      exitHeading: 0,
+      routeBlocked: false,
+      lane: 1,
+      laneOffset: 0,
+      laneFrom: 0,
+      laneTo: 0,
+      laneT: 1,
+      jumpTime: 0,
+      slideTime: 0,
+      speed: RUN_SPEED_BASE,
+      distance: 0,
+      alive: true,
+      pendingChoice: null,
+      nextEdge: null,
+    };
+
+    function matte(color, roughness) {
+      return new THREE.MeshStandardMaterial({
+        color,
+        roughness,
+        metalness: 0,
+      });
+    }
+
+    function hashString(value) {
+      let h = 2166136261;
+      for (let i = 0; i < value.length; i += 1) {
+        h ^= value.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+      }
+      return h >>> 0;
+    }
+
+    function mulberry32(seed) {
+      let t = seed >>> 0;
+      return function rng() {
+        t += 0x6d2b79f5;
+        let r = Math.imul(t ^ (t >>> 15), 1 | t);
+        r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
+        return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+
+    function randomFrom(rng, min, max) {
+      return min + rng() * (max - min);
+    }
+
+    function keyForEdge(a, b) {
+      return a < b ? `${a}:${b}` : `${b}:${a}`;
+    }
+
+    function nodeId(x, z, cols) {
+      return z * cols + x;
+    }
+
+    function makeConfig() {
+      return {
+        seed: seedInput.value.trim() || "metro-1842",
+        grid: Number(gridInput.value),
+        closureRate: Number(closureInput.value) / 100,
+        jitter: Number(jitterInput.value),
+      };
+    }
+
+    function buildRoadGraph(config) {
+      const baseSeed = hashString(config.seed);
+      let fallback = null;
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+        const rng = mulberry32(baseSeed + attempt * 1013904223);
+        const candidate = generateCandidate(config, rng, attempt);
+        if (!fallback || candidate.reachableRatio > fallback.reachableRatio) {
+          fallback = candidate;
+        }
+        if (candidate.valid) {
+          return candidate;
+        }
+      }
+
+      const safeConfig = { ...config, closureRate: Math.min(config.closureRate, 0.1) };
+      const rng = mulberry32(baseSeed + 0x9e3779b9);
+      const safe = generateCandidate(safeConfig, rng, MAX_ATTEMPTS);
+      if (safe.valid) {
+        return { ...safe, fallback: true };
+      }
+      return { ...fallback, fallback: true };
+    }
+
+    function generateCandidate(config, rng, attempt) {
+      const rows = config.grid;
+      const cols = config.grid;
+      const jitter = config.jitter;
+      const xSteps = Array.from({ length: cols - 1 }, () => Math.max(55, BASE_BLOCK + randomFrom(rng, -jitter, jitter)));
+      const zSteps = Array.from({ length: rows - 1 }, () => Math.max(55, BASE_BLOCK + randomFrom(rng, -jitter, jitter)));
+      const xs = [0];
+      const zs = [0];
+      for (let i = 0; i < xSteps.length; i += 1) xs.push(xs[i] + xSteps[i]);
+      for (let i = 0; i < zSteps.length; i += 1) zs.push(zs[i] + zSteps[i]);
+      const centerX = (xs[0] + xs[xs.length - 1]) * 0.5;
+      const centerZ = (zs[0] + zs[zs.length - 1]) * 0.5;
+
+      const nodes = [];
+      for (let z = 0; z < rows; z += 1) {
+        for (let x = 0; x < cols; x += 1) {
+          nodes.push({
+            id: nodeId(x, z, cols),
+            x,
+            z,
+            wx: xs[x] - centerX,
+            wz: zs[z] - centerZ,
+          });
+        }
+      }
+
+      const candidateEdges = [];
+      for (let z = 0; z < rows; z += 1) {
+        for (let x = 0; x < cols; x += 1) {
+          const id = nodeId(x, z, cols);
+          if (x < cols - 1) candidateEdges.push({ a: id, b: nodeId(x + 1, z, cols), horizontal: true });
+          if (z < rows - 1) candidateEdges.push({ a: id, b: nodeId(x, z + 1, cols), horizontal: false });
+        }
+      }
+
+      const startX = Math.floor(cols / 2);
+      const startId = nodeId(startX, 0, cols);
+      const keep = new Set();
+
+      let cursorX = startX;
+      for (let z = 0; z < rows - 1; z += 1) {
+        const shouldDrift = rng() < 0.66;
+        if (shouldDrift) {
+          const dir = rng() < 0.5 ? -1 : 1;
+          const nextX = Math.max(0, Math.min(cols - 1, cursorX + dir));
+          if (nextX !== cursorX) {
+            keep.add(keyForEdge(nodeId(cursorX, z, cols), nodeId(nextX, z, cols)));
+            cursorX = nextX;
+          }
+        }
+        keep.add(keyForEdge(nodeId(cursorX, z, cols), nodeId(cursorX, z + 1, cols)));
+      }
+
+      for (let z = 0; z < rows; z += 1) {
+        if (rng() < 0.55) {
+          const from = Math.floor(randomFrom(rng, 0, cols - 1));
+          const to = Math.floor(randomFrom(rng, from + 1, cols));
+          for (let x = from; x < to; x += 1) {
+            keep.add(keyForEdge(nodeId(x, z, cols), nodeId(x + 1, z, cols)));
+          }
+        }
+      }
+
+      for (let x = 0; x < cols; x += 1) {
+        if (rng() < 0.42) {
+          const from = Math.floor(randomFrom(rng, 0, rows - 1));
+          const to = Math.floor(randomFrom(rng, from + 1, rows));
+          for (let z = from; z < to; z += 1) {
+            keep.add(keyForEdge(nodeId(x, z, cols), nodeId(x, z + 1, cols)));
+          }
+        }
+      }
+
+      const edges = [];
+      for (const edge of candidateEdges) {
+        const k = keyForEdge(edge.a, edge.b);
+        if (keep.has(k) || rng() > config.closureRate) {
+          edges.push({ ...edge, key: k });
+        }
+      }
+
+      const adjacency = makeAdjacency(nodes.length, edges);
+      const reachable = findReachable(startId, adjacency);
+      const reachableRatio = reachable.size / nodes.length;
+      const valid = adjacency[startId].length > 0 && reachableRatio >= MIN_REACHABLE;
+
+      return {
+        rows,
+        cols,
+        nodes,
+        edges,
+        startId,
+        reachable,
+        reachableRatio,
+        valid,
+        attempt,
+        width: xs[xs.length - 1],
+        depth: zs[zs.length - 1],
+        config,
+      };
+    }
+
+    function makeAdjacency(count, edges) {
+      const adjacency = Array.from({ length: count }, () => []);
+      for (const edge of edges) {
+        adjacency[edge.a].push(edge.b);
+        adjacency[edge.b].push(edge.a);
+      }
+      return adjacency;
+    }
+
+    function findReachable(start, adjacency) {
+      const seen = new Set([start]);
+      const queue = [start];
+      for (let head = 0; head < queue.length; head += 1) {
+        const id = queue[head];
+        for (const next of adjacency[id]) {
+          if (!seen.has(next)) {
+            seen.add(next);
+            queue.push(next);
+          }
+        }
+      }
+      return seen;
+    }
+
+    function prepareRunGraph(graph) {
+      graph.runEdges = graph.edges.map((edge, index) => {
+        const a = graph.nodes[edge.a];
+        const b = graph.nodes[edge.b];
+        const dx = b.wx - a.wx;
+        const dz = b.wz - a.wz;
+        const length = Math.hypot(dx, dz);
+        return {
+          ...edge,
+          index,
+          length,
+          yawAB: Math.atan2(dx, dz),
+          yawBA: Math.atan2(-dx, -dz),
+        };
+      });
+
+      graph.runAdjacency = Array.from({ length: graph.nodes.length }, () => []);
+      for (const edge of graph.runEdges) {
+        graph.runAdjacency[edge.a].push(edge);
+        graph.runAdjacency[edge.b].push(edge);
+      }
+    }
+
+    function headingForEdge(edge, fromNodeId) {
+      const from = currentGraph.nodes[fromNodeId];
+      const to = currentGraph.nodes[otherNode(edge, fromNodeId)];
+      return Math.atan2(to.wx - from.wx, to.wz - from.wz);
+    }
+
+    function otherNode(edge, nodeIdValue) {
+      return edge.a === nodeIdValue ? edge.b : edge.a;
+    }
+
+    function angleDelta(a, b) {
+      let d = a - b;
+      while (d > Math.PI) d -= Math.PI * 2;
+      while (d < -Math.PI) d += Math.PI * 2;
+      return d;
+    }
+
+    function directionVector(yaw) {
+      return new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+    }
+
+    function rightVector(yaw) {
+      return new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+    }
+
+    function classifyTurn(currentYaw, nextYaw) {
+      const d = angleDelta(nextYaw, currentYaw);
+      if (Math.abs(d) < Math.PI * 0.25) return "straight";
+      return d > 0 ? "right" : "left";
+    }
+
+    function chooseEdgeFromNode(nodeIdValue, currentYaw, choice) {
+      const candidates = (currentGraph.runAdjacency[nodeIdValue] || [])
+        .filter((edge) => currentGraph.reachable.has(otherNode(edge, nodeIdValue)));
+      if (candidates.length === 0) return null;
+
+      let best = null;
+      let bestScore = Infinity;
+      for (const edge of candidates) {
+        const yaw = headingForEdge(edge, nodeIdValue);
+        const turn = classifyTurn(currentYaw, yaw);
+        let score = Math.abs(angleDelta(yaw, currentYaw));
+        if (choice === "left") {
+          score = turn === "left" ? score : score + 10;
+        } else if (choice === "right") {
+          score = turn === "right" ? score : score + 10;
+        } else {
+          score = turn === "straight" ? score : score + 2;
+        }
+        if (score < bestScore) {
+          best = edge;
+          bestScore = score;
+        }
+      }
+      return best;
+    }
+
+    function edgeEndpointsForTravel(edge, fromNodeId) {
+      const toNodeId = otherNode(edge, fromNodeId);
+      return {
+        from: currentGraph.nodes[fromNodeId],
+        to: currentGraph.nodes[toNodeId],
+        toNodeId,
+        yaw: headingForEdge(edge, fromNodeId),
+      };
+    }
+
+    function currentTravel() {
+      if (!runState.edge) return null;
+      const toNodeId = runState.edge.a === runState.lastNodeId ? runState.edge.b : runState.edge.a;
+      return edgeEndpointsForTravel(runState.edge, runState.lastNodeId);
+    }
+
+    function getPathPositionAt(distance, laneOffset) {
+      if (runState.insideIntersection) {
+        const node = currentGraph.nodes[runState.intersectionNodeId];
+        const entry = directionVector(runState.arrivalHeading);
+        const exit = directionVector(runState.exitHeading);
+        const start = new THREE.Vector3(
+          node.wx - entry.x * INTERSECTION_SIZE * 0.5,
+          0,
+          node.wz - entry.z * INTERSECTION_SIZE * 0.5
+        );
+        const center = new THREE.Vector3(node.wx, 0, node.wz);
+        const end = new THREE.Vector3(
+          node.wx + exit.x * INTERSECTION_SIZE * 0.5,
+          0,
+          node.wz + exit.z * INTERSECTION_SIZE * 0.5
+        );
+        const t = clamp(runState.intersectionProgress, 0, 1);
+        const omt = 1 - t;
+        const x = omt * omt * start.x + 2 * omt * t * center.x + t * t * end.x;
+        const z = omt * omt * start.z + 2 * omt * t * center.z + t * t * end.z;
+        const tangent = new THREE.Vector3(
+          2 * omt * (center.x - start.x) + 2 * t * (end.x - center.x),
+          0,
+          2 * omt * (center.z - start.z) + 2 * t * (end.z - center.z)
+        ).normalize();
+        const yaw = Math.atan2(tangent.x, tangent.z);
+        const right = rightVector(yaw);
+        return {
+          position: new THREE.Vector3(x + right.x * laneOffset, 0, z + right.z * laneOffset),
+          yaw,
+        };
+      }
+
+      const travel = currentTravel();
+      if (!travel) {
+        return {
+          position: new THREE.Vector3(0, 0, 0),
+          yaw: 0,
+        };
+      }
+      const t = clamp(distance / Math.max(1, runState.edge.length), 0, 1);
+      const right = rightVector(travel.yaw);
+      return {
+        position: new THREE.Vector3(
+          travel.from.wx + (travel.to.wx - travel.from.wx) * t + right.x * laneOffset,
+          0,
+          travel.from.wz + (travel.to.wz - travel.from.wz) * t + right.z * laneOffset
+        ),
+        yaw: travel.yaw,
+      };
+    }
+
+    function regenerate(randomizeSeed = false) {
+      if (randomizeSeed) {
+        seedInput.value = `metro-${Math.floor(1000 + Math.random() * 9000)}`;
+      }
+
+      updateControlLabels();
+      const config = makeConfig();
+      currentGraph = buildRoadGraph(config);
+      prepareRunGraph(currentGraph);
+      renderGraph(currentGraph);
+      drawMinimap(currentGraph);
+      updateStats(currentGraph);
+      syncUrl(config);
+      startRun();
+    }
+
+    function updateControlLabels() {
+      const grid = Number(gridInput.value);
+      gridOutput.value = `${grid} x ${grid}`;
+      closureOutput.value = `${closureInput.value}%`;
+      jitterOutput.value = `${jitterInput.value}m`;
+    }
+
+    function syncUrl(config) {
+      const params = new URLSearchParams({
+        seed: config.seed,
+        grid: String(config.grid),
+        closure: String(Math.round(config.closureRate * 100)),
+        jitter: String(config.jitter),
+      });
+      history.replaceState(null, "", `${location.pathname}?${params.toString()}`);
+    }
+
+    function loadUrlParams() {
+      const params = new URLSearchParams(location.search);
+      if (params.has("seed")) seedInput.value = params.get("seed");
+      if (params.has("grid")) gridInput.value = clamp(Number(params.get("grid")), 5, 11);
+      if (params.has("closure")) closureInput.value = clamp(Number(params.get("closure")), 0, 42);
+      if (params.has("jitter")) jitterInput.value = clamp(Number(params.get("jitter")), 0, 38);
+    }
+
+    function clamp(value, min, max) {
+      if (!Number.isFinite(value)) return min;
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function clearCurrentRoot() {
+      scene.remove(currentRoot);
+      currentRoot.traverse((object) => {
+        if (object.geometry) object.geometry.dispose();
+      });
+      currentRoot = new THREE.Group();
+      scene.add(currentRoot);
+    }
+
+    function renderGraph(graph) {
+      clearCurrentRoot();
+
+      const worldW = graph.width + 190;
+      const worldD = graph.depth + 210;
+      const ground = new THREE.Mesh(new THREE.PlaneGeometry(worldW, worldD), materials.grass);
+      ground.rotation.x = -Math.PI / 2;
+      ground.position.y = -0.03;
+      ground.receiveShadow = true;
+      currentRoot.add(ground);
+
+      for (const edge of graph.edges) {
+        addRoad(edge, graph.nodes);
+      }
+
+      for (const node of graph.nodes) {
+        if (graph.reachable.has(node.id)) {
+          addIntersection(node, node.id === graph.startId);
+        } else {
+          addUnreachableMarker(node);
+        }
+      }
+
+      addBuildings(graph);
+      addRunner(graph.nodes[graph.startId]);
+      addRunObstacles(graph);
+      resetCamera(graph);
+    }
+
+    function addRoad(edge, nodes) {
+      const a = nodes[edge.a];
+      const b = nodes[edge.b];
+      const dx = b.wx - a.wx;
+      const dz = b.wz - a.wz;
+      const len = Math.hypot(dx, dz);
+      const midX = (a.wx + b.wx) * 0.5;
+      const midZ = (a.wz + b.wz) * 0.5;
+      const yaw = Math.atan2(dx, dz);
+
+      addBox({
+        name: "Road",
+        position: [midX, 0.035, midZ],
+        scale: [ROAD_WIDTH, 0.07, len],
+        yaw,
+        material: materials.road,
+        receiveShadow: true,
+      });
+
+      const sidewalkOffset = ROAD_WIDTH * 0.5 + SIDEWALK_WIDTH * 0.5 + CURB_WIDTH;
+      addBox({
+        name: "SidewalkL",
+        position: lateralPosition(midX, midZ, yaw, sidewalkOffset, 0.06),
+        scale: [SIDEWALK_WIDTH, 0.12, len],
+        yaw,
+        material: materials.sidewalk,
+        receiveShadow: true,
+      });
+      addBox({
+        name: "SidewalkR",
+        position: lateralPosition(midX, midZ, yaw, -sidewalkOffset, 0.06),
+        scale: [SIDEWALK_WIDTH, 0.12, len],
+        yaw,
+        material: materials.sidewalk,
+        receiveShadow: true,
+      });
+
+      const curbOffset = ROAD_WIDTH * 0.5 + CURB_WIDTH * 0.5;
+      addBox({
+        name: "CurbL",
+        position: lateralPosition(midX, midZ, yaw, curbOffset, 0.16),
+        scale: [CURB_WIDTH, 0.32, len],
+        yaw,
+        material: materials.curb,
+        receiveShadow: true,
+      });
+      addBox({
+        name: "CurbR",
+        position: lateralPosition(midX, midZ, yaw, -curbOffset, 0.16),
+        scale: [CURB_WIDTH, 0.32, len],
+        yaw,
+        material: materials.curb,
+        receiveShadow: true,
+      });
+
+      const marks = Math.max(2, Math.floor(len / 11));
+      for (let i = 1; i < marks; i += 1) {
+        const t = i / marks;
+        const x = a.wx + dx * t;
+        const z = a.wz + dz * t;
+        addLaneMark(x, z, yaw, -1.1);
+        addLaneMark(x, z, yaw, 1.1);
+      }
+    }
+
+    function addLaneMark(x, z, yaw, offset) {
+      addBox({
+        name: "LaneMark",
+        position: lateralPosition(x, z, yaw, offset, 0.115),
+        scale: [LANE_MARK_WIDTH, 0.035, LANE_MARK_LEN],
+        yaw,
+        material: materials.lane,
+        receiveShadow: true,
+      });
+    }
+
+    function addIntersection(node, isStart) {
+      addBox({
+        name: isStart ? "StartIntersection" : "Intersection",
+        position: [node.wx, 0.045, node.wz],
+        scale: [INTERSECTION_SIZE, 0.09, INTERSECTION_SIZE],
+        yaw: 0,
+        material: isStart ? materials.start : materials.road,
+        receiveShadow: true,
+      });
+    }
+
+    function addUnreachableMarker(node) {
+      const geometry = new THREE.CylinderGeometry(1.2, 1.2, 0.12, 12);
+      const material = matte(0x9a6262, 0.9);
+      const marker = new THREE.Mesh(geometry, material);
+      marker.position.set(node.wx, 0.18, node.wz);
+      currentRoot.add(marker);
+    }
+
+    function addBuildings(graph) {
+      const rng = mulberry32(hashString(`${graph.config.seed}:buildings:${graph.attempt}`));
+      const occupied = new Set();
+      for (const edge of graph.edges) {
+        if (rng() < 0.1) continue;
+        const a = graph.nodes[edge.a];
+        const b = graph.nodes[edge.b];
+        const dx = b.wx - a.wx;
+        const dz = b.wz - a.wz;
+        const len = Math.hypot(dx, dz);
+        const yaw = Math.atan2(dx, dz);
+        const slots = Math.max(2, Math.floor(len / 32));
+        for (let i = 0; i < slots; i += 1) {
+          const t = (i + 0.5) / slots;
+          const baseX = a.wx + dx * t;
+          const baseZ = a.wz + dz * t;
+          for (const side of [-1, 1]) {
+            if (rng() < 0.38) continue;
+            const key = `${Math.round(baseX / 12)}:${Math.round(baseZ / 12)}:${side}`;
+            if (occupied.has(key)) continue;
+            occupied.add(key);
+            const w = randomFrom(rng, 6.5, 12.5);
+            const d = randomFrom(rng, 6.5, 14.5);
+            const h = randomFrom(rng, 12, 58);
+            const setback = randomFrom(rng, 18, 31);
+            const [x, y, z] = lateralPosition(baseX, baseZ, yaw, side * setback, h * 0.5);
+            const mat = matte(colorSets.building[Math.floor(rng() * colorSets.building.length)], 0.88);
+            addBox({
+              name: "Building",
+              position: [x, y, z],
+              scale: [w, h, d],
+              yaw: yaw + randomFrom(rng, -0.08, 0.08),
+              material: mat,
+              castShadow: true,
+              receiveShadow: true,
+            });
+          }
+        }
+      }
+    }
+
+    function addRunner(startNode) {
+      const group = new THREE.Group();
+      group.name = "Runner";
+      currentRoot.add(group);
+
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.35, 3.8, 18), materials.shirt);
+      body.position.y = 2.55;
+      body.castShadow = true;
+      group.add(body);
+
+      const chest = new THREE.Mesh(new THREE.BoxGeometry(1.25, 1.6, 1.0), materials.pants);
+      chest.position.y = 1.65;
+      chest.castShadow = true;
+      group.add(chest);
+
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.95, 20, 16), materials.head);
+      head.position.y = 4.85;
+      head.castShadow = true;
+      group.add(head);
+
+      const helmet = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.0, 0.35, 20), materials.helmet);
+      helmet.position.y = 5.5;
+      helmet.castShadow = true;
+      group.add(helmet);
+
+      const leftLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.42, 1.8, 12), materials.pants);
+      leftLeg.position.set(-0.34, 0.7, 0);
+      leftLeg.castShadow = true;
+      group.add(leftLeg);
+
+      const rightLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.42, 1.8, 12), materials.pants);
+      rightLeg.position.set(0.34, 0.7, 0);
+      rightLeg.castShadow = true;
+      group.add(rightLeg);
+
+      const leftShoe = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.22, 0.86), materials.shoe);
+      leftShoe.position.set(-0.34, -0.2, 0.18);
+      leftShoe.castShadow = true;
+      group.add(leftShoe);
+
+      const rightShoe = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.22, 0.86), materials.shoe);
+      rightShoe.position.set(0.34, -0.2, 0.18);
+      rightShoe.castShadow = true;
+      group.add(rightShoe);
+
+      runner = {
+        root: group,
+        body,
+        chest,
+        head,
+        helmet,
+        leftLeg,
+        rightLeg,
+        leftShoe,
+        rightShoe,
+      };
+
+      placeRunnerOnRoad(startNode, 0, 0);
+    }
+
+    function addRunObstacles(graph) {
+      obstacles = [];
+      const rng = mulberry32(hashString(`${graph.config.seed}:run-obstacles:${graph.attempt}`));
+      for (const edge of graph.runEdges) {
+        const from = graph.nodes[edge.a];
+        const to = graph.nodes[edge.b];
+        const dx = to.wx - from.wx;
+        const dz = to.wz - from.wz;
+        const len = Math.hypot(dx, dz);
+        if (len < 1) continue;
+        const yaw = Math.atan2(dx, dz);
+        const count = Math.max(0, Math.floor(len / 110));
+        for (let i = 0; i < count; i += 1) {
+          if (rng() < 0.15) continue;
+          const t = randomFrom(rng, 0.28, 0.82);
+          const lane = 1 + Math.floor(rng() * 3);
+          const laneOffset = LANE_OFFSETS[lane - 1];
+          const typeRoll = rng();
+          const kind = typeRoll < 0.4 ? "block" : typeRoll < 0.72 ? "low" : "high";
+          const obstacle = createObstacle(kind, {
+            edgeId: edge.index,
+            distance: len * t,
+            lane,
+            laneOffset,
+            yaw,
+          });
+          obstacle.position.copy(
+            getPointOnGraphEdge(from, to, t, laneOffset, 0)
+          );
+          obstacle.position.y = kind === "block" ? RUNNER_GROUND_Y + 0.72 : kind === "low" ? RUNNER_GROUND_Y + 0.38 : RUNNER_GROUND_Y + 1.02;
+          obstacle.userData.distance = len * t;
+          obstacle.userData.edge = edge;
+          obstacle.userData.edgeId = edge.index;
+          obstacle.userData.lane = lane;
+          obstacle.userData.kind = kind;
+          obstacle.userData.yaw = yaw;
+          currentRoot.add(obstacle);
+          obstacles.push(obstacle);
+        }
+      }
+    }
+
+    function createObstacle(kind, meta) {
+      const group = new THREE.Group();
+      group.userData = { ...meta, kind };
+
+      if (kind === "block") {
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(1.9, 2.2, 1.2), materials.obstacle);
+        bar.position.y = 1.1;
+        bar.castShadow = true;
+        bar.receiveShadow = true;
+        group.add(bar);
+      } else if (kind === "low") {
+        const bump = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.7, 1.3), materials.obstacleLow);
+        bump.position.y = 0.35;
+        bump.castShadow = true;
+        bump.receiveShadow = true;
+        group.add(bump);
+      } else {
+        const postL = new THREE.Mesh(new THREE.BoxGeometry(0.32, 3.0, 0.32), materials.obstacleHigh);
+        postL.position.set(-0.62, 1.5, 0);
+        postL.castShadow = true;
+        postL.receiveShadow = true;
+        group.add(postL);
+
+        const postR = new THREE.Mesh(new THREE.BoxGeometry(0.32, 3.0, 0.32), materials.obstacleHigh);
+        postR.position.set(0.62, 1.5, 0);
+        postR.castShadow = true;
+        postR.receiveShadow = true;
+        group.add(postR);
+
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.34, 0.46), materials.obstacleHigh);
+        bar.position.y = 2.55;
+        bar.castShadow = true;
+        bar.receiveShadow = true;
+        group.add(bar);
+      }
+
+      group.rotation.y = meta.yaw;
+      group.receiveShadow = true;
+      return group;
+    }
+
+    function getPointOnGraphEdge(from, to, t, laneOffset, y) {
+      const dx = to.wx - from.wx;
+      const dz = to.wz - from.wz;
+      const yaw = Math.atan2(dx, dz);
+      const right = rightVector(yaw);
+      return new THREE.Vector3(
+        from.wx + dx * t + right.x * laneOffset,
+        y,
+        from.wz + dz * t + right.z * laneOffset
+      );
+    }
+
+    function placeRunnerOnRoad(node, laneIndex, yOffset) {
+      const laneOffset = LANE_OFFSETS[laneIndex] || 0;
+      const pos = new THREE.Vector3(node.wx + laneOffset, RUNNER_GROUND_Y + yOffset, node.wz - 8);
+      if (runner) {
+        runner.root.position.copy(pos);
+        runner.root.rotation.y = Math.PI;
+      }
+      runState.lane = laneIndex;
+      runState.laneOffset = laneOffset;
+    }
+
+    function startRun() {
+      if (!currentGraph || !currentGraph.runAdjacency) return;
+      const startNodeId = currentGraph.startId;
+      const startEdge = chooseEdgeFromNode(startNodeId, 0, "straight")
+        || currentGraph.runAdjacency[startNodeId]?.[0];
+      const startYaw = startEdge ? headingForEdge(startEdge, startNodeId) : 0;
+
+      Object.assign(runState, {
+        graph: currentGraph,
+        edge: startEdge,
+        lastNodeId: startNodeId,
+        edgeDistance: Math.min(10, Math.max(1, (startEdge?.length || 30) * 0.12)),
+        insideIntersection: false,
+        intersectionNodeId: null,
+        intersectionProgress: 0,
+        arrivalHeading: startYaw,
+        exitHeading: startYaw,
+        routeBlocked: !startEdge,
+        lane: 1,
+        laneOffset: LANE_OFFSETS[1],
+        laneFrom: LANE_OFFSETS[1],
+        laneTo: LANE_OFFSETS[1],
+        laneT: 1,
+        jumpTime: 0,
+        slideTime: 0,
+        speed: RUN_SPEED_BASE,
+        distance: 0,
+        alive: Boolean(startEdge),
+        pendingChoice: null,
+      });
+
+      pressedKeys.clear();
+      gameOverPanel.classList.add("hidden");
+      updateRunnerTransform(0);
+      updateFollowCamera(1);
+      updateStats(currentGraph);
+    }
+
+    function requestLane(delta) {
+      if (!runState.alive) return;
+      const nextLane = clamp(runState.lane + delta, 0, LANE_OFFSETS.length - 1);
+      if (nextLane === runState.lane) return;
+      runState.lane = nextLane;
+      runState.laneFrom = runState.laneOffset;
+      runState.laneTo = LANE_OFFSETS[nextLane];
+      runState.laneT = 0;
+    }
+
+    function requestTurn(choice) {
+      if (!runState.alive) return;
+      if (runState.insideIntersection || distanceToIntersection() < 32) {
+        runState.pendingChoice = choice;
+      }
+    }
+
+    function jump() {
+      if (!runState.alive) return;
+      if (runState.jumpTime > 0 || runState.slideTime > 0) return;
+      runState.jumpTime = 0.0001;
+    }
+
+    function slide() {
+      if (!runState.alive) return;
+      if (runState.slideTime > 0 || runState.jumpTime > 0) return;
+      runState.slideTime = 0.0001;
+    }
+
+    function distanceToIntersection() {
+      if (!runState.edge || runState.insideIntersection) return 0;
+      return Math.max(0, runState.edge.length - runState.edgeDistance);
+    }
+
+    function updateRun(dt) {
+      if (!runner || !runState.edge) return;
+      if (!runState.alive) {
+        updateFollowCamera(dt);
+        return;
+      }
+
+      runState.speed = Math.min(RUN_SPEED_MAX, runState.speed + RUN_ACCEL * dt);
+      const move = runState.speed * dt;
+      runState.distance += move;
+
+      if (runState.laneT < 1) {
+        runState.laneT = Math.min(1, runState.laneT + dt / LANE_CHANGE_TIME);
+        const t = runState.laneT * runState.laneT * (3 - 2 * runState.laneT);
+        runState.laneOffset = runState.laneFrom + (runState.laneTo - runState.laneFrom) * t;
+      }
+
+      if (runState.jumpTime > 0) {
+        runState.jumpTime += dt;
+        if (runState.jumpTime >= JUMP_DURATION) runState.jumpTime = 0;
+      }
+      if (runState.slideTime > 0) {
+        runState.slideTime += dt;
+        if (runState.slideTime >= SLIDE_DURATION) runState.slideTime = 0;
+      }
+
+      advanceAlongGraph(move);
+      updateRunnerTransform(dt);
+      checkObstacleCollisions();
+      updateFollowCamera(dt);
+      updateStats(currentGraph);
+    }
+
+    function advanceAlongGraph(moveDist) {
+      let remaining = moveDist;
+      while (remaining > 0 && runState.alive) {
+        if (runState.insideIntersection) {
+          const traverseLen = INTERSECTION_SIZE;
+          const step = remaining / traverseLen;
+          runState.intersectionProgress += step;
+          remaining = 0;
+          if (runState.intersectionProgress >= 1) {
+            finishIntersection();
+          }
+          continue;
+        }
+
+        const edgeLeft = runState.edge.length - runState.edgeDistance;
+        if (remaining < edgeLeft) {
+          runState.edgeDistance += remaining;
+          remaining = 0;
+        } else {
+          runState.edgeDistance = runState.edge.length;
+          remaining -= edgeLeft;
+          enterIntersection();
+        }
+      }
+    }
+
+    function enterIntersection() {
+      const travel = currentTravel();
+      if (!travel) {
+        endRun("No road ahead");
+        return;
+      }
+      const choice = runState.pendingChoice || "straight";
+      const nextEdge = chooseEdgeFromNode(travel.toNodeId, travel.yaw, choice);
+      if (!nextEdge) {
+        endRun("前面没有可走的路");
+        return;
+      }
+      runState.insideIntersection = true;
+      runState.intersectionNodeId = travel.toNodeId;
+      runState.intersectionProgress = 0;
+      runState.arrivalHeading = travel.yaw;
+      runState.exitHeading = headingForEdge(nextEdge, travel.toNodeId);
+      runState.nextEdge = nextEdge;
+      runState.pendingChoice = null;
+    }
+
+    function finishIntersection() {
+      const nodeIdValue = runState.intersectionNodeId;
+      const nextEdge = runState.nextEdge;
+      if (!nextEdge) {
+        endRun("No exit edge");
+        return;
+      }
+      runState.edge = nextEdge;
+      runState.lastNodeId = nodeIdValue;
+      runState.edgeDistance = Math.max(0.01, (runState.intersectionProgress - 1) * INTERSECTION_SIZE);
+      runState.insideIntersection = false;
+      runState.intersectionNodeId = null;
+      runState.intersectionProgress = 0;
+      runState.nextEdge = null;
+    }
+
+    function jumpHeight() {
+      if (runState.jumpTime <= 0) return 0;
+      const t = clamp(runState.jumpTime / JUMP_DURATION, 0, 1);
+      return 4 * JUMP_HEIGHT * t * (1 - t);
+    }
+
+    function updateRunnerTransform(dt) {
+      if (!runner) return;
+      const sample = getPathPositionAt(runState.edgeDistance, runState.laneOffset);
+      const y = RUNNER_GROUND_Y + jumpHeight();
+      runner.root.position.set(sample.position.x, y, sample.position.z);
+      runner.root.rotation.y = sample.yaw;
+
+      const runningPhase = runState.distance * 0.22;
+      const stride = runState.slideTime > 0 ? 0.12 : Math.sin(runningPhase) * 0.55;
+      runner.leftLeg.rotation.x = stride;
+      runner.rightLeg.rotation.x = -stride;
+      runner.leftShoe.rotation.x = stride * 0.6;
+      runner.rightShoe.rotation.x = -stride * 0.6;
+
+      const slideT = runState.slideTime > 0 ? Math.sin(Math.PI * clamp(runState.slideTime / SLIDE_DURATION, 0, 1)) : 0;
+      runner.root.scale.set(1, 1 - slideT * 0.32, 1 + slideT * 0.12);
+      runner.body.rotation.x = slideT * 0.55;
+      runner.chest.rotation.x = slideT * 0.42;
+      runner.head.position.y = 4.85 - slideT * 0.85;
+      runner.helmet.position.y = 5.5 - slideT * 0.85;
+    }
+
+    /*
+    function checkObstacleCollisions() {
+      if (!runState.alive || runState.insideIntersection || !runState.edge) return;
+      for (const obstacle of obstacles) {
+        const data = obstacle.userData;
+        if (data.edgeId !== runState.edge.index) continue;
+        const dz = data.distance - runState.edgeDistance;
+        if (dz < -OBSTACLE_CLEARANCE || dz > COLLISION_Z) continue;
+        const laneDiff = Math.abs(data.lane - (runState.lane + 1));
+        const xDiff = Math.abs(data.laneOffset - runState.laneOffset);
+        if (laneDiff > 0 && xDiff > COLLISION_X) continue;
+
+        const isJumpingHigh = jumpHeight() > 2.2;
+        const isSliding = runState.slideTime > 0.08 && runState.slideTime < SLIDE_DURATION - 0.06;
+        if (data.kind === "low" && isJumpingHigh) continue;
+        if (data.kind === "high" && isSliding) continue;
+        endRun(data.kind === "high" ? "需要下滑通过高障碍" : "需要跳过或避开障碍");
+        return;
+      }
+    }
+
+    function endRun(reason) {
+      runState.alive = false;
+      runState.routeBlocked = true;
+      gameOverText.textContent = `${reason}。距离 ${Math.round(runState.distance)}m，按 R 重试当前地图。`;
+      gameOverPanel.classList.remove("hidden");
+    }
+
+    */
+    function checkObstacleCollisions() {
+      if (!runState.alive || runState.insideIntersection || !runState.edge) return;
+      for (const obstacle of obstacles) {
+        const data = obstacle.userData;
+        if (data.edgeId !== runState.edge.index) continue;
+        const dz = data.distance - runState.edgeDistance;
+        if (dz < -OBSTACLE_CLEARANCE || dz > COLLISION_Z) continue;
+        const laneDiff = Math.abs(data.lane - (runState.lane + 1));
+        const xDiff = Math.abs(data.laneOffset - runState.laneOffset);
+        if (laneDiff > 0 && xDiff > COLLISION_X) continue;
+
+        const isJumpingHigh = jumpHeight() > 2.2;
+        const isSliding = runState.slideTime > 0.08 && runState.slideTime < SLIDE_DURATION - 0.06;
+        if (data.kind === "low" && isJumpingHigh) continue;
+        if (data.kind === "high" && isSliding) continue;
+        endRun(data.kind === "high" ? "Slide under the high obstacle" : "Jump or dodge the obstacle");
+        return;
+      }
+    }
+
+    function endRun(reason) {
+      runState.alive = false;
+      runState.routeBlocked = true;
+      gameOverText.textContent = `${reason}. Distance ${Math.round(runState.distance)}m. Press R to retry this map.`;
+      gameOverPanel.classList.remove("hidden");
+    }
+
+    function updateFollowCamera(dt) {
+      if (!runner) return;
+      const yaw = runner.root.rotation.y;
+      const forward = directionVector(yaw);
+      const targetPos = runner.root.position;
+      cameraDesired.set(
+        targetPos.x - forward.x * FOLLOW_DISTANCE,
+        targetPos.y + FOLLOW_HEIGHT,
+        targetPos.z - forward.z * FOLLOW_DISTANCE
+      );
+      lookDesired.set(
+        targetPos.x + forward.x * FOLLOW_LOOK_AHEAD,
+        targetPos.y + 5.5,
+        targetPos.z + forward.z * FOLLOW_LOOK_AHEAD
+      );
+
+      const blend = dt >= 1 ? 1 : 1 - Math.pow(0.002, Math.max(0.001, dt));
+      camera.position.lerp(cameraDesired, blend);
+      cameraTarget.lerp(lookDesired, blend);
+      camera.lookAt(cameraTarget);
+      sun.target = runner.root;
+    }
+
+    function addBox(options) {
+      const geometry = new THREE.BoxGeometry(1, 1, 1);
+      const mesh = new THREE.Mesh(geometry, options.material);
+      mesh.name = options.name;
+      mesh.position.set(options.position[0], options.position[1], options.position[2]);
+      mesh.scale.set(options.scale[0], options.scale[1], options.scale[2]);
+      mesh.rotation.y = options.yaw || 0;
+      mesh.castShadow = Boolean(options.castShadow);
+      mesh.receiveShadow = Boolean(options.receiveShadow);
+      currentRoot.add(mesh);
+      return mesh;
+    }
+
+    function lateralPosition(x, z, yaw, offset, y) {
+      const rightX = Math.cos(yaw);
+      const rightZ = -Math.sin(yaw);
+      return [x + rightX * offset, y, z + rightZ * offset];
+    }
+
+    function resetCamera(graph) {
+      const start = graph.nodes[graph.startId];
+      const target = new THREE.Vector3(start.wx, 0, start.wz + graph.depth * 0.2);
+      controls.target.copy(target);
+      camera.position.set(start.wx - graph.width * 0.2, 72, start.wz - 118);
+      camera.lookAt(target);
+      controls.update();
+    }
+
+    function drawMinimap(graph) {
+      const ctx = minimap.getContext("2d");
+      const size = minimap.width;
+      ctx.clearRect(0, 0, size, size);
+      ctx.fillStyle = "rgba(20, 35, 38, 0.82)";
+      ctx.fillRect(0, 0, size, size);
+
+      const pad = 30;
+      const xs = graph.nodes.map((n) => n.wx);
+      const zs = graph.nodes.map((n) => n.wz);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minZ = Math.min(...zs);
+      const maxZ = Math.max(...zs);
+      const scale = Math.min((size - pad * 2) / Math.max(1, maxX - minX), (size - pad * 2) / Math.max(1, maxZ - minZ));
+
+      const project = (node) => ({
+        x: size * 0.5 + (node.wx - (minX + maxX) * 0.5) * scale,
+        y: size * 0.5 - (node.wz - (minZ + maxZ) * 0.5) * scale,
+      });
+
+      ctx.lineCap = "round";
+      ctx.lineWidth = 3;
+      for (const edge of graph.edges) {
+        const a = project(graph.nodes[edge.a]);
+        const b = project(graph.nodes[edge.b]);
+        ctx.strokeStyle = graph.reachable.has(edge.a) && graph.reachable.has(edge.b)
+          ? "rgba(208, 224, 226, 0.74)"
+          : "rgba(150, 112, 112, 0.42)";
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+
+      for (const node of graph.nodes) {
+        const p = project(node);
+        ctx.fillStyle = graph.reachable.has(node.id) ? "rgba(222, 232, 233, 0.8)" : "rgba(170, 104, 104, 0.7)";
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 2.8, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      const start = project(graph.nodes[graph.startId]);
+      ctx.fillStyle = "#8d6cff";
+      ctx.beginPath();
+      ctx.arc(start.x, start.y, 6.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function updateStats(graph) {
+      const pct = Math.round(graph.reachableRatio * 100);
+      statsLineA.textContent = `Grid ${graph.cols} x ${graph.rows} · Seed ${graph.config.seed}`;
+      statsLineB.textContent = `Reachable ${pct}% · Roads ${graph.edges.length}${graph.fallback ? " · fallback" : ""}`;
+      minimapLabel.textContent = `Seed ${graph.config.seed}`;
+    }
+
+    controlsForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      regenerate(false);
+    });
+
+    randomSeedButton.addEventListener("click", () => regenerate(true));
+    for (const input of [gridInput, closureInput, jitterInput]) {
+      input.addEventListener("input", updateControlLabels);
+      input.addEventListener("change", () => regenerate(false));
+    }
+
+    seedInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        regenerate(false);
+      }
+    });
+
+    window.addEventListener("resize", () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      if (currentGraph) drawMinimap(currentGraph);
+    });
+
+    function animate() {
+      controls.update();
+      renderer.render(scene, camera);
+      requestAnimationFrame(animate);
+    }
+
+    loadUrlParams();
+    regenerate(false);
+    animate();
+  </script>
+</body>
+</html>
