@@ -269,6 +269,11 @@ local function CreateEntryLine(scene, pos, yaw)
     table.insert(M.lineNodes, node)
 end
 
+local function HasSideBranches(nodeId, heading)
+    return rn.GetEdgeByHeading(nodeId, rn.TurnLeft(heading)) ~= nil
+        or rn.GetEdgeByHeading(nodeId, rn.TurnRight(heading)) ~= nil
+end
+
 local function CreateClosedExitCurb(scene, node, heading)
     local fwd = rn.HeadingToForward(heading)
     local yaw = rn.HeadingToYaw(heading)
@@ -373,8 +378,12 @@ function M.Init(scene)
 
                 if CONFIG.SHOW_INTERSECTION_ENTRY_LINES then
                     local yaw = rn.HeadingToYaw(heading)
-                    CreateEntryLine(scene, effectiveStart, yaw)
-                    CreateEntryLine(scene, effectiveEnd, yaw)
+                    if HasSideBranches(edge.fromNode, heading) then
+                        CreateEntryLine(scene, effectiveStart, yaw)
+                    end
+                    if HasSideBranches(edge.toNode, heading) then
+                        CreateEntryLine(scene, effectiveEnd, yaw)
+                    end
                 end
             end
 
