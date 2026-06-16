@@ -31,9 +31,12 @@ M.debugPanelVisible = false
 M.lblDebugOffsetY = nil
 M.lblDebugOffsetZ = nil
 M.lblDebugLookAhead = nil
+M.lblDebugYawOffset = nil
+M.lblDebugPitchOffset = nil
 M.lblDebugFovBase = nil
 M.lblDebugFovMax = nil
 M.lblDebugFovCurrent = nil
+M.btnPause = nil
 M.minimapRouteSegments = {}
 M.minimapPlayerMarkers = {}
 M.minimapTargetMarkers = {}
@@ -47,11 +50,13 @@ local MINI_TOP = 8
 local MINI_MARGIN = 10
 
 local DEBUG_PANEL_W = 214
-local DEBUG_PANEL_H = 224
+local DEBUG_PANEL_H = 274
 local DEBUG_RIGHT = 12
 local DEBUG_TOP = 254
 local DEBUG_STEP_SMALL = 0.25
 local DEBUG_STEP_BIG = 1.0
+local DEBUG_STEP_ANGLE = 2.5
+local DEBUG_STEP_PITCH = 0.25
 
 local function FormatSigned(value)
     if value >= 0 then
@@ -266,6 +271,12 @@ RefreshDebugPanel = function()
     if M.lblDebugLookAhead then
         M.lblDebugLookAhead:SetText(string.format("前视: %s", FormatSigned(params.lookAhead)))
     end
+    if M.lblDebugYawOffset then
+        M.lblDebugYawOffset:SetText(string.format("侧角: %s°", FormatSigned(params.yawOffset)))
+    end
+    if M.lblDebugPitchOffset then
+        M.lblDebugPitchOffset:SetText(string.format("俯仰: %s", FormatSigned(params.pitchOffset)))
+    end
     if M.lblDebugFovBase then
         M.lblDebugFovBase:SetText(string.format("基础FOV: %.1f", params.fovBase))
     end
@@ -319,6 +330,46 @@ local function BuildDebugPanel()
                     children = {
                         MakeStepButton("-", function() ApplyDebugParam(M.lblDebugOffsetY, "offsetY", -DEBUG_STEP_SMALL, function(v) return string.format("高度: %s", FormatSigned(v)) end) end),
                         MakeStepButton("+", function() ApplyDebugParam(M.lblDebugOffsetY, "offsetY", DEBUG_STEP_SMALL, function(v) return string.format("高度: %s", FormatSigned(v)) end) end),
+                    },
+                },
+            },
+        },
+        UI.Panel {
+            width = "100%",
+            height = 22,
+            flexDirection = "row",
+            alignItems = "center",
+            justifyContent = "space-between",
+            children = {
+                M.lblDebugYawOffset or MakeRowLabel("dbgYawOffset", "侧角"),
+                UI.Panel {
+                    width = 78,
+                    height = 22,
+                    flexDirection = "row",
+                    justifyContent = "flex-end",
+                    children = {
+                        MakeStepButton("-", function() ApplyDebugParam(M.lblDebugYawOffset, "yawOffset", -DEBUG_STEP_ANGLE, function(v) return string.format("侧角: %s°", FormatSigned(v)) end) end),
+                        MakeStepButton("+", function() ApplyDebugParam(M.lblDebugYawOffset, "yawOffset", DEBUG_STEP_ANGLE, function(v) return string.format("侧角: %s°", FormatSigned(v)) end) end),
+                    },
+                },
+            },
+        },
+        UI.Panel {
+            width = "100%",
+            height = 22,
+            flexDirection = "row",
+            alignItems = "center",
+            justifyContent = "space-between",
+            children = {
+                M.lblDebugPitchOffset or MakeRowLabel("dbgPitchOffset", "俯仰"),
+                UI.Panel {
+                    width = 78,
+                    height = 22,
+                    flexDirection = "row",
+                    justifyContent = "flex-end",
+                    children = {
+                        MakeStepButton("-", function() ApplyDebugParam(M.lblDebugPitchOffset, "pitchOffset", -DEBUG_STEP_PITCH, function(v) return string.format("俯仰: %s", FormatSigned(v)) end) end),
+                        MakeStepButton("+", function() ApplyDebugParam(M.lblDebugPitchOffset, "pitchOffset", DEBUG_STEP_PITCH, function(v) return string.format("俯仰: %s", FormatSigned(v)) end) end),
                     },
                 },
             },
@@ -459,7 +510,7 @@ local function BuildDebugPanel()
     return panel
 end
 
-function M.Create(onRestart)
+function M.Create(onRestart, onTogglePause)
     UI.Init({
         theme = "default-dark",
         scale = UI.Scale.DEFAULT,
@@ -577,6 +628,20 @@ function M.Create(onRestart)
             M.ToggleDebugPanel()
         end,
     }
+    local pauseButton = UI.Button {
+        id = "pauseButton",
+        text = "暂停",
+        width = 52,
+        height = 22,
+        position = "absolute",
+        right = 150,
+        top = 118,
+        onClick = function()
+            if onTogglePause then
+                onTogglePause()
+            end
+        end,
+    }
 
     -- 将 HUD 和 gameOverPanel 合并到同一个根面板
     local root = UI.Panel {
@@ -584,6 +649,7 @@ function M.Create(onRestart)
         children = {
             hud,
             debugToggle,
+            pauseButton,
             M.minimapPanel,
             M.debugPanel,
             M.gameOverPanel,
@@ -606,9 +672,12 @@ function M.Create(onRestart)
     M.lblDebugOffsetY = root:FindById("dbgOffsetY")
     M.lblDebugOffsetZ = root:FindById("dbgOffsetZ")
     M.lblDebugLookAhead = root:FindById("dbgLookAhead")
+    M.lblDebugYawOffset = root:FindById("dbgYawOffset")
+    M.lblDebugPitchOffset = root:FindById("dbgPitchOffset")
     M.lblDebugFovBase = root:FindById("dbgFovBase")
     M.lblDebugFovMax = root:FindById("dbgFovMax")
     M.lblDebugFovCurrent = root:FindById("dbgFovCurrent")
+    M.btnPause = root:FindById("pauseButton")
 
     M.minimapRouteSegments = {}
     M.minimapPlayerMarkers = {}
@@ -808,6 +877,15 @@ end
 function M.UpdateCameraDebugReadout()
     if M.debugPanelVisible and M.lblDebugFovCurrent then
         M.lblDebugFovCurrent:SetText(string.format("当前FOV: %.1f", cam.GetCurrentFov()))
+    end
+end
+
+function M.SetPaused(paused)
+    if M.btnPause then
+        M.btnPause:SetText(paused and "继续" or "暂停")
+    end
+    if M.lblHint then
+        M.lblHint:SetText(paused and "已暂停" or "")
     end
 end
 

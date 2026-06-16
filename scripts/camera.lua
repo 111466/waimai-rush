@@ -18,6 +18,8 @@ local DEBUG_LIMITS = {
     offsetY = { min = 3.0, max = 12.0 },
     offsetZ = { min = -16.0, max = -4.0 },
     lookAhead = { min = 2.0, max = 12.0 },
+    yawOffset = { min = -45.0, max = 45.0 },
+    pitchOffset = { min = -2.0, max = 2.0 },
     fovBase = { min = 35.0, max = 75.0 },
     fovMax = { min = 35.0, max = 85.0 },
 }
@@ -26,6 +28,8 @@ local DEBUG_DEFAULTS = {
     offsetY = CONFIG.CAM_OFFSET_Y,
     offsetZ = CONFIG.CAM_OFFSET_Z,
     lookAhead = CONFIG.CAM_LOOK_AHEAD,
+    yawOffset = 0.0,
+    pitchOffset = 0.0,
     fovBase = CONFIG.CAM_FOV_BASE,
     fovMax = CONFIG.CAM_FOV_MAX,
 }
@@ -34,6 +38,8 @@ M.debugParams = {
     offsetY = DEBUG_DEFAULTS.offsetY,
     offsetZ = DEBUG_DEFAULTS.offsetZ,
     lookAhead = DEBUG_DEFAULTS.lookAhead,
+    yawOffset = DEBUG_DEFAULTS.yawOffset,
+    pitchOffset = DEBUG_DEFAULTS.pitchOffset,
     fovBase = DEBUG_DEFAULTS.fovBase,
     fovMax = DEBUG_DEFAULTS.fovMax,
 }
@@ -58,6 +64,11 @@ local function KeepFovRangeValid()
     end
 end
 
+local function GetForwardFromYaw(yaw)
+    local yawRad = math.rad(yaw)
+    return math.sin(yawRad), math.cos(yawRad)
+end
+
 --- 角度差归一化到 [-180, 180]
 local function NormalizeAngle(angle)
     while angle > 180 do angle = angle - 360 end
@@ -80,8 +91,20 @@ function M.Setup(scene, playerNode)
     M.currentYaw = path.GetCurrentYaw()
 
     local pp = playerNode.position
-    M.node.position = Vector3(pp.x, pp.y + M.debugParams.offsetY, pp.z + M.debugParams.offsetZ)
-    local lookTarget = Vector3(pp.x, pp.y + 0.5, pp.z + M.debugParams.lookAhead)
+    local baseFwdX, baseFwdZ = GetForwardFromYaw(M.currentYaw)
+    local viewFwdX, viewFwdZ = GetForwardFromYaw(M.currentYaw + M.debugParams.yawOffset)
+    local backDist = -M.debugParams.offsetZ
+
+    M.node.position = Vector3(
+        pp.x - viewFwdX * backDist,
+        pp.y + M.debugParams.offsetY,
+        pp.z - viewFwdZ * backDist
+    )
+    local lookTarget = Vector3(
+        pp.x + baseFwdX * M.debugParams.lookAhead,
+        pp.y + 0.5 + M.debugParams.pitchOffset,
+        pp.z + baseFwdZ * M.debugParams.lookAhead
+    )
     M.node:LookAt(lookTarget)
 end
 
@@ -99,14 +122,13 @@ function M.Update(dt, playerNode, currentSpeed)
     M.currentYaw = M.currentYaw + yawDiff * yawLerp
 
     -- 根据 yaw 计算摄像机位置（在玩家后方）
-    local yawRad = math.rad(M.currentYaw)
-    local camFwdX = math.sin(yawRad)
-    local camFwdZ = math.cos(yawRad)
+    local baseFwdX, baseFwdZ = GetForwardFromYaw(M.currentYaw)
+    local viewFwdX, viewFwdZ = GetForwardFromYaw(M.currentYaw + M.debugParams.yawOffset)
 
     -- CAM_OFFSET_Z 是负值（在玩家身后），取反得到后方偏移量
     local backDist = -M.debugParams.offsetZ
-    local camTargetX = pp.x - camFwdX * backDist
-    local camTargetZ = pp.z - camFwdZ * backDist
+    local camTargetX = pp.x - viewFwdX * backDist
+    local camTargetZ = pp.z - viewFwdZ * backDist
     local camTargetY = pp.y + M.debugParams.offsetY
 
     -- 位置平滑跟随
@@ -118,9 +140,9 @@ function M.Update(dt, playerNode, currentSpeed)
     M.node.position = Vector3(newX, newY, newZ)
 
     -- 摄像机看向玩家前方
-    local lookX = pp.x + camFwdX * M.debugParams.lookAhead
-    local lookZ = pp.z + camFwdZ * M.debugParams.lookAhead
-    M.node:LookAt(Vector3(lookX, pp.y + 0.5, lookZ))
+    local lookX = pp.x + baseFwdX * M.debugParams.lookAhead
+    local lookZ = pp.z + baseFwdZ * M.debugParams.lookAhead
+    M.node:LookAt(Vector3(lookX, pp.y + 0.5 + M.debugParams.pitchOffset, lookZ))
 
     -- FOV 随速度变化
     local camera = M.node:GetComponent("Camera")
@@ -137,6 +159,8 @@ function M.GetDebugParams()
         offsetY = M.debugParams.offsetY,
         offsetZ = M.debugParams.offsetZ,
         lookAhead = M.debugParams.lookAhead,
+        yawOffset = M.debugParams.yawOffset,
+        pitchOffset = M.debugParams.pitchOffset,
         fovBase = M.debugParams.fovBase,
         fovMax = M.debugParams.fovMax,
     }

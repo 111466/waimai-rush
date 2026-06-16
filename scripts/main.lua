@@ -25,8 +25,26 @@ local inp = require("input")
 ---@type Scene
 local scene_ = nil
 
--- 游戏状态: "running" / "gameOver"
+-- 游戏状态: "running" / "paused" / "gameOver"
 local gameState_ = "running"
+
+local function IsPaused()
+    return gameState_ == "paused"
+end
+
+local function TogglePause()
+    if gameState_ == "gameOver" then
+        return
+    end
+
+    if gameState_ == "paused" then
+        gameState_ = "running"
+        ui.SetPaused(false)
+    else
+        gameState_ = "paused"
+        ui.SetPaused(true)
+    end
+end
 
 local function NextRoadSeed()
     if CONFIG.ROAD_RANDOMIZE_ON_RESTART then
@@ -75,7 +93,8 @@ local function RestartGame()
     intersection.Hide()
 
     -- 隐藏结算面板
-    ui.Create(RestartGame)
+    ui.Create(RestartGame, TogglePause)
+    ui.SetPaused(false)
 
     print("[Game] Restarted with road seed " .. rn.currentSeed)
 end
@@ -89,9 +108,19 @@ end
 local function HandleUpdate(eventType, eventData)
     local dt = eventData:GetFloat("TimeStep")
 
-    if gameState_ ~= "running" then return end
+    if gameState_ == "gameOver" then return end
 
     local s = path.state
+
+    if input:GetKeyPress(KEY_P) then
+        TogglePause()
+    end
+
+    if IsPaused() then
+        cam.Update(dt, player.node, player.currentSpeed)
+        ui.UpdateCameraDebugReadout()
+        return
+    end
 
     -- 清除上一帧的转向确认标记（在本帧输入处理之前）
     s.turnJustCommitted = false
@@ -319,7 +348,7 @@ function CreateGameContent()
     cam.Setup(scene_, player.node)
 
     -- 创建 UI
-    ui.Create(RestartGame)
+    ui.Create(RestartGame, TogglePause)
 
     -- 注册事件
     SubscribeToEvent("Update", HandleUpdate)
