@@ -11,6 +11,9 @@ local mats = require("materials")
 
 local M = {}
 
+local ROAD_SURFACE_HEIGHT = 0.15
+local ROAD_SURFACE_Y = ROAD_SURFACE_HEIGHT * 0.5
+
 -- 场景对象列表（不再是循环回收池，而是一次性创建所有路网视觉）
 M.roadSegments = {}    -- 所有道路段节点
 M.lineNodes = {}       -- 所有车道线节点
@@ -55,8 +58,8 @@ local function CreateRoadSegment(scene, pos, yaw, segLength)
     local model = roadNode:CreateComponent("StaticModel")
     model.model = cache:GetResource("Model", "Models/Box.mdl")
     model.material = mats.road
-    roadNode.scale = Vector3(CONFIG.ROAD_WIDTH, 0.15, segLength)
-    roadNode.position = Vector3(pos.x, 0.075, pos.z)
+    roadNode.scale = Vector3(CONFIG.ROAD_WIDTH, ROAD_SURFACE_HEIGHT, segLength)
+    roadNode.position = Vector3(pos.x, ROAD_SURFACE_Y, pos.z)
     roadNode.rotation = Quaternion(yaw, Vector3.UP)
     table.insert(M.roadSegments, roadNode)
 
@@ -145,6 +148,35 @@ end
 -- 创建建筑（沿 edge 两侧）
 -- ============================================================================
 
+local function GetStraightOnlyHeading(node)
+    if not node or #node.edges ~= 2 then return nil end
+
+    local edgeA = rn.edges[node.edges[1]]
+    local edgeB = rn.edges[node.edges[2]]
+    if not edgeA or not edgeB then return nil end
+
+    if edgeB.heading == rn.ReverseHeading(edgeA.heading) then
+        return edgeA.heading
+    end
+    return nil
+end
+
+local function CreateIntersectionLaneLines(scene, node, heading)
+    local fwd = rn.HeadingToForward(heading)
+    local halfSize = rn.INTERSECTION_HALF_SIZE
+    local startPos = Vector3(
+        node.worldX - fwd.x * halfSize,
+        0,
+        node.worldZ - fwd.z * halfSize
+    )
+    local endPos = Vector3(
+        node.worldX + fwd.x * halfSize,
+        0,
+        node.worldZ + fwd.z * halfSize
+    )
+    CreateLaneLines(scene, startPos, endPos, heading, halfSize * 2.0)
+end
+
 local function CreateBuildingsAlongEdge(scene, edgeStart, edgeEnd, heading, edgeLength)
     local fwd = rn.HeadingToForward(heading)
     local right = rn.HeadingToRight(heading)
@@ -194,15 +226,15 @@ end
 -- 创建路口地面
 -- ============================================================================
 
-local function CreateIntersection(scene, node)
+local function CreateIntersection(scene, node, useRoadSurface)
     local iNode = scene:CreateChild("Intersection")
     local model = iNode:CreateComponent("StaticModel")
     model.model = cache:GetResource("Model", "Models/Box.mdl")
-    model.material = mats.crossroads
+    model.material = useRoadSurface and mats.road or mats.crossroads
     -- 路口地面尺寸与普通道路宽度一致
     local areaSize = CONFIG.ROAD_WIDTH
-    iNode.scale = Vector3(areaSize, 0.16, areaSize)
-    iNode.position = Vector3(node.worldX, 0.08, node.worldZ)
+    iNode.scale = Vector3(areaSize, ROAD_SURFACE_HEIGHT, areaSize)
+    iNode.position = Vector3(node.worldX, ROAD_SURFACE_Y, node.worldZ)
     table.insert(M.intersectionNodes, iNode)
 
     if not CONFIG.DEBUG_INTERSECTION_BORDER then
@@ -321,7 +353,11 @@ function M.Init(scene)
 
     -- 渲染所有路口
     for _, node in pairs(rn.nodes) do
-        CreateIntersection(scene, node)
+        local straightHeading = GetStraightOnlyHeading(node)
+        CreateIntersection(scene, node, straightHeading ~= nil)
+        if straightHeading ~= nil then
+            CreateIntersectionLaneLines(scene, node, straightHeading)
+        end
         if CONFIG.SHOW_INTERSECTION_CLOSED_MARKERS then
             for heading = 0, 3 do
                 if not rn.GetEdgeByHeading(node.id, heading) then
@@ -346,8 +382,6 @@ function M.Init(scene)
             local length = edge.length
 
             -- 道路段铺设（沿 edge 中心线铺设多段）
-            local numSegs = CONFIG.ROAD_SEGMENTS_PER_EDGE
-            local segLen = length / numSegs
             local yaw = rn.HeadingToYaw(heading)
 
             -- 缩短道路段，让道路边缘和路口区域边缘对齐
@@ -365,13 +399,9 @@ function M.Init(scene)
             local effectiveLength = length - shrink * 2
 
             if effectiveLength > 0 then
-                local effSegLen = effectiveLength / numSegs
-                for i = 1, numSegs do
-                    local t = (i - 0.5) / numSegs
-                    local px = effectiveStart.x + (effectiveEnd.x - effectiveStart.x) * t
-                    local pz = effectiveStart.z + (effectiveEnd.z - effectiveStart.z) * t
-                    CreateRoadSegment(scene, Vector3(px, 0, pz), yaw, effSegLen)
-                end
+                local px = (effectiveStart.x + effectiveEnd.x) * 0.5
+                local pz = (effectiveStart.z + effectiveEnd.z) * 0.5
+                CreateRoadSegment(scene, Vector3(px, 0, pz), yaw, effectiveLength)
 
                 -- 车道线
                 CreateLaneLines(scene, effectiveStart, effectiveEnd, heading, effectiveLength)
