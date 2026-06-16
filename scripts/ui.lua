@@ -7,6 +7,7 @@ local cfg = require("config")
 local CONFIG = cfg.CONFIG
 local rn = require("road_network")
 local nav = require("route_navigation")
+local cam = require("camera")
 
 local M = {}
 
@@ -24,6 +25,15 @@ M.lblFinalIncome = nil
 M.lblFinalDist = nil
 M.minimapPanel = nil
 M.lblMiniStatus = nil
+M.debugPanel = nil
+M.btnDebugToggle = nil
+M.debugPanelVisible = false
+M.lblDebugOffsetY = nil
+M.lblDebugOffsetZ = nil
+M.lblDebugLookAhead = nil
+M.lblDebugFovBase = nil
+M.lblDebugFovMax = nil
+M.lblDebugFovCurrent = nil
 M.minimapRouteSegments = {}
 M.minimapPlayerMarkers = {}
 M.minimapTargetMarkers = {}
@@ -35,6 +45,38 @@ local MINI_MAP_SIZE = 112
 local MINI_LEFT = 10
 local MINI_TOP = 8
 local MINI_MARGIN = 10
+
+local DEBUG_PANEL_W = 214
+local DEBUG_PANEL_H = 224
+local DEBUG_RIGHT = 12
+local DEBUG_TOP = 254
+local DEBUG_STEP_SMALL = 0.25
+local DEBUG_STEP_BIG = 1.0
+
+local function FormatSigned(value)
+    if value >= 0 then
+        return string.format("+%.2f", value)
+    end
+    return string.format("%.2f", value)
+end
+
+local function MakeRowLabel(prefix, valueText)
+    return UI.Label {
+        id = prefix,
+        text = valueText,
+        fontSize = 12,
+        fontColor = {230,235,240,255},
+    }
+end
+
+local function MakeStepButton(text, onClick)
+    return UI.Button {
+        text = text,
+        width = 24,
+        height = 22,
+        onClick = onClick,
+    }
+end
 
 local function MiniPoint(node)
     local usable = MINI_MAP_SIZE - MINI_MARGIN * 2
@@ -203,6 +245,220 @@ local function BuildMinimap()
     }
 end
 
+local RefreshDebugPanel
+
+local function ApplyDebugParam(label, key, delta, formatter)
+    local value = cam.AdjustDebugParam(key, delta)
+    if label and value ~= nil then
+        label:SetText(formatter and formatter(value) or tostring(value))
+    end
+    RefreshDebugPanel()
+end
+
+RefreshDebugPanel = function()
+    local params = cam.GetDebugParams()
+    if M.lblDebugOffsetY then
+        M.lblDebugOffsetY:SetText(string.format("高度: %s", FormatSigned(params.offsetY)))
+    end
+    if M.lblDebugOffsetZ then
+        M.lblDebugOffsetZ:SetText(string.format("距离: %s", FormatSigned(params.offsetZ)))
+    end
+    if M.lblDebugLookAhead then
+        M.lblDebugLookAhead:SetText(string.format("前视: %s", FormatSigned(params.lookAhead)))
+    end
+    if M.lblDebugFovBase then
+        M.lblDebugFovBase:SetText(string.format("基础FOV: %.1f", params.fovBase))
+    end
+    if M.lblDebugFovMax then
+        M.lblDebugFovMax:SetText(string.format("最大FOV: %.1f", params.fovMax))
+    end
+    if M.lblDebugFovCurrent then
+        M.lblDebugFovCurrent:SetText(string.format("当前FOV: %.1f", cam.GetCurrentFov()))
+    end
+end
+
+local function BuildDebugPanel()
+    local rows = {
+        UI.Panel {
+            width = "100%",
+            height = 24,
+            flexDirection = "row",
+            alignItems = "center",
+            justifyContent = "space-between",
+            children = {
+                UI.Label { text = "相机调试", fontSize = 14, fontColor = {255,255,255,255} },
+                UI.Button {
+                    text = "收起",
+                    width = 42,
+                    height = 22,
+                    onClick = function()
+                        if M.debugPanel then
+                            M.debugPanel:SetVisible(false)
+                        end
+                        M.debugPanelVisible = false
+                        if M.btnDebugToggle then
+                            M.btnDebugToggle:SetText("相机")
+                        end
+                    end,
+                },
+            },
+        },
+        UI.Panel {
+            width = "100%",
+            height = 22,
+            flexDirection = "row",
+            alignItems = "center",
+            justifyContent = "space-between",
+            children = {
+                M.lblDebugOffsetY or MakeRowLabel("dbgOffsetY", "高度"),
+                UI.Panel {
+                    width = 78,
+                    height = 22,
+                    flexDirection = "row",
+                    justifyContent = "flex-end",
+                    children = {
+                        MakeStepButton("-", function() ApplyDebugParam(M.lblDebugOffsetY, "offsetY", -DEBUG_STEP_SMALL, function(v) return string.format("高度: %s", FormatSigned(v)) end) end),
+                        MakeStepButton("+", function() ApplyDebugParam(M.lblDebugOffsetY, "offsetY", DEBUG_STEP_SMALL, function(v) return string.format("高度: %s", FormatSigned(v)) end) end),
+                    },
+                },
+            },
+        },
+        UI.Panel {
+            width = "100%",
+            height = 22,
+            flexDirection = "row",
+            alignItems = "center",
+            justifyContent = "space-between",
+            children = {
+                M.lblDebugOffsetZ or MakeRowLabel("dbgOffsetZ", "距离"),
+                UI.Panel {
+                    width = 78,
+                    height = 22,
+                    flexDirection = "row",
+                    justifyContent = "flex-end",
+                    children = {
+                        MakeStepButton("-", function() ApplyDebugParam(M.lblDebugOffsetZ, "offsetZ", -DEBUG_STEP_SMALL, function(v) return string.format("距离: %s", FormatSigned(v)) end) end),
+                        MakeStepButton("+", function() ApplyDebugParam(M.lblDebugOffsetZ, "offsetZ", DEBUG_STEP_SMALL, function(v) return string.format("距离: %s", FormatSigned(v)) end) end),
+                    },
+                },
+            },
+        },
+        UI.Panel {
+            width = "100%",
+            height = 22,
+            flexDirection = "row",
+            alignItems = "center",
+            justifyContent = "space-between",
+            children = {
+                M.lblDebugLookAhead or MakeRowLabel("dbgLookAhead", "前视"),
+                UI.Panel {
+                    width = 78,
+                    height = 22,
+                    flexDirection = "row",
+                    justifyContent = "flex-end",
+                    children = {
+                        MakeStepButton("-", function() ApplyDebugParam(M.lblDebugLookAhead, "lookAhead", -DEBUG_STEP_SMALL, function(v) return string.format("前视: %s", FormatSigned(v)) end) end),
+                        MakeStepButton("+", function() ApplyDebugParam(M.lblDebugLookAhead, "lookAhead", DEBUG_STEP_SMALL, function(v) return string.format("前视: %s", FormatSigned(v)) end) end),
+                    },
+                },
+            },
+        },
+        UI.Panel {
+            width = "100%",
+            height = 22,
+            flexDirection = "row",
+            alignItems = "center",
+            justifyContent = "space-between",
+            children = {
+                M.lblDebugFovBase or MakeRowLabel("dbgFovBase", "基础FOV"),
+                UI.Panel {
+                    width = 78,
+                    height = 22,
+                    flexDirection = "row",
+                    justifyContent = "flex-end",
+                    children = {
+                        MakeStepButton("-", function() ApplyDebugParam(M.lblDebugFovBase, "fovBase", -DEBUG_STEP_BIG, function(v) return string.format("基础FOV: %.1f", v) end) end),
+                        MakeStepButton("+", function() ApplyDebugParam(M.lblDebugFovBase, "fovBase", DEBUG_STEP_BIG, function(v) return string.format("基础FOV: %.1f", v) end) end),
+                    },
+                },
+            },
+        },
+        UI.Panel {
+            width = "100%",
+            height = 22,
+            flexDirection = "row",
+            alignItems = "center",
+            justifyContent = "space-between",
+            children = {
+                M.lblDebugFovMax or MakeRowLabel("dbgFovMax", "最大FOV"),
+                UI.Panel {
+                    width = 78,
+                    height = 22,
+                    flexDirection = "row",
+                    justifyContent = "flex-end",
+                    children = {
+                        MakeStepButton("-", function() ApplyDebugParam(M.lblDebugFovMax, "fovMax", -DEBUG_STEP_BIG, function(v) return string.format("最大FOV: %.1f", v) end) end),
+                        MakeStepButton("+", function() ApplyDebugParam(M.lblDebugFovMax, "fovMax", DEBUG_STEP_BIG, function(v) return string.format("最大FOV: %.1f", v) end) end),
+                    },
+                },
+            },
+        },
+        UI.Label {
+            id = "dbgFovCurrent",
+            text = "当前FOV",
+            fontSize = 11,
+            fontColor = {185,195,205,255},
+            marginTop = 2,
+        },
+        UI.Panel {
+            width = "100%",
+            height = 24,
+            flexDirection = "row",
+            justifyContent = "space-between",
+            children = {
+                UI.Button {
+                    text = "重置",
+                    width = 76,
+                    height = 24,
+                    onClick = function()
+                        cam.ResetDebugParams()
+                        RefreshDebugPanel()
+                    end,
+                },
+                UI.Button {
+                    text = "隐藏",
+                    width = 76,
+                    height = 24,
+                    onClick = function()
+                        if M.debugPanel then
+                            M.debugPanel:SetVisible(false)
+                        end
+                        M.debugPanelVisible = false
+                        if M.btnDebugToggle then
+                            M.btnDebugToggle:SetText("相机")
+                        end
+                    end,
+                },
+            },
+        },
+    }
+
+    local panel = UI.Panel {
+        id = "debugPanel",
+        width = DEBUG_PANEL_W,
+        height = DEBUG_PANEL_H,
+        position = "absolute",
+        right = DEBUG_RIGHT,
+        top = DEBUG_TOP,
+        backgroundColor = "rgba(18,22,28,0.82)",
+        borderRadius = 8,
+        padding = 10,
+        children = rows,
+    }
+
+    return panel
+end
+
 function M.Create(onRestart)
     UI.Init({
         theme = "default-dark",
@@ -305,13 +561,31 @@ function M.Create(onRestart)
     }
     M.gameOverPanel:SetVisible(false)
     M.minimapPanel = BuildMinimap()
+    M.debugPanel = BuildDebugPanel()
+    M.debugPanel:SetVisible(false)
+    M.debugPanelVisible = false
+
+    local debugToggle = UI.Button {
+        id = "debugToggle",
+        text = "相机",
+        width = 52,
+        height = 22,
+        position = "absolute",
+        right = 150,
+        top = 92,
+        onClick = function()
+            M.ToggleDebugPanel()
+        end,
+    }
 
     -- 将 HUD 和 gameOverPanel 合并到同一个根面板
     local root = UI.Panel {
         width = "100%", height = "100%",
         children = {
             hud,
+            debugToggle,
             M.minimapPanel,
+            M.debugPanel,
             M.gameOverPanel,
         },
     }
@@ -328,6 +602,13 @@ function M.Create(onRestart)
     M.lblFinalIncome = root:FindById("finalIncome")
     M.lblFinalDist = root:FindById("finalDist")
     M.lblMiniStatus = root:FindById("miniStatus")
+    M.btnDebugToggle = root:FindById("debugToggle")
+    M.lblDebugOffsetY = root:FindById("dbgOffsetY")
+    M.lblDebugOffsetZ = root:FindById("dbgOffsetZ")
+    M.lblDebugLookAhead = root:FindById("dbgLookAhead")
+    M.lblDebugFovBase = root:FindById("dbgFovBase")
+    M.lblDebugFovMax = root:FindById("dbgFovMax")
+    M.lblDebugFovCurrent = root:FindById("dbgFovCurrent")
 
     M.minimapRouteSegments = {}
     M.minimapPlayerMarkers = {}
@@ -356,6 +637,7 @@ function M.Create(onRestart)
 
     M.UpdateMinimap(nil)
     M.SetOrderTimerDisplay(nil)
+    RefreshDebugPanel()
 end
 
 local function BuildAvailableTurnsText(availableTurns)
@@ -507,6 +789,26 @@ function M.UpdateMinimap(navData, pickupMiniData)
     SetOnlyVisible(M.minimapPickupMarkers, pickupMiniData and pickupMiniData.active and pickupMiniData.slot or nil)
     SetOnlyVisible(M.minimapPlayerMarkers, navData and navData.playerSlot or nil)
     SetOnlyVisible(M.minimapTargetMarkers, navData and navData.active and navData.targetSlot or nil)
+end
+
+function M.ToggleDebugPanel()
+    if not M.debugPanel then
+        return
+    end
+    M.debugPanelVisible = not M.debugPanelVisible
+    M.debugPanel:SetVisible(M.debugPanelVisible)
+    if M.btnDebugToggle then
+        M.btnDebugToggle:SetText(M.debugPanelVisible and "收起" or "相机")
+    end
+    if M.debugPanelVisible then
+        RefreshDebugPanel()
+    end
+end
+
+function M.UpdateCameraDebugReadout()
+    if M.debugPanelVisible and M.lblDebugFovCurrent then
+        M.lblDebugFovCurrent:SetText(string.format("当前FOV: %.1f", cam.GetCurrentFov()))
+    end
 end
 
 return M

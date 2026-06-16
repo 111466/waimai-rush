@@ -54,6 +54,7 @@ local function RestartGame()
 
     -- 重置路径系统（重新选择起始边，内部会重置所有状态机字段）
     path.Init(NextRoadSeed())
+    cam.ResetDebugParams()
     pools.Clear()
     pools.Init(scene_)
 
@@ -204,6 +205,7 @@ local function HandleUpdate(eventType, eventData)
         navData
     )
     ui.UpdateMinimap(navData, pickupMiniData)
+    ui.UpdateCameraDebugReadout()
 
     -- 取件/送件浮动动画
     pickup.UpdateAnimation()

@@ -14,6 +14,50 @@ local M = {}
 M.node = nil
 M.currentYaw = 0.0  -- 当前摄像机 yaw（平滑跟随用）
 
+local DEBUG_LIMITS = {
+    offsetY = { min = 3.0, max = 12.0 },
+    offsetZ = { min = -16.0, max = -4.0 },
+    lookAhead = { min = 2.0, max = 12.0 },
+    fovBase = { min = 35.0, max = 75.0 },
+    fovMax = { min = 35.0, max = 85.0 },
+}
+
+local DEBUG_DEFAULTS = {
+    offsetY = CONFIG.CAM_OFFSET_Y,
+    offsetZ = CONFIG.CAM_OFFSET_Z,
+    lookAhead = CONFIG.CAM_LOOK_AHEAD,
+    fovBase = CONFIG.CAM_FOV_BASE,
+    fovMax = CONFIG.CAM_FOV_MAX,
+}
+
+M.debugParams = {
+    offsetY = DEBUG_DEFAULTS.offsetY,
+    offsetZ = DEBUG_DEFAULTS.offsetZ,
+    lookAhead = DEBUG_DEFAULTS.lookAhead,
+    fovBase = DEBUG_DEFAULTS.fovBase,
+    fovMax = DEBUG_DEFAULTS.fovMax,
+}
+
+local function Clamp(value, minValue, maxValue)
+    return math.max(minValue, math.min(maxValue, value))
+end
+
+local function ClampDebugParam(key, value)
+    local limit = DEBUG_LIMITS[key]
+    if not limit then
+        return value
+    end
+    return Clamp(value, limit.min, limit.max)
+end
+
+local function KeepFovRangeValid()
+    M.debugParams.fovBase = ClampDebugParam("fovBase", M.debugParams.fovBase)
+    M.debugParams.fovMax = ClampDebugParam("fovMax", M.debugParams.fovMax)
+    if M.debugParams.fovMax < M.debugParams.fovBase then
+        M.debugParams.fovMax = M.debugParams.fovBase
+    end
+end
+
 --- 角度差归一化到 [-180, 180]
 local function NormalizeAngle(angle)
     while angle > 180 do angle = angle - 360 end
@@ -26,7 +70,7 @@ end
 function M.Setup(scene, playerNode)
     M.node = scene:CreateChild("Camera")
     local camera = M.node:CreateComponent("Camera")
-    camera.fov = CONFIG.CAM_FOV_BASE
+    camera.fov = M.debugParams.fovBase
     camera.nearClip = 0.5
     camera.farClip = 250.0
 
@@ -36,8 +80,8 @@ function M.Setup(scene, playerNode)
     M.currentYaw = path.GetCurrentYaw()
 
     local pp = playerNode.position
-    M.node.position = Vector3(pp.x, pp.y + CONFIG.CAM_OFFSET_Y, pp.z + CONFIG.CAM_OFFSET_Z)
-    local lookTarget = Vector3(pp.x, pp.y + 0.5, pp.z + CONFIG.CAM_LOOK_AHEAD)
+    M.node.position = Vector3(pp.x, pp.y + M.debugParams.offsetY, pp.z + M.debugParams.offsetZ)
+    local lookTarget = Vector3(pp.x, pp.y + 0.5, pp.z + M.debugParams.lookAhead)
     M.node:LookAt(lookTarget)
 end
 
@@ -60,10 +104,10 @@ function M.Update(dt, playerNode, currentSpeed)
     local camFwdZ = math.cos(yawRad)
 
     -- CAM_OFFSET_Z 是负值（在玩家身后），取反得到后方偏移量
-    local backDist = -CONFIG.CAM_OFFSET_Z
+    local backDist = -M.debugParams.offsetZ
     local camTargetX = pp.x - camFwdX * backDist
     local camTargetZ = pp.z - camFwdZ * backDist
-    local camTargetY = pp.y + CONFIG.CAM_OFFSET_Y
+    local camTargetY = pp.y + M.debugParams.offsetY
 
     -- 位置平滑跟随
     local camPos = M.node.position
@@ -74,8 +118,8 @@ function M.Update(dt, playerNode, currentSpeed)
     M.node.position = Vector3(newX, newY, newZ)
 
     -- 摄像机看向玩家前方
-    local lookX = pp.x + camFwdX * CONFIG.CAM_LOOK_AHEAD
-    local lookZ = pp.z + camFwdZ * CONFIG.CAM_LOOK_AHEAD
+    local lookX = pp.x + camFwdX * M.debugParams.lookAhead
+    local lookZ = pp.z + camFwdZ * M.debugParams.lookAhead
     M.node:LookAt(Vector3(lookX, pp.y + 0.5, lookZ))
 
     -- FOV 随速度变化
@@ -83,9 +127,48 @@ function M.Update(dt, playerNode, currentSpeed)
     if camera then
         local speedFactor = (currentSpeed - CONFIG.BASE_SPEED) / (CONFIG.MAX_SPEED - CONFIG.BASE_SPEED)
         speedFactor = math.max(0, math.min(1, speedFactor))
-        local targetFov = CONFIG.CAM_FOV_BASE + (CONFIG.CAM_FOV_MAX - CONFIG.CAM_FOV_BASE) * speedFactor * CONFIG.CAM_FOV_SPEED_FACTOR
+        local targetFov = M.debugParams.fovBase + (M.debugParams.fovMax - M.debugParams.fovBase) * speedFactor * CONFIG.CAM_FOV_SPEED_FACTOR
         camera.fov = camera.fov + (targetFov - camera.fov) * lerpFactor
     end
+end
+
+function M.GetDebugParams()
+    return {
+        offsetY = M.debugParams.offsetY,
+        offsetZ = M.debugParams.offsetZ,
+        lookAhead = M.debugParams.lookAhead,
+        fovBase = M.debugParams.fovBase,
+        fovMax = M.debugParams.fovMax,
+    }
+end
+
+function M.AdjustDebugParam(key, delta)
+    if M.debugParams[key] == nil or not DEBUG_LIMITS[key] then
+        return nil
+    end
+
+    M.debugParams[key] = ClampDebugParam(key, M.debugParams[key] + delta)
+    KeepFovRangeValid()
+    return M.debugParams[key]
+end
+
+function M.ResetDebugParams()
+    for key, value in pairs(DEBUG_DEFAULTS) do
+        M.debugParams[key] = value
+    end
+    KeepFovRangeValid()
+end
+
+function M.GetCurrentFov()
+    if not M.node then
+        return M.debugParams.fovBase
+    end
+
+    local camera = M.node:GetComponent("Camera")
+    if not camera then
+        return M.debugParams.fovBase
+    end
+    return camera.fov
 end
 
 return M
