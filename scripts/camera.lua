@@ -28,8 +28,8 @@ local DEBUG_DEFAULTS = {
     offsetY = CONFIG.CAM_OFFSET_Y,
     offsetZ = CONFIG.CAM_OFFSET_Z,
     lookAhead = CONFIG.CAM_LOOK_AHEAD,
-    yawOffset = 0.0,
-    pitchOffset = 0.0,
+    yawOffset = CONFIG.CAM_YAW_OFFSET or 0.0,
+    pitchOffset = CONFIG.CAM_PITCH_OFFSET or 0.0,
     fovBase = CONFIG.CAM_FOV_BASE,
     fovMax = CONFIG.CAM_FOV_MAX,
 }

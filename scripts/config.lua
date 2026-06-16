@@ -43,12 +43,14 @@ M.CONFIG = {
     SPEED_DISTANCE_FACTOR = 100.0,
 
     -- 摄像机跟随参数（竖屏跑酷视角）
-    CAM_OFFSET_Y = 6.0,
-    CAM_OFFSET_Z = -7.0,
-    CAM_LOOK_AHEAD = 5.0,
+    CAM_OFFSET_Y = 6.75,
+    CAM_OFFSET_Z = -10.25,
+    CAM_LOOK_AHEAD = 7.5,
+    CAM_YAW_OFFSET = 0.0,
+    CAM_PITCH_OFFSET = 0.25,
     CAM_SMOOTH = 8.0,
-    CAM_FOV_BASE = 50.0,
-    CAM_FOV_MAX = 58.0,
+    CAM_FOV_BASE = 58.0,
+    CAM_FOV_MAX = 68.0,
     CAM_FOV_SPEED_FACTOR = 0.5,
     CAM_TILT_FACTOR = 1.5,
 
