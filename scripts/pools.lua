@@ -15,13 +15,12 @@ local ROAD_SURFACE_HEIGHT = 0.15
 local ROAD_SURFACE_Y = ROAD_SURFACE_HEIGHT * 0.5
 
 M.scene = nil
-M.roadSegments = {}
-M.lineNodes = {}
-M.buildingNodes = {}
-M.intersectionNodes = {}
+M.edgeVisualGroups = {}
+M.nodeVisualGroups = {}
 M.visibleEdgeKeys = {}
 M.visibleNodeKeys = {}
 M.visibleVersion = -1
+M.buildingMaterialCache = {}
 
 local buildingColors = {
     Color(0.55, 0.78, 0.82, 1.0),
@@ -40,29 +39,42 @@ local function RemoveNodes(list)
     end
 end
 
-local function ResetList(list)
-    for i = 1, #list do
-        list[i] = nil
+local function RemoveVisualGroups(groups)
+    for _, group in pairs(groups or {}) do
+        RemoveNodes(group)
     end
+end
+
+local function AddVisualNode(group, node)
+    if group and node then
+        group[#group + 1] = node
+    end
+end
+
+local function GetBuildingMaterial(colorIdx)
+    local material = M.buildingMaterialCache[colorIdx]
+    if material then
+        return material
+    end
+
+    material = mats.CreatePBRMaterial(buildingColors[colorIdx], 0.0, 0.7)
+    M.buildingMaterialCache[colorIdx] = material
+    return material
 end
 
 function M.Clear()
     local scene = M.scene
-    RemoveNodes(M.roadSegments)
-    RemoveNodes(M.lineNodes)
-    RemoveNodes(M.buildingNodes)
-    RemoveNodes(M.intersectionNodes)
-    M.roadSegments = {}
-    M.lineNodes = {}
-    M.buildingNodes = {}
-    M.intersectionNodes = {}
+    RemoveVisualGroups(M.edgeVisualGroups)
+    RemoveVisualGroups(M.nodeVisualGroups)
+    M.edgeVisualGroups = {}
+    M.nodeVisualGroups = {}
     M.visibleEdgeKeys = {}
     M.visibleNodeKeys = {}
     M.visibleVersion = -1
     M.scene = scene
 end
 
-local function CreateRoadSegment(scene, pos, yaw, segLength)
+local function CreateRoadSegment(scene, pos, yaw, segLength, group)
     local roadNode = scene:CreateChild("RoadSeg")
     local model = roadNode:CreateComponent("StaticModel")
     model.model = cache:GetResource("Model", "Models/Box.mdl")
@@ -70,7 +82,7 @@ local function CreateRoadSegment(scene, pos, yaw, segLength)
     roadNode.scale = Vector3(CONFIG.ROAD_WIDTH, ROAD_SURFACE_HEIGHT, segLength)
     roadNode.position = Vector3(pos.x, ROAD_SURFACE_Y, pos.z)
     roadNode.rotation = Quaternion(yaw, Vector3.UP)
-    table.insert(M.roadSegments, roadNode)
+    AddVisualNode(group, roadNode)
 
     local halfRoad = CONFIG.ROAD_WIDTH * 0.5
     local yawRad = math.rad(yaw)
@@ -84,7 +96,7 @@ local function CreateRoadSegment(scene, pos, yaw, segLength)
     curbL.scale = Vector3(0.3, 0.35, segLength)
     curbL.position = Vector3(pos.x + rx * (halfRoad + 0.15), 0.175, pos.z + rz * (halfRoad + 0.15))
     curbL.rotation = Quaternion(yaw, Vector3.UP)
-    table.insert(M.roadSegments, curbL)
+    AddVisualNode(group, curbL)
 
     local curbR = scene:CreateChild("CurbR")
     local cm2 = curbR:CreateComponent("StaticModel")
@@ -93,7 +105,7 @@ local function CreateRoadSegment(scene, pos, yaw, segLength)
     curbR.scale = Vector3(0.3, 0.35, segLength)
     curbR.position = Vector3(pos.x - rx * (halfRoad + 0.15), 0.175, pos.z - rz * (halfRoad + 0.15))
     curbR.rotation = Quaternion(yaw, Vector3.UP)
-    table.insert(M.roadSegments, curbR)
+    AddVisualNode(group, curbR)
 
     local swL = scene:CreateChild("SwL")
     local sm = swL:CreateComponent("StaticModel")
@@ -102,7 +114,7 @@ local function CreateRoadSegment(scene, pos, yaw, segLength)
     swL.scale = Vector3(2.5, 0.12, segLength)
     swL.position = Vector3(pos.x + rx * (halfRoad + 1.55), 0.06, pos.z + rz * (halfRoad + 1.55))
     swL.rotation = Quaternion(yaw, Vector3.UP)
-    table.insert(M.roadSegments, swL)
+    AddVisualNode(group, swL)
 
     local swR = scene:CreateChild("SwR")
     local sm2 = swR:CreateComponent("StaticModel")
@@ -111,10 +123,10 @@ local function CreateRoadSegment(scene, pos, yaw, segLength)
     swR.scale = Vector3(2.5, 0.12, segLength)
     swR.position = Vector3(pos.x - rx * (halfRoad + 1.55), 0.06, pos.z - rz * (halfRoad + 1.55))
     swR.rotation = Quaternion(yaw, Vector3.UP)
-    table.insert(M.roadSegments, swR)
+    AddVisualNode(group, swR)
 end
 
-local function CreateLaneLines(scene, edgeStart, edgeEnd, heading, edgeLength)
+local function CreateLaneLines(scene, edgeStart, edgeEnd, heading, edgeLength, group)
     local yaw = rn.HeadingToYaw(heading)
     local right = rn.HeadingToRight(heading)
 
@@ -131,7 +143,7 @@ local function CreateLaneLines(scene, edgeStart, edgeEnd, heading, edgeLength)
         nodeL.scale = Vector3(0.12, 0.05, CONFIG.LINE_LENGTH)
         nodeL.position = Vector3(px - right.x * 1.0, 0.16, pz - right.z * 1.0)
         nodeL.rotation = Quaternion(yaw, Vector3.UP)
-        table.insert(M.lineNodes, nodeL)
+        AddVisualNode(group, nodeL)
 
         local nodeR = scene:CreateChild("LineR")
         local mR = nodeR:CreateComponent("StaticModel")
@@ -140,7 +152,7 @@ local function CreateLaneLines(scene, edgeStart, edgeEnd, heading, edgeLength)
         nodeR.scale = Vector3(0.12, 0.05, CONFIG.LINE_LENGTH)
         nodeR.position = Vector3(px + right.x * 1.0, 0.16, pz + right.z * 1.0)
         nodeR.rotation = Quaternion(yaw, Vector3.UP)
-        table.insert(M.lineNodes, nodeR)
+        AddVisualNode(group, nodeR)
     end
 end
 
@@ -157,15 +169,15 @@ local function GetStraightOnlyHeading(node)
     return nil
 end
 
-local function CreateIntersectionLaneLines(scene, node, heading)
+local function CreateIntersectionLaneLines(scene, node, heading, group)
     local fwd = rn.HeadingToForward(heading)
     local halfSize = rn.INTERSECTION_HALF_SIZE
     local startPos = Vector3(node.worldX - fwd.x * halfSize, 0, node.worldZ - fwd.z * halfSize)
     local endPos = Vector3(node.worldX + fwd.x * halfSize, 0, node.worldZ + fwd.z * halfSize)
-    CreateLaneLines(scene, startPos, endPos, heading, halfSize * 2.0)
+    CreateLaneLines(scene, startPos, endPos, heading, halfSize * 2.0, group)
 end
 
-local function CreateBuildingsAlongEdge(scene, edgeStart, edgeEnd, heading, edgeLength, edgeKey)
+local function CreateBuildingsAlongEdge(scene, edgeStart, edgeEnd, heading, edgeLength, edgeKey, group)
     local right = rn.HeadingToRight(heading)
     local numBuildings = CONFIG.BUILDINGS_PER_EDGE
     local rng = rn.NewDeterministicRng(edgeKey, edgeLength * 10, 77)
@@ -197,11 +209,11 @@ local function CreateBuildingsAlongEdge(scene, edgeStart, edgeEnd, heading, edge
                         local model = node:CreateComponent("StaticModel")
                         model.model = cache:GetResource("Model", "Models/Box.mdl")
                         local colorIdx = math.floor(rng() * #buildingColors) + 1
-                        model.material = mats.CreatePBRMaterial(buildingColors[colorIdx], 0.0, 0.7)
+                        model.material = GetBuildingMaterial(colorIdx)
                         node.scale = Vector3(w, h, d)
                         node.position = Vector3(bx, h * 0.5, bz)
                         node.rotation = Quaternion(rn.HeadingToYaw(heading) + math.floor(rng() * 11) - 5, Vector3.UP)
-                        table.insert(M.buildingNodes, node)
+                        AddVisualNode(group, node)
                     end
                 end
             end
@@ -209,7 +221,7 @@ local function CreateBuildingsAlongEdge(scene, edgeStart, edgeEnd, heading, edge
     end
 end
 
-local function CreateIntersection(scene, node, useRoadSurface)
+local function CreateIntersection(scene, node, useRoadSurface, group)
     local iNode = scene:CreateChild("Intersection")
     local model = iNode:CreateComponent("StaticModel")
     model.model = cache:GetResource("Model", "Models/Box.mdl")
@@ -217,10 +229,10 @@ local function CreateIntersection(scene, node, useRoadSurface)
     local areaSize = CONFIG.ROAD_WIDTH
     iNode.scale = Vector3(areaSize, ROAD_SURFACE_HEIGHT, areaSize)
     iNode.position = Vector3(node.worldX, ROAD_SURFACE_Y, node.worldZ)
-    table.insert(M.intersectionNodes, iNode)
+    AddVisualNode(group, iNode)
 end
 
-local function CreateClosedExitCurb(scene, node, heading)
+local function CreateClosedExitCurb(scene, node, heading, group)
     local fwd = rn.HeadingToForward(heading)
     local yaw = rn.HeadingToYaw(heading)
     local curbDepth = 0.3
@@ -240,7 +252,7 @@ local function CreateClosedExitCurb(scene, node, heading)
     curb.scale = Vector3(closureWidth, 0.35, curbDepth)
     curb.position = curbPos
     curb.rotation = Quaternion(yaw, Vector3.UP)
-    table.insert(M.intersectionNodes, curb)
+    AddVisualNode(group, curb)
 
     local sidewalkPos = Vector3(
         node.worldX + fwd.x * (rn.INTERSECTION_HALF_SIZE + curbDepth + sidewalkDepth * 0.5),
@@ -255,7 +267,7 @@ local function CreateClosedExitCurb(scene, node, heading)
     sidewalk.scale = Vector3(closureWidth, 0.12, sidewalkDepth)
     sidewalk.position = sidewalkPos
     sidewalk.rotation = Quaternion(yaw, Vector3.UP)
-    table.insert(M.intersectionNodes, sidewalk)
+    AddVisualNode(group, sidewalk)
 end
 
 local function BuildVisibleNodeSet()
@@ -275,20 +287,24 @@ local function BuildVisibleEdgeSet()
 end
 
 local function CreateVisibleNodeVisuals(scene, node)
+    local group = {}
     local straightHeading = GetStraightOnlyHeading(node)
-    CreateIntersection(scene, node, straightHeading ~= nil)
+    CreateIntersection(scene, node, straightHeading ~= nil, group)
     if straightHeading ~= nil then
-        CreateIntersectionLaneLines(scene, node, straightHeading)
+        CreateIntersectionLaneLines(scene, node, straightHeading, group)
     end
 
     for heading = 0, 3 do
         if not rn.GetEdgeByHeading(node.id, heading) then
-            CreateClosedExitCurb(scene, node, heading)
+            CreateClosedExitCurb(scene, node, heading, group)
         end
     end
+
+    M.nodeVisualGroups[node.id] = group
 end
 
 local function CreateVisibleEdgeVisuals(scene, edge)
+    local group = {}
     local start = edge.worldStart
     local finish = edge.worldEnd
     local heading = edge.heading
@@ -303,54 +319,61 @@ local function CreateVisibleEdgeVisuals(scene, edge)
     if effectiveLength > 0 then
         local px = (effectiveStart.x + effectiveEnd.x) * 0.5
         local pz = (effectiveStart.z + effectiveEnd.z) * 0.5
-        CreateRoadSegment(scene, Vector3(px, 0, pz), yaw, effectiveLength)
-        CreateLaneLines(scene, effectiveStart, effectiveEnd, heading, effectiveLength)
+        CreateRoadSegment(scene, Vector3(px, 0, pz), yaw, effectiveLength, group)
+        CreateLaneLines(scene, effectiveStart, effectiveEnd, heading, effectiveLength, group)
     end
 
-    CreateBuildingsAlongEdge(scene, start, finish, heading, length, edge.physicalKey or edge.id)
+    CreateBuildingsAlongEdge(scene, start, finish, heading, length, edge.physicalKey or edge.id, group)
+    M.edgeVisualGroups[edge.id] = group
 end
 
 local function RefreshVisibleVisuals(scene)
     if not scene then return end
+    if rn.visibleVersion == M.visibleVersion then return end
 
     local visibleNodes = BuildVisibleNodeSet()
     local visibleEdges = BuildVisibleEdgeSet()
-    local versionChanged = rn.visibleVersion ~= M.visibleVersion
+    local nodesToRemove = {}
+    local edgesToRemove = {}
 
-    if not versionChanged then
-        local same = true
-        for id in pairs(visibleNodes) do
-            if not M.visibleNodeKeys[id] then same = false break end
+    for id in pairs(M.visibleNodeKeys) do
+        if not visibleNodes[id] then
+            nodesToRemove[#nodesToRemove + 1] = id
         end
-        for id in pairs(M.visibleNodeKeys) do
-            if not visibleNodes[id] then same = false break end
-        end
-        if same then
-            same = true
-            for id in pairs(visibleEdges) do
-                if not M.visibleEdgeKeys[id] then same = false break end
-            end
-            for id in pairs(M.visibleEdgeKeys) do
-                if not visibleEdges[id] then same = false break end
-            end
-        end
-        versionChanged = not same
     end
 
-    if not versionChanged then return end
-
-    M.Clear()
-    M.scene = scene
-
-    for _, node in pairs(visibleNodes) do
-        CreateVisibleNodeVisuals(scene, node)
-    end
-    for _, edge in pairs(visibleEdges) do
-        CreateVisibleEdgeVisuals(scene, edge)
+    for id in pairs(M.visibleEdgeKeys) do
+        if not visibleEdges[id] then
+            edgesToRemove[#edgesToRemove + 1] = id
+        end
     end
 
-    M.visibleNodeKeys = visibleNodes
-    M.visibleEdgeKeys = visibleEdges
+    for _, id in ipairs(nodesToRemove) do
+        RemoveNodes(M.nodeVisualGroups[id])
+        M.nodeVisualGroups[id] = nil
+        M.visibleNodeKeys[id] = nil
+    end
+
+    for _, id in ipairs(edgesToRemove) do
+        RemoveNodes(M.edgeVisualGroups[id])
+        M.edgeVisualGroups[id] = nil
+        M.visibleEdgeKeys[id] = nil
+    end
+
+    for id, node in pairs(visibleNodes) do
+        if not M.visibleNodeKeys[id] then
+            CreateVisibleNodeVisuals(scene, node)
+            M.visibleNodeKeys[id] = node
+        end
+    end
+
+    for id, edge in pairs(visibleEdges) do
+        if not M.visibleEdgeKeys[id] then
+            CreateVisibleEdgeVisuals(scene, edge)
+            M.visibleEdgeKeys[id] = edge
+        end
+    end
+
     M.visibleVersion = rn.visibleVersion
 end
 

@@ -10,10 +10,12 @@ local path = require("path")
 local rn = require("road_network")
 local mats = require("materials")
 local nav = require("route_navigation")
+local player = require("player")
 
 local M = {}
 
 local SHADOW_Y = CONFIG.PLAYER_GROUND_Y + 0.012
+local ORDER_LATERAL_THRESHOLD = 0.85
 
 local function CreateContactShadow(scene, name, scaleX, scaleZ)
     local shadow = scene:CreateChild(name)
@@ -72,6 +74,8 @@ M.orderTimerActive = false
 M.orderTimeLimit = 0.0
 M.orderTimeRemaining = 0.0
 M.orderLateSeconds = 0.0
+M.lastEdgeId = 0
+M.lastEdgeDistance = 0.0
 
 -- ============================================================================
 -- 创建视觉节点
@@ -169,6 +173,47 @@ end
 
 local function Clamp(value, minValue, maxValue)
     return math.max(minValue, math.min(maxValue, value))
+end
+
+function M.CapturePathSnapshot()
+    local s = path.state
+    if s and s.currentEdge then
+        M.lastEdgeId = s.currentEdge.id
+        M.lastEdgeDistance = s.edgeDistance or 0.0
+    else
+        M.lastEdgeId = 0
+        M.lastEdgeDistance = 0.0
+    end
+end
+
+local function WasTargetSwept(edgeId, targetDist)
+    local s = path.state
+    if not s.currentEdge then return false end
+
+    local currentDist = s.edgeDistance or 0.0
+    local currentEdgeId = s.currentEdge.id
+    if currentEdgeId ~= edgeId then
+        if M.lastEdgeId ~= edgeId then return false end
+        local edge = rn.GetEdge(edgeId)
+        local endDist = edge and rn.GetEdgeEffectiveLength(edge) or currentDist
+        return targetDist >= (M.lastEdgeDistance or 0.0) - CONFIG.COLLISION_Z_THRESHOLD
+            and targetDist <= endDist + CONFIG.COLLISION_Z_THRESHOLD
+    elseif M.lastEdgeId ~= edgeId then
+        return math.abs(currentDist - targetDist) <= CONFIG.COLLISION_Z_THRESHOLD
+    end
+
+    local fromDist = math.min(M.lastEdgeDistance or currentDist, currentDist)
+    local toDist = math.max(M.lastEdgeDistance or currentDist, currentDist)
+    return targetDist >= fromDist - CONFIG.COLLISION_Z_THRESHOLD
+        and targetDist <= toDist + CONFIG.COLLISION_Z_THRESHOLD
+end
+
+local function IsPlayerNearLane(lane)
+    local targetX = CONFIG.LANE_X[lane]
+    if not targetX then return false end
+
+    local playerX = player and player.currentLaneX or CONFIG.LANE_X[CONFIG.currentLane]
+    return math.abs((playerX or 0.0) - targetX) <= ORDER_LATERAL_THRESHOLD
 end
 
 local function StopOrderTimer()
@@ -318,8 +363,11 @@ function M.CheckPickup()
     local s = path.state
     if not s.currentEdge then return end
 
-    -- 只有在同一条边上才检测
-    if M.pickupEdgeId ~= s.currentEdge.id then
+    local targetDist = M.pickupEdgeDist or 0
+    local hit = WasTargetSwept(M.pickupEdgeId, targetDist) and IsPlayerNearLane(M.pickupLane)
+
+    -- 只有在同一条边上才检测；若本帧扫过目标，则先结算命中。
+    if not hit and M.pickupEdgeId ~= s.currentEdge.id then
         -- 玩家已离开该边，取件点消失
         M.pickupActive = false
         HideNode(M.pickupNode)
@@ -327,8 +375,8 @@ function M.CheckPickup()
         return
     end
 
-    local distDiff = s.edgeDistance - (M.pickupEdgeDist or 0)
-    if math.abs(distDiff) < CONFIG.COLLISION_Z_THRESHOLD and CONFIG.currentLane == M.pickupLane then
+    local distDiff = s.edgeDistance - targetDist
+    if hit then
         -- 成功取件
         M.hasPackage = true
         M.pickupActive = false
@@ -427,13 +475,16 @@ function M.CheckDelivery()
     local s = path.state
     if not s.currentEdge then return end
 
+    local targetDist = M.deliveryEdgeDist or 0
+    local hit = WasTargetSwept(M.deliveryEdgeId, targetDist) and IsPlayerNearLane(M.deliveryLane)
+
     -- 送件点是持久目标，离开/绕路不会清空，只有进入目标 edge 后才检测送达或错过。
-    if M.deliveryEdgeId ~= s.currentEdge.id then
+    if not hit and M.deliveryEdgeId ~= s.currentEdge.id then
         return
     end
 
-    local distDiff = s.edgeDistance - (M.deliveryEdgeDist or 0)
-    if math.abs(distDiff) < CONFIG.COLLISION_Z_THRESHOLD and CONFIG.currentLane == M.deliveryLane then
+    local distDiff = s.edgeDistance - targetDist
+    if hit then
         -- 成功送达
         local baseReward = 10
         local reward = baseReward
@@ -553,6 +604,7 @@ function M.Reset()
     StopOrderTimer()
     M.totalIncome = 0
     M.comboCount = 0
+    M.CapturePathSnapshot()
 end
 
 return M

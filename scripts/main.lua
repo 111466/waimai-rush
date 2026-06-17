@@ -148,6 +148,7 @@ local function HandleUpdate(eventType, eventData)
     obstacles.distanceTraveled = player.distanceTraveled
 
     -- 推进路径（沿边前进 / 弧线过渡）
+    pickup.CapturePathSnapshot()
     path.Advance(moveDist)
 
     -- 再次检查死路（Advance 中的 StartTurnAtNode 可能触发）
