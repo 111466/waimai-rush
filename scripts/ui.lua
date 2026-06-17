@@ -41,6 +41,9 @@ M.minimapRouteSegments = {}
 M.minimapPlayerMarkers = {}
 M.minimapTargetMarkers = {}
 M.minimapPickupMarkers = {}
+M.onRestart = nil
+M.onTogglePause = nil
+M.minimapVersion = -1
 
 local MINI_PANEL_W = 132
 local MINI_PANEL_H = 154
@@ -85,7 +88,7 @@ end
 
 local function MiniPoint(node)
     local usable = MINI_MAP_SIZE - MINI_MARGIN * 2
-    local bounds = rn.bounds or { minX = 0, maxX = 1, minZ = 0, maxZ = 1 }
+    local bounds = rn.GetVisibleBounds and rn.GetVisibleBounds() or rn.bounds or { minX = 0, maxX = 1, minZ = 0, maxZ = 1 }
     local width = math.max(1.0, bounds.maxX - bounds.minX)
     local depth = math.max(1.0, bounds.maxZ - bounds.minZ)
     local x = MINI_LEFT + MINI_MARGIN + ((node.worldX - bounds.minX) / width) * usable
@@ -94,8 +97,8 @@ local function MiniPoint(node)
 end
 
 local function AddMiniSegment(children, id, edge, color, thickness)
-    local fromNode = rn.nodes[edge.fromNode]
-    local toNode = rn.nodes[edge.toNode]
+    local fromNode = rn.GetNode(edge.fromNode)
+    local toNode = rn.GetNode(edge.toNode)
     if not fromNode or not toNode then return end
 
     local x1, y1 = MiniPoint(fromNode)
@@ -142,8 +145,8 @@ local function AddMiniMarker(children, id, x, y, size, color, radius)
 end
 
 local function AddMiniPlayerProgressMarkers(children, key, edge)
-    local nodeA = rn.nodes[math.min(edge.fromNode, edge.toNode)]
-    local nodeB = rn.nodes[math.max(edge.fromNode, edge.toNode)]
+    local nodeA = rn.GetNode(math.min(edge.fromNode, edge.toNode))
+    local nodeB = rn.GetNode(math.max(edge.fromNode, edge.toNode))
     if not nodeA or not nodeB then return end
 
     local x1, y1 = MiniPoint(nodeA)
@@ -161,8 +164,7 @@ local function BuildMinimap()
     local seenSegments = {}
     local segmentPositions = {}
 
-    for edgeId = 1, #rn.edges do
-        local edge = rn.edges[edgeId]
+    rn.ForEachVisibleEdge(function(edge)
         if edge then
             local key = nav.MakeEdgeSlot(edge)
             if key and not seenSegments[key] then
@@ -171,23 +173,22 @@ local function BuildMinimap()
                 segmentPositions[key] = edge
             end
         end
-    end
+    end)
 
     for key, edge in pairs(segmentPositions) do
         AddMiniSegment(children, "mini_route_" .. key, edge, "#2EE66B", 5)
     end
 
-    for nodeId = 1, #rn.nodes do
-        local node = rn.nodes[nodeId]
+    rn.ForEachVisibleNode(function(node)
         if node then
             local x, y = MiniPoint(node)
-            AddMiniMarker(children, "mini_node_" .. nodeId, x, y, 4, "rgba(215,220,225,0.7)", 2)
+            AddMiniMarker(children, "mini_node_" .. node.id, x, y, 4, "rgba(215,220,225,0.7)", 2)
         end
-    end
+    end)
 
     for key, edge in pairs(segmentPositions) do
-        local fromNode = rn.nodes[edge.fromNode]
-        local toNode = rn.nodes[edge.toNode]
+        local fromNode = rn.GetNode(edge.fromNode)
+        local toNode = rn.GetNode(edge.toNode)
         local x1, y1 = MiniPoint(fromNode)
         local x2, y2 = MiniPoint(toNode)
         local x = (x1 + x2) * 0.5
@@ -195,17 +196,16 @@ local function BuildMinimap()
         AddMiniMarker(children, "mini_target_" .. key, x, y, 10, "#FFD34D", 2)
     end
 
-    for nodeId = 1, #rn.nodes do
-        local node = rn.nodes[nodeId]
+    rn.ForEachVisibleNode(function(node)
         if node then
             local x, y = MiniPoint(node)
-            AddMiniMarker(children, "mini_target_n" .. nodeId, x, y, 10, "#FFD34D", 2)
+            AddMiniMarker(children, "mini_target_n" .. node.id, x, y, 10, "#FFD34D", 2)
         end
-    end
+    end)
 
     for key, edge in pairs(segmentPositions) do
-        local fromNode = rn.nodes[edge.fromNode]
-        local toNode = rn.nodes[edge.toNode]
+        local fromNode = rn.GetNode(edge.fromNode)
+        local toNode = rn.GetNode(edge.toNode)
         local x1, y1 = MiniPoint(fromNode)
         local x2, y2 = MiniPoint(toNode)
         local x = (x1 + x2) * 0.5
@@ -217,13 +217,12 @@ local function BuildMinimap()
         AddMiniPlayerProgressMarkers(children, key, edge)
     end
 
-    for nodeId = 1, #rn.nodes do
-        local node = rn.nodes[nodeId]
+    rn.ForEachVisibleNode(function(node)
         if node then
             local x, y = MiniPoint(node)
-            AddMiniMarker(children, "mini_player_n" .. nodeId, x, y, 8, "#8A5CFF", 4)
+            AddMiniMarker(children, "mini_player_n" .. node.id, x, y, 8, "#8A5CFF", 4)
         end
-    end
+    end)
 
     table.insert(children, UI.Label {
         id = "miniStatus",
@@ -511,6 +510,10 @@ local function BuildDebugPanel()
 end
 
 function M.Create(onRestart, onTogglePause)
+    local wasDebugVisible = M.debugPanelVisible
+    M.onRestart = onRestart
+    M.onTogglePause = onTogglePause
+
     UI.Init({
         theme = "default-dark",
         scale = UI.Scale.DEFAULT,
@@ -614,7 +617,8 @@ function M.Create(onRestart, onTogglePause)
     M.minimapPanel = BuildMinimap()
     M.debugPanel = BuildDebugPanel()
     M.debugPanel:SetVisible(false)
-    M.debugPanelVisible = false
+    M.debugPanelVisible = wasDebugVisible
+    M.debugPanel:SetVisible(M.debugPanelVisible)
 
     local debugToggle = UI.Button {
         id = "debugToggle",
@@ -683,8 +687,7 @@ function M.Create(onRestart, onTogglePause)
     M.minimapPlayerMarkers = {}
     M.minimapTargetMarkers = {}
     M.minimapPickupMarkers = {}
-    for edgeId = 1, #rn.edges do
-        local edge = rn.edges[edgeId]
+    rn.ForEachVisibleEdge(function(edge)
         if edge then
             local key = nav.MakeEdgeSlot(edge)
             if key and not M.minimapRouteSegments[key] then
@@ -697,14 +700,17 @@ function M.Create(onRestart, onTogglePause)
                 end
             end
         end
-    end
-    for nodeId = 1, #rn.nodes do
-        local key = nav.MakeNodeSlot(nodeId)
+    end)
+    rn.ForEachVisibleNode(function(node)
+        local key = nav.MakeNodeSlot(node.id)
         M.minimapPlayerMarkers[key] = root:FindById("mini_player_" .. key)
         M.minimapTargetMarkers[key] = root:FindById("mini_target_" .. key)
-    end
+    end)
 
-    M.UpdateMinimap(nil)
+    M.minimapVersion = rn.visibleVersion
+    if M.lblMiniStatus then
+        M.lblMiniStatus:SetText("等待订单")
+    end
     M.SetOrderTimerDisplay(nil)
     RefreshDebugPanel()
 end
@@ -840,6 +846,10 @@ local function SetOnlyVisible(markers, activeKey)
 end
 
 function M.UpdateMinimap(navData, pickupMiniData)
+    if M.minimapVersion ~= rn.visibleVersion and M.onRestart then
+        M.Create(M.onRestart, M.onTogglePause)
+    end
+
     if M.lblMiniStatus then
         if navData and navData.message then
             M.lblMiniStatus:SetText(navData.message)

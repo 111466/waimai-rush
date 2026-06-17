@@ -355,7 +355,7 @@ function M.GetMinimapData()
         }
     end
 
-    local edge = rn.edges[M.pickupEdgeId]
+    local edge = rn.GetEdge(M.pickupEdgeId)
     if not edge then
         return {
             active = false,
@@ -391,6 +391,17 @@ function M.TrySpawnDelivery(currentSpeed)
     if s.totalDistance < M.nextDeliveryDistance then return end
 
     SpawnReachableDeliveryTarget(currentSpeed)
+end
+
+function M.EnsureDeliveryTargetValid()
+    if not M.deliveryActive then return true end
+    if rn.GetEdge(M.deliveryEdgeId) then return true end
+
+    ClearDeliveryTarget()
+    if M.hasPackage then
+        M.nextDeliveryDistance = path.state.totalDistance
+    end
+    return false
 end
 
 function M.ReselectDeliveryTarget(currentSpeed)

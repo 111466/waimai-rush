@@ -98,6 +98,10 @@ function M.Init(seed)
     s.turnJustCommitted = false
     s.turnArrivalHeading = 0
     s.turnExitHeading = 0
+    s.turnChoiceProgress = 0.0
+    s.exitLaneOffset = CONFIG.LANE_X[CONFIG.currentLane]
+
+    rn.EnsureRowsAroundPath(s)
 
     print("[Path] Initialized on edge " .. startEdge.id .. " heading " .. startEdge.heading)
 end
@@ -257,7 +261,8 @@ function M.EnterIntersection(overshoot)
     local s = M.state
     local edge = s.currentEdge
     local targetNodeId = edge.toNode
-    local targetNode = rn.nodes[targetNodeId]
+    rn.EnsureRowsAroundPath(s)
+    local targetNode = rn.GetNode(targetNodeId)
 
     if not targetNode then
         print("[Path] ERROR: Target node not found!")
@@ -316,6 +321,7 @@ end
 
 function M.ExitIntersection(overshoot)
     local s = M.state
+    rn.EnsureRowsAroundPath(s)
 
     -- 确定出口车道（转弯时用做出选择时的进度，直走用当前车道）
     local progressForLane = s.turnChoiceProgress

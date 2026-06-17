@@ -19,10 +19,6 @@ M.MINIMAP_PLAYER_EDGE_STEPS = 16
 
 local REPLAN_MESSAGE_TIME = 1.4
 
--- ============================================================================
--- 基础工具
--- ============================================================================
-
 local function CopyAndAppend(list, value)
     local out = {}
     for i = 1, #list do
@@ -79,8 +75,16 @@ local function Clamp(value, minValue, maxValue)
     return math.max(minValue, math.min(maxValue, value))
 end
 
+local function EdgeMinGridZ(edge)
+    if not edge then return 0 end
+    local fromNode = rn.GetNode(edge.fromNode)
+    local toNode = rn.GetNode(edge.toNode)
+    if not fromNode or not toNode then return 0 end
+    return math.min(fromNode.gridZ or 0, toNode.gridZ or 0)
+end
+
 function M.HasTarget()
-    return M.targetEdgeId ~= 0 and rn.edges[M.targetEdgeId] ~= nil
+    return M.targetEdgeId ~= 0 and rn.GetEdge(M.targetEdgeId) ~= nil
 end
 
 function M.HasRoute()
@@ -101,15 +105,9 @@ function M.Reset()
     M.ClearTarget()
 end
 
--- ============================================================================
--- 路线搜索
--- ============================================================================
-
---- 从当前 edge 出发，搜索到目标 edge 的最短路线。
---- 返回的 routeEdges 会包含 currentEdge.id 和 targetEdgeId。
 function M.FindRouteFromEdge(currentEdge, targetEdgeId)
     if not currentEdge then return nil end
-    if not rn.edges[targetEdgeId] then return nil end
+    if not rn.GetEdge(targetEdgeId) then return nil end
 
     if currentEdge.id == targetEdgeId then
         return { currentEdge.id }
@@ -159,19 +157,60 @@ function M.GetReachableTargetEdges(currentEdge, minHops, maxHops)
     local candidates = {}
     if not currentEdge then return candidates end
 
-    for edgeId = 1, #rn.edges do
-        local edge = rn.edges[edgeId]
-        if edge and edge.id ~= currentEdge.id then
-            local route = M.FindRouteFromEdge(currentEdge, edge.id)
-            if route then
-                local hops = #route - 1
-                if hops >= minHops and hops <= maxHops then
-                    candidates[#candidates + 1] = {
-                        edge = edge,
-                        edgeId = edge.id,
-                        hops = hops,
-                        route = route,
-                    }
+    local anchorNode = rn.GetNode(currentEdge.toNode)
+    local anchorRow = anchorNode and anchorNode.gridZ or 1
+
+    local queue = {
+        {
+            nodeId = currentEdge.toNode,
+            arrivalHeading = currentEdge.heading,
+            route = { currentEdge.id },
+            minGridZ = anchorRow,
+        }
+    }
+    local head = 1
+    local visited = {}
+    local seenTarget = {}
+    visited[StateKey(currentEdge.toNode, currentEdge.heading)] = true
+
+    while head <= #queue do
+        local item = queue[head]
+        head = head + 1
+
+        local hops = #item.route - 1
+        local edgeId = item.route[#item.route]
+        if edgeId and edgeId ~= currentEdge.id and hops >= minHops and hops <= maxHops and not seenTarget[edgeId] then
+            local edge = rn.GetEdge(edgeId)
+            local routeMinGridZ = item.minGridZ or anchorRow
+            if edge then
+                routeMinGridZ = math.min(routeMinGridZ, EdgeMinGridZ(edge))
+            end
+            if edge and routeMinGridZ >= anchorRow then
+                seenTarget[edgeId] = true
+                candidates[#candidates + 1] = {
+                    edge = edge,
+                    edgeId = edge.id,
+                    hops = hops,
+                    route = item.route,
+                }
+            end
+        end
+
+        if hops < maxHops then
+            local turns = rn.GetAvailableTurns(item.nodeId, item.arrivalHeading)
+            for _, turn in ipairs(turns) do
+                local edge = turn.edge
+                if edge then
+                    local key = StateKey(edge.toNode, edge.heading)
+                    if not visited[key] then
+                        visited[key] = true
+                        queue[#queue + 1] = {
+                            nodeId = edge.toNode,
+                            arrivalHeading = edge.heading,
+                            route = CopyAndAppend(item.route, edge.id),
+                            minGridZ = math.min(item.minGridZ or anchorRow, EdgeMinGridZ(edge)),
+                        }
+                    end
                 end
             end
         end
@@ -222,7 +261,10 @@ local function EstimateRemainingDistance(pathState)
                 distance = distance + M.targetEdgeDist
                 return distance
             else
-                distance = distance + rn.GetEdgeEffectiveLength(rn.edges[edgeId])
+                local edge = rn.GetEdge(edgeId)
+                if edge then
+                    distance = distance + rn.GetEdgeEffectiveLength(edge)
+                end
             end
         end
     end
@@ -257,7 +299,7 @@ function M.Recalculate(pathState, showMessage)
 end
 
 function M.SetTarget(edgeId, edgeDist, pathState)
-    if not rn.edges[edgeId] then
+    if not rn.GetEdge(edgeId) then
         M.ClearTarget()
         return false
     end
@@ -305,13 +347,9 @@ function M.Update(pathState, dt)
     M.distanceRemaining = EstimateRemainingDistance(pathState)
 end
 
--- ============================================================================
--- UI 数据
--- ============================================================================
-
 local function FindNextRouteEdgeFromNode(nodeId)
     for _, edgeId in ipairs(M.routeEdges) do
-        local edge = rn.edges[edgeId]
+        local edge = rn.GetEdge(edgeId)
         if edge and edge.fromNode == nodeId then
             return edge
         end
@@ -328,7 +366,6 @@ local function GetPlayerEdgeSlot(pathState)
     local actualDist = rn.INTERSECTION_HALF_SIZE + effectiveDist
     local progress = Clamp(actualDist / edge.length, 0.0, 1.0)
 
-    -- UI 端按较小 nodeId -> 较大 nodeId 的规范方向预生成进度点。
     if edge.fromNode > edge.toNode then
         progress = 1.0 - progress
     end
@@ -374,7 +411,7 @@ function M.GetMinimapData(pathState)
     local routeSegments = {}
     if M.HasRoute() then
         for _, edgeId in ipairs(M.routeEdges) do
-            local edge = rn.edges[edgeId]
+            local edge = rn.GetEdge(edgeId)
             local key = M.MakeEdgeSlot(edge)
             if key then
                 routeSegments[key] = true
@@ -393,7 +430,7 @@ function M.GetMinimapData(pathState)
 
     local targetSlot = nil
     if M.HasTarget() then
-        targetSlot = M.MakeEdgeSlot(rn.edges[M.targetEdgeId])
+        targetSlot = M.MakeEdgeSlot(rn.GetEdge(M.targetEdgeId))
     end
 
     local message = ""

@@ -24,6 +24,8 @@ local inp = require("input")
 -- ============================================================================
 ---@type Scene
 local scene_ = nil
+local groundNode_ = nil
+local zone_ = nil
 
 -- 游戏状态: "running" / "paused" / "gameOver"
 local gameState_ = "running"
@@ -176,6 +178,24 @@ local function HandleUpdate(eventType, eventData)
 
     -- 计算玩家世界位置（使用 path 模块）
     player.UpdatePosition(jumpY)
+    pools.Update(s)
+    if player.node then
+        local pp = player.node.position
+        if groundNode_ then
+            groundNode_.position = Vector3(pp.x, -0.05, pp.z)
+        end
+        if zone_ then
+            local span = 900.0
+            zone_.boundingBox = BoundingBox(
+                Vector3(pp.x - span, -50, pp.z - span),
+                Vector3(pp.x + span, 120, pp.z + span)
+            )
+        end
+    end
+
+    if not pickup.EnsureDeliveryTargetValid() then
+        pickup.TrySpawnDelivery(player.currentSpeed)
+    end
 
     -- 先生成取件/送件点，障碍物生成时会避让订单点
     pickup.TrySpawnPickup()
@@ -221,6 +241,8 @@ local function HandleUpdate(eventType, eventData)
     local navData = nav.GetMinimapData(s)
     local pickupMiniData = pickup.GetMinimapData()
 
+    ui.UpdateMinimap(navData, pickupMiniData)
+
     -- 更新 HUD
     ui.UpdateHUD(
         pickup.GetOrderTimerData(),
@@ -233,7 +255,6 @@ local function HandleUpdate(eventType, eventData)
         s.availableTurns,
         navData
     )
-    ui.UpdateMinimap(navData, pickupMiniData)
     ui.UpdateCameraDebugReadout()
 
     -- 取件/送件浮动动画
@@ -262,9 +283,7 @@ local function CreateScene()
     scene_ = Scene()
     scene_:CreateComponent("Octree")
 
-    local gridSize = CONFIG.ROAD_GRID_SIZE or 8
-    local maxBlock = (CONFIG.ROAD_BLOCK_BASE or 86.0) + (CONFIG.ROAD_BLOCK_JITTER or 22.0)
-    local span = math.max(600.0, (gridSize - 1) * maxBlock + 320.0)
+    local span = 900.0
     local centerX = 0.0
     local centerZ = 0.0
     local groundSizeX = span
@@ -283,23 +302,23 @@ local function CreateScene()
     light.shadowCascade = CascadeParameters(15.0, 30.0, 60.0, 120.0, 0.8)
 
     -- 环境光 / 雾效
-    local zone = scene_:CreateComponent("Zone")
-    zone.boundingBox = BoundingBox(
+    zone_ = scene_:CreateComponent("Zone")
+    zone_.boundingBox = BoundingBox(
         Vector3(centerX - zoneHalfX, -50, centerZ - zoneHalfZ),
         Vector3(centerX + zoneHalfX, 120, centerZ + zoneHalfZ)
     )
-    zone.ambientColor = Color(0.55, 0.6, 0.7)
-    zone.fogColor = Color(0.75, 0.85, 0.95)
-    zone.fogStart = 100.0
-    zone.fogEnd = 220.0
+    zone_.ambientColor = Color(0.55, 0.6, 0.7)
+    zone_.fogColor = Color(0.75, 0.85, 0.95)
+    zone_.fogStart = 100.0
+    zone_.fogEnd = 220.0
 
-    -- 地面（大平面，覆盖整个路网区域）
-    local groundNode = scene_:CreateChild("Ground")
-    local gm = groundNode:CreateComponent("StaticModel")
+    -- 地面跟随玩家，避免跑出有限地面边界。
+    groundNode_ = scene_:CreateChild("Ground")
+    local gm = groundNode_:CreateComponent("StaticModel")
     gm.model = cache:GetResource("Model", "Models/Box.mdl")
     gm.material = mats.CreatePBRMaterial(Color(0.35, 0.55, 0.3, 1.0), 0.0, 0.9)
-    groundNode.scale = Vector3(groundSizeX, 0.1, groundSizeZ)
-    groundNode.position = Vector3(centerX, -0.05, centerZ)
+    groundNode_.scale = Vector3(groundSizeX, 0.1, groundSizeZ)
+    groundNode_.position = Vector3(centerX, -0.05, centerZ)
 end
 
 -- ============================================================================
@@ -323,7 +342,7 @@ function CreateGameContent()
     -- 初始化材质
     mats.Init()
 
-    -- 创建道路视觉（基于路网一次性铺设所有道路）
+    -- 创建玩家周围可见窗口内的道路视觉
     pools.Init(scene_)
 
     -- 初始化障碍物池
@@ -356,14 +375,13 @@ function CreateGameContent()
     SubscribeToEvent("TouchEnd", HandleTouchEnd)
 
     print("[Game] ==============================")
-    print("[Game] 外卖冲冲冲 - RoadGraph 路网版启动!")
+    print("[Game] 外卖冲冲冲 - RoadGraph 流式路网版启动!")
     print("[Game] ==============================")
     print("[Game] 操作: ← → 变道/转弯 | ↑/空格 跳跃 | ↓ 下滑")
     print("[Game] 路口出现时：←/→ 选择转弯方向，↑ 直走")
-    print("[Game] 路网规模: " .. rn.GRID_SIZE .. "x" .. rn.GRID_SIZE ..
+    print("[Game] 路网窗口: " .. rn.GRID_SIZE .. "x" .. (CONFIG.ROAD_RENDER_WINDOW_SIZE or 5) ..
         " seed " .. rn.currentSeed ..
-        " reachable " .. string.format("%.0f%%", rn.reachableRatio * 100) ..
-        " edges " .. #rn.edges)
+        " edges " .. rn.edgeCount)
 end
 
 
