@@ -299,8 +299,7 @@ local function CreateScene()
     light.lightType = LIGHT_DIRECTIONAL
     light.color = Color(1.0, 0.95, 0.9)
     light.brightness = 1.2
-    light.castShadows = true
-    light.shadowCascade = CascadeParameters(15.0, 30.0, 60.0, 120.0, 0.8)
+    light.castShadows = false
 
     -- 环境光 / 雾效
     zone_ = scene_:CreateComponent("Zone")

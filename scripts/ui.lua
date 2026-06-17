@@ -44,6 +44,12 @@ M.minimapPickupMarkers = {}
 M.onRestart = nil
 M.onTogglePause = nil
 M.minimapVersion = -1
+M.rootPanel = nil
+M.activePickupSlot = nil
+M.activePlayerSlot = nil
+M.activeTargetSlot = nil
+M.activeRouteSegments = {}
+M.lastRouteSegments = {}
 
 local MINI_PANEL_W = 132
 local MINI_PANEL_H = 154
@@ -157,6 +163,39 @@ local function AddMiniPlayerProgressMarkers(children, key, edge)
         local y = y1 + (y2 - y1) * t
         AddMiniMarker(children, "mini_player_p" .. key .. "_" .. step, x, y, 8, "#8A5CFF", 4)
     end
+end
+
+local function BindMinimapRefs(root)
+    M.minimapRouteSegments = {}
+    M.minimapPlayerMarkers = {}
+    M.minimapTargetMarkers = {}
+    M.minimapPickupMarkers = {}
+    M.activePickupSlot = nil
+    M.activePlayerSlot = nil
+    M.activeTargetSlot = nil
+    M.activeRouteSegments = {}
+    M.lastRouteSegments = {}
+
+    rn.ForEachVisibleEdge(function(edge)
+        if edge then
+            local key = nav.MakeEdgeSlot(edge)
+            if key and not M.minimapRouteSegments[key] then
+                M.minimapRouteSegments[key] = root:FindById("mini_route_" .. key)
+                M.minimapTargetMarkers[key] = root:FindById("mini_target_" .. key)
+                M.minimapPickupMarkers[key] = root:FindById("mini_pickup_" .. key)
+                for step = 0, nav.MINIMAP_PLAYER_EDGE_STEPS do
+                    local playerKey = "p" .. key .. "_" .. step
+                    M.minimapPlayerMarkers[playerKey] = root:FindById("mini_player_" .. playerKey)
+                end
+            end
+        end
+    end)
+
+    rn.ForEachVisibleNode(function(node)
+        local key = nav.MakeNodeSlot(node.id)
+        M.minimapPlayerMarkers[key] = root:FindById("mini_player_" .. key)
+        M.minimapTargetMarkers[key] = root:FindById("mini_target_" .. key)
+    end)
 end
 
 local function BuildMinimap()
@@ -659,6 +698,7 @@ function M.Create(onRestart, onTogglePause)
             M.gameOverPanel,
         },
     }
+    M.rootPanel = root
     UI.SetRoot(root)
 
     M.lblTimerNormal = root:FindById("timerNormal")
@@ -687,25 +727,7 @@ function M.Create(onRestart, onTogglePause)
     M.minimapPlayerMarkers = {}
     M.minimapTargetMarkers = {}
     M.minimapPickupMarkers = {}
-    rn.ForEachVisibleEdge(function(edge)
-        if edge then
-            local key = nav.MakeEdgeSlot(edge)
-            if key and not M.minimapRouteSegments[key] then
-                M.minimapRouteSegments[key] = root:FindById("mini_route_" .. key)
-                M.minimapTargetMarkers[key] = root:FindById("mini_target_" .. key)
-                M.minimapPickupMarkers[key] = root:FindById("mini_pickup_" .. key)
-                for step = 0, nav.MINIMAP_PLAYER_EDGE_STEPS do
-                    local playerKey = "p" .. key .. "_" .. step
-                    M.minimapPlayerMarkers[playerKey] = root:FindById("mini_player_" .. playerKey)
-                end
-            end
-        end
-    end)
-    rn.ForEachVisibleNode(function(node)
-        local key = nav.MakeNodeSlot(node.id)
-        M.minimapPlayerMarkers[key] = root:FindById("mini_player_" .. key)
-        M.minimapTargetMarkers[key] = root:FindById("mini_target_" .. key)
-    end)
+    BindMinimapRefs(root)
 
     M.minimapVersion = rn.visibleVersion
     if M.lblMiniStatus then
@@ -713,6 +735,21 @@ function M.Create(onRestart, onTogglePause)
     end
     M.SetOrderTimerDisplay(nil)
     RefreshDebugPanel()
+end
+
+function M.RebuildMinimap()
+    if not M.rootPanel then return end
+
+    if M.minimapPanel then
+        M.rootPanel:RemoveChild(M.minimapPanel)
+        M.minimapPanel:Remove()
+    end
+
+    M.minimapPanel = BuildMinimap()
+    M.rootPanel:AddChild(M.minimapPanel)
+    BindMinimapRefs(M.rootPanel)
+    M.lblMiniStatus = M.rootPanel:FindById("miniStatus")
+    M.minimapVersion = rn.visibleVersion
 end
 
 local function BuildAvailableTurnsText(availableTurns)
@@ -837,17 +874,36 @@ function M.HideGameOver()
     end
 end
 
-local function SetOnlyVisible(markers, activeKey)
-    for key, marker in pairs(markers or {}) do
-        if marker then
-            marker:SetVisible(activeKey ~= nil and key == activeKey)
+local function SetOnlyVisible(markers, currentKey, previousKey)
+    if previousKey == currentKey then return currentKey end
+    if previousKey and markers and markers[previousKey] then
+        markers[previousKey]:SetVisible(false)
+    end
+    if currentKey and markers and markers[currentKey] then
+        markers[currentKey]:SetVisible(true)
+    end
+    return currentKey
+end
+
+local function SetRouteSegmentsVisible(activeKeys)
+    activeKeys = activeKeys or {}
+    for key in pairs(M.activeRouteSegments) do
+        if not activeKeys[key] and M.minimapRouteSegments[key] then
+            M.minimapRouteSegments[key]:SetVisible(false)
         end
     end
+    for key in pairs(activeKeys) do
+        local segment = M.minimapRouteSegments[key]
+        if segment and not M.activeRouteSegments[key] then
+            segment:SetVisible(true)
+        end
+    end
+    M.activeRouteSegments = activeKeys
 end
 
 function M.UpdateMinimap(navData, pickupMiniData)
     if M.minimapVersion ~= rn.visibleVersion and M.onRestart then
-        M.Create(M.onRestart, M.onTogglePause)
+        M.RebuildMinimap()
     end
 
     if M.lblMiniStatus then
@@ -858,16 +914,14 @@ function M.UpdateMinimap(navData, pickupMiniData)
         end
     end
 
-    local routeSegments = navData and navData.routeSegments or {}
-    for key, segment in pairs(M.minimapRouteSegments or {}) do
-        if segment then
-            segment:SetVisible(navData ~= nil and navData.active and routeSegments[key] == true)
-        end
+    local routeSegments = navData and navData.active and navData.routeSegments or {}
+    if routeSegments ~= M.lastRouteSegments then
+        SetRouteSegmentsVisible(routeSegments)
+        M.lastRouteSegments = routeSegments
     end
-
-    SetOnlyVisible(M.minimapPickupMarkers, pickupMiniData and pickupMiniData.active and pickupMiniData.slot or nil)
-    SetOnlyVisible(M.minimapPlayerMarkers, navData and navData.playerSlot or nil)
-    SetOnlyVisible(M.minimapTargetMarkers, navData and navData.active and navData.targetSlot or nil)
+    M.activePickupSlot = SetOnlyVisible(M.minimapPickupMarkers, pickupMiniData and pickupMiniData.active and pickupMiniData.slot or nil, M.activePickupSlot)
+    M.activePlayerSlot = SetOnlyVisible(M.minimapPlayerMarkers, navData and navData.playerSlot or nil, M.activePlayerSlot)
+    M.activeTargetSlot = SetOnlyVisible(M.minimapTargetMarkers, navData and navData.active and navData.targetSlot or nil, M.activeTargetSlot)
 end
 
 function M.ToggleDebugPanel()

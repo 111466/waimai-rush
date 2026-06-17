@@ -15,7 +15,7 @@ M.distanceRemaining = 0.0
 M.replanMessageTimer = 0.0
 M.replanMessage = ""
 M.routeUnreachable = false
-M.MINIMAP_PLAYER_EDGE_STEPS = 16
+M.MINIMAP_PLAYER_EDGE_STEPS = 4
 
 local REPLAN_MESSAGE_TIME = 1.4
 
