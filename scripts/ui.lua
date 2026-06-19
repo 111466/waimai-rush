@@ -32,6 +32,17 @@ M.btnPowerup = nil
 M.lblPowerupStatus = nil
 M.hudPanel = nil
 M.mainMenuPanel = nil
+M.menuCloudOne = nil
+M.menuCloudTwo = nil
+M.menuLaneStrip = nil
+M.menuSpeedLineA = nil
+M.menuSpeedLineB = nil
+M.menuSpeedLineC = nil
+M.menuCoinIcon = nil
+M.menuRiderShadow = nil
+M.menuRiderPanel = nil
+M.menuStartButton = nil
+M.menuXpFill = nil
 M.pauseOverlayPanel = nil
 M.staticPagePanel = nil
 M.lblStaticPageTitle = nil
@@ -109,6 +120,58 @@ local DEBUG_STEP_SMALL = 0.25
 local DEBUG_STEP_BIG = 1.0
 local DEBUG_STEP_ANGLE = 2.5
 local DEBUG_STEP_PITCH = 0.25
+
+local function Pct(value)
+    return string.format("%.3f%%", value)
+end
+
+local function X(value)
+    return Pct(value / 390 * 100)
+end
+
+local function Y(value)
+    return Pct(value / 844 * 100)
+end
+
+local function W(value)
+    return Pct(value / 390 * 100)
+end
+
+local function H(value)
+    return Pct(value / 844 * 100)
+end
+
+local function MakeImagePanel(id, image, left, top, width, height, fit)
+    return UI.Panel {
+        id = id,
+        position = "absolute",
+        left = X(left),
+        top = Y(top),
+        width = W(width),
+        height = H(height),
+        backgroundImage = image,
+        backgroundFit = fit or "fill",
+    }
+end
+
+local function SetNodeStyle(node, style)
+    if node and node.SetStyle then
+        node:SetStyle(style)
+    end
+end
+
+local function MakeLocalImagePanel(id, image, left, top, width, height, fit)
+    return UI.Panel {
+        id = id,
+        position = "absolute",
+        left = left,
+        top = top,
+        width = width,
+        height = height,
+        backgroundImage = image,
+        backgroundFit = fit or "fill",
+    }
+end
 
 local function FormatSigned(value)
     if value >= 0 then
@@ -1135,20 +1198,172 @@ local function BuildDebugPanel()
 end
 
 local function BuildMainMenu()
-    local function MakeMenuHotspot(left, top, width, height, onClick)
+    local function MakeMenuImageButton(id, text, image, pressedImage, left, top, width, height, onClick)
         return UI.Button {
-            text = "",
+            id = id,
+            text = text or "",
             position = "absolute",
-            left = left,
-            top = top,
-            width = width,
-            height = height,
+            left = X(left),
+            top = Y(top),
+            width = W(width),
+            height = H(height),
+            backgroundImage = image,
+            pressedBackgroundImage = pressedImage,
+            backgroundFit = "fill",
             backgroundColor = {0,0,0,0},
             borderWidth = 0,
             borderRadius = 0,
+            fontSize = 30,
+            fontWeight = "bold",
+            fontColor = {255,255,255,255},
+            textAlign = "center",
             onClick = onClick,
         }
     end
+
+    local function MakeTextLabel(id, text, left, top, width, height, fontSize, fontColor, align)
+        return UI.Label {
+            id = id,
+            text = text,
+            position = "absolute",
+            left = X(left),
+            top = Y(top),
+            width = W(width),
+            height = H(height),
+            fontSize = fontSize,
+            fontWeight = "bold",
+            fontColor = fontColor,
+            textAlign = align or "center",
+        }
+    end
+
+    local function MakeDockEntry(x, iconImage, mark, label, onClick)
+        return UI.Panel {
+            position = "absolute",
+            left = X(x),
+            top = Y(725),
+            width = W(80),
+            height = H(78),
+            backgroundImage = "Textures/home_dock_button.png",
+            backgroundFit = "fill",
+            children = {
+                MakeLocalImagePanel(nil, iconImage, "31.250%", "15.385%", "37.500%", "38.462%"),
+                UI.Label {
+                    text = mark,
+                    position = "absolute",
+                    left = "31.250%",
+                    top = "16.667%",
+                    width = "37.500%",
+                    height = "23.077%",
+                    fontSize = 14,
+                    fontWeight = "bold",
+                    fontColor = {255,255,255,255},
+                    textAlign = "center",
+                },
+                UI.Label {
+                    text = label,
+                    position = "absolute",
+                    left = 0,
+                    top = "61.538%",
+                    width = "100%",
+                    height = "23.077%",
+                    fontSize = 13,
+                    fontWeight = "bold",
+                    fontColor = {99,51,5,255},
+                    textAlign = "center",
+                },
+                UI.Button {
+                    text = "",
+                    position = "absolute",
+                    left = 0,
+                    top = 0,
+                    width = "100%",
+                    height = "100%",
+                    backgroundColor = {0,0,0,0},
+                    borderWidth = 0,
+                    borderRadius = 0,
+                    onClick = onClick,
+                },
+            },
+        }
+    end
+
+    local function MakeRoundEntry(id, image, label, left, top, onClick)
+        return UI.Panel {
+            id = id,
+            position = "absolute",
+            left = X(left),
+            top = Y(top),
+            width = W(64),
+            height = H(66),
+            backgroundImage = image,
+            backgroundFit = "fill",
+            children = {
+                UI.Label {
+                    text = label,
+                    position = "absolute",
+                    left = 0,
+                    top = "24.242%",
+                    width = "100%",
+                    height = "33.333%",
+                    fontSize = 15,
+                    fontWeight = "bold",
+                    fontColor = {255,255,255,255},
+                    textAlign = "center",
+                },
+                UI.Button {
+                    text = "",
+                    position = "absolute",
+                    left = 0,
+                    top = 0,
+                    width = "100%",
+                    height = "100%",
+                    backgroundColor = {0,0,0,0},
+                    borderWidth = 0,
+                    borderRadius = 0,
+                    onClick = onClick,
+                },
+            },
+        }
+    end
+
+    local cloudOne = MakeImagePanel("menuCloudOne", "Textures/home_cloud_one.png", 24, 62, 104, 48)
+    local cloudTwo = MakeImagePanel("menuCloudTwo", "Textures/home_cloud_two.png", 236, 110, 122, 58)
+    local laneStrip = MakeImagePanel("menuLaneStrip", "Textures/home_lane_strip.png", 189, 236, 12, 530)
+    local speedLineA = MakeImagePanel("menuSpeedLineA", "Textures/home_speed_line_a.png", 28, 318, 96, 23)
+    local speedLineB = MakeImagePanel("menuSpeedLineB", "Textures/home_speed_line_b.png", 296, 384, 96, 23)
+    local speedLineC = MakeImagePanel("menuSpeedLineC", "Textures/home_speed_line_c.png", 64, 466, 66, 23)
+    local riderShadow = MakeImagePanel("menuRiderShadow", "Textures/home_rider_shadow.png", 121, 510, 148, 44)
+    local riderPanel = MakeImagePanel("menuRiderImage", "Textures/home_rider.png", 101, 314, 188, 188)
+    local startButton = MakeMenuImageButton(
+        "menuStartButton",
+        "接单开冲",
+        "Textures/home_start_button_base.png",
+        "Textures/home_start_button_base_pressed.png",
+        22,
+        630,
+        346,
+        84,
+        function()
+            if M.onStartGame then
+                M.onStartGame()
+            end
+        end
+    )
+    local xpFill = MakeImagePanel("menuXpFill", "Textures/home_xp_fill.png", 27, 56, 48, 8)
+    local coinIcon = MakeImagePanel("menuCoinIcon", "Textures/home_coin_icon.png", 282, 14, 26, 26)
+
+    M.menuCloudOne = cloudOne
+    M.menuCloudTwo = cloudTwo
+    M.menuLaneStrip = laneStrip
+    M.menuSpeedLineA = speedLineA
+    M.menuSpeedLineB = speedLineB
+    M.menuSpeedLineC = speedLineC
+    M.menuCoinIcon = coinIcon
+    M.menuRiderShadow = riderShadow
+    M.menuRiderPanel = riderPanel
+    M.menuStartButton = startButton
+    M.menuXpFill = xpFill
 
     return UI.Panel {
         id = "mainMenuPanel",
@@ -1162,66 +1377,172 @@ local function BuildMainMenu()
                 top = 0,
                 right = 0,
                 bottom = 0,
-                backgroundImage = "Textures/home_bg.png",
-                backgroundFit = "cover",
+                backgroundImage = "Textures/home_scene_bg_static.png",
+                backgroundFit = "fill",
             },
-            UI.Panel {
-                position = "absolute",
-                left = 28,
-                top = 28,
-                width = 170,
-                height = 70,
-                padding = 0,
-                children = {
-                    UI.Label {
-                        id = "menuRiderLevel",
-                        text = "Lv.1 新手骑手",
-                        fontSize = 15,
-                        fontWeight = "bold",
-                        fontColor = {255,255,255,255},
-                    },
-                    UI.Label {
-                        id = "menuBest",
-                        text = "最高 0 单 / 连击 0",
-                        fontSize = 11,
-                        fontWeight = "bold",
-                        fontColor = {190,220,230,255},
-                        marginTop = 4,
-                    },
-                },
-            },
-            UI.Panel {
-                position = "absolute",
-                right = 32,
-                top = 34,
-                width = 60,
-                height = 42,
-                justifyContent = "center",
-                alignItems = "center",
-                children = {
-                    UI.Label {
-                        id = "menuCoins",
-                        text = "0",
-                        fontSize = 25,
-                        fontWeight = "bold",
-                        fontColor = {255,255,255,255},
-                    },
-                },
-            },
-            MakeMenuHotspot(28, 632, 337, 84, function()
-                if M.onStartGame then
-                    M.onStartGame()
-                end
-            end),
-            MakeMenuHotspot(304, 260, 70, 70, function() M.ShowStaticPage("tasks", "menu") end),
-            MakeMenuHotspot(304, 337, 70, 70, function() M.ShowStaticPage("achievements", "menu") end),
-            MakeMenuHotspot(304, 414, 70, 70, function() M.ShowStaticPage("settings", "menu") end),
-            MakeMenuHotspot(28, 724, 76, 82, function() M.ShowStaticPage("rider", "menu") end),
-            MakeMenuHotspot(112, 724, 76, 82, function() M.ShowStaticPage("upgrades", "menu") end),
-            MakeMenuHotspot(198, 724, 76, 82, function() M.ShowStaticPage("tasks", "menu") end),
-            MakeMenuHotspot(284, 724, 76, 82, function() M.ShowStaticPage("upgrades", "menu") end),
+            cloudOne,
+            cloudTwo,
+            laneStrip,
+            speedLineA,
+            speedLineB,
+            speedLineC,
+            riderShadow,
+            MakeImagePanel(nil, "Textures/home_bottom_fade.png", 0, 622, 390, 222),
+            MakeImagePanel(nil, "Textures/home_level_badge.png", 7, 8, 166, 72),
+            MakeTextLabel("menuRiderLevel", "Lv.1 新手骑手", 26, 20, 132, 19, 15, {255,255,255,255}, "left"),
+            MakeTextLabel("menuBest", "最高 0 单 / 连击 0", 26, 42, 132, 15, 11, {183,231,255,255}, "left"),
+            MakeImagePanel(nil, "Textures/home_xp_track.png", 27, 56, 132, 8),
+            xpFill,
+            MakeImagePanel(nil, "Textures/home_coin_badge_base.png", 258, 0, 114, 58),
+            coinIcon,
+            MakeTextLabel("menuCoins", "0", 322, 14, 36, 30, 22, {255,255,255,255}, "left"),
+            MakeImagePanel(nil, "Textures/home_title.png", 70, 96, 250, 138),
+            MakeImagePanel(nil, "Textures/home_subtitle_badge.png", 111, 220, 168, 34),
+            MakeTextLabel(nil, "接单上路，准时送达", 123, 226, 144, 17, 13, {92,43,0,255}, "center"),
+            MakeImagePanel(nil, "Textures/home_order_sign.png", 0, 250, 159, 146),
+            MakeTextLabel(nil, "+¥30", 37, 282, 64, 22, 18, {160,50,0,255}, "center"),
+            MakeTextLabel(nil, "准时送达", 45, 304, 48, 14, 11, {92,43,0,255}, "center"),
+            MakeTextLabel(nil, "2 单", 51, 318, 36, 14, 11, {92,43,0,255}, "center"),
+            MakeRoundEntry("menuTaskButton", "Textures/home_round_blue.png", "任务", 303, 272, function() M.ShowStaticPage("tasks", "menu") end),
+            MakeRoundEntry("menuAchievementButton", "Textures/home_round_green.png", "成就", 303, 350, function() M.ShowStaticPage("achievements", "menu") end),
+            MakeRoundEntry("menuSettingsButton", "Textures/home_round_red.png", "设置", 303, 428, function() M.ShowStaticPage("settings", "menu") end),
+            riderPanel,
+            startButton,
+            MakeDockEntry(17, "Textures/home_dock_icon_orange.png", "骑", "骑手", function() M.ShowStaticPage("rider", "menu") end),
+            MakeDockEntry(105, "Textures/home_dock_icon_blue.png", "升", "升级", function() M.ShowStaticPage("upgrades", "menu") end),
+            MakeDockEntry(193, "Textures/home_dock_icon_green.png", "单", "订单", function() M.ShowStaticPage("tasks", "menu") end),
+            MakeDockEntry(281, "Textures/home_dock_icon_gray.png", "包", "背包", function() M.ShowStaticPage("upgrades", "menu") end),
         },
     }
+end
+
+local function StopNodeAnimation(node)
+    if node and node.StopAnimation then
+        node:StopAnimation()
+    end
+end
+
+local function PlayNodeAnimation(node, spec)
+    if not node or not node.Animate then
+        return
+    end
+    StopNodeAnimation(node)
+    node:Animate(spec)
+end
+
+local function StopHomeAnimations()
+    StopNodeAnimation(M.menuCloudOne)
+    StopNodeAnimation(M.menuCloudTwo)
+    StopNodeAnimation(M.menuLaneStrip)
+    StopNodeAnimation(M.menuSpeedLineA)
+    StopNodeAnimation(M.menuSpeedLineB)
+    StopNodeAnimation(M.menuSpeedLineC)
+    StopNodeAnimation(M.menuCoinIcon)
+    StopNodeAnimation(M.menuRiderShadow)
+    StopNodeAnimation(M.menuRiderPanel)
+    StopNodeAnimation(M.menuStartButton)
+end
+
+local function StartHomeAnimations()
+    PlayNodeAnimation(M.menuCloudOne, {
+        keyframes = {
+            [0] = { translateX = 0 },
+            [0.5] = { translateX = 20 },
+            [1] = { translateX = 0 },
+        },
+        duration = 9.0,
+        easing = "easeInOut",
+        loop = true,
+    })
+    PlayNodeAnimation(M.menuCloudTwo, {
+        keyframes = {
+            [0] = { translateX = 12 },
+            [0.5] = { translateX = -8 },
+            [1] = { translateX = 12 },
+        },
+        duration = 9.0,
+        easing = "easeInOut",
+        loop = true,
+    })
+    PlayNodeAnimation(M.menuLaneStrip, {
+        keyframes = {
+            [0] = { translateY = 0 },
+            [1] = { translateY = 58 },
+        },
+        duration = 0.9,
+        easing = "linear",
+        loop = true,
+    })
+    PlayNodeAnimation(M.menuSpeedLineA, {
+        keyframes = {
+            [0] = { opacity = 0.18, translateY = 0 },
+            [0.5] = { opacity = 0.8, translateY = 12 },
+            [1] = { opacity = 0.18, translateY = 0 },
+        },
+        duration = 1.2,
+        easing = "easeInOut",
+        loop = true,
+    })
+    PlayNodeAnimation(M.menuSpeedLineB, {
+        keyframes = {
+            [0] = { opacity = 0.44, translateY = 8 },
+            [0.5] = { opacity = 0.18, translateY = 0 },
+            [1] = { opacity = 0.44, translateY = 8 },
+        },
+        duration = 1.2,
+        easing = "easeInOut",
+        loop = true,
+    })
+    PlayNodeAnimation(M.menuSpeedLineC, {
+        keyframes = {
+            [0] = { opacity = 0.7, translateY = 10 },
+            [0.5] = { opacity = 0.18, translateY = 0 },
+            [1] = { opacity = 0.7, translateY = 10 },
+        },
+        duration = 1.2,
+        easing = "easeInOut",
+        loop = true,
+    })
+    PlayNodeAnimation(M.menuCoinIcon, {
+        keyframes = {
+            [0] = { scale = 1.0, rotate = 0 },
+            [0.5] = { scale = 1.12, rotate = 9 },
+            [1] = { scale = 1.0, rotate = 0 },
+        },
+        duration = 1.7,
+        easing = "easeInOut",
+        loop = true,
+    })
+    PlayNodeAnimation(M.menuRiderPanel, {
+        keyframes = {
+            [0] = { translateY = 0, rotate = -1 },
+            [0.5] = { translateY = -8, rotate = 1.5 },
+            [1] = { translateY = 0, rotate = -1 },
+        },
+        duration = 1.25,
+        easing = "easeInOut",
+        loop = true,
+    })
+    PlayNodeAnimation(M.menuRiderShadow, {
+        keyframes = {
+            [0] = { opacity = 0.28, scale = 1.0 },
+            [0.5] = { opacity = 0.18, scale = 0.88 },
+            [1] = { opacity = 0.28, scale = 1.0 },
+        },
+        duration = 1.25,
+        easing = "easeInOut",
+        loop = true,
+    })
+    PlayNodeAnimation(M.menuStartButton, {
+        keyframes = {
+            [0] = { translateY = 0, scale = 1.0 },
+            [0.5] = { translateY = -2, scale = 1.02 },
+            [1] = { translateY = 0, scale = 1.0 },
+        },
+        duration = 1.45,
+        easing = "easeInOut",
+        loop = true,
+    })
 end
 
 local function BuildPauseOverlay()
@@ -1649,6 +1970,17 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu, onUsePowe
     M.lblMenuRiderLevel = root:FindById("menuRiderLevel")
     M.lblMenuCoins = root:FindById("menuCoins")
     M.lblMenuBest = root:FindById("menuBest")
+    M.menuCloudOne = root:FindById("menuCloudOne") or M.menuCloudOne
+    M.menuCloudTwo = root:FindById("menuCloudTwo") or M.menuCloudTwo
+    M.menuLaneStrip = root:FindById("menuLaneStrip") or M.menuLaneStrip
+    M.menuSpeedLineA = root:FindById("menuSpeedLineA") or M.menuSpeedLineA
+    M.menuSpeedLineB = root:FindById("menuSpeedLineB") or M.menuSpeedLineB
+    M.menuSpeedLineC = root:FindById("menuSpeedLineC") or M.menuSpeedLineC
+    M.menuCoinIcon = root:FindById("menuCoinIcon") or M.menuCoinIcon
+    M.menuRiderShadow = root:FindById("menuRiderShadow") or M.menuRiderShadow
+    M.menuRiderPanel = root:FindById("menuRiderImage") or M.menuRiderPanel
+    M.menuStartButton = root:FindById("menuStartButton") or M.menuStartButton
+    M.menuXpFill = root:FindById("menuXpFill") or M.menuXpFill
     M.powerupPanel = root:FindById("powerupPanel")
     M.btnPowerup = root:FindById("powerupButton")
     M.lblPowerupStatus = root:FindById("powerupStatus")
@@ -1740,7 +2072,10 @@ local function SetGameplayUIVisible(visible)
 end
 
 local function HideTopLevelPanels()
-    if M.mainMenuPanel then M.mainMenuPanel:SetVisible(false) end
+    if M.mainMenuPanel then
+        M.mainMenuPanel:SetVisible(false)
+        StopHomeAnimations()
+    end
     if M.pauseOverlayPanel then M.pauseOverlayPanel:SetVisible(false) end
     if M.staticPagePanel then M.staticPagePanel:SetVisible(false) end
     if M.gameOverPanel then M.gameOverPanel:SetVisible(false) end
@@ -1750,6 +2085,9 @@ function M.ShowMainMenu()
     SetGameplayUIVisible(false)
     HideTopLevelPanels()
     local summary = meta.GetSummary()
+    local progressData = progression.GetHUDData and progression.GetHUDData() or nil
+    local xpProgress = (progressData and progressData.progress) or 1.0
+    xpProgress = math.max(0.0, math.min(1.0, xpProgress))
     if M.lblMenuRiderLevel then
         M.lblMenuRiderLevel:SetText("Lv." .. tostring(summary.riderLevel or 1) .. " " .. (summary.riderTitle or "骑手"))
     end
@@ -1759,10 +2097,17 @@ function M.ShowMainMenu()
     if M.lblMenuBest then
         M.lblMenuBest:SetText("最高 " .. tostring(summary.bestDeliveries or 0) .. " 单 / 连击 " .. tostring(summary.bestCombo or 0))
     end
-    if M.mainMenuPanel then M.mainMenuPanel:SetVisible(true) end
+    SetNodeStyle(M.menuXpFill, {
+        width = W(math.max(2, 132 * xpProgress)),
+    })
+    if M.mainMenuPanel then
+        M.mainMenuPanel:SetVisible(true)
+        StartHomeAnimations()
+    end
 end
 
 function M.ShowGameplay()
+    StopHomeAnimations()
     HideTopLevelPanels()
     SetGameplayUIVisible(true)
 end
@@ -1788,7 +2133,10 @@ function M.ShowStaticPage(key, backMode)
     end
 
     M.staticBackMode = backMode or "menu"
-    if M.mainMenuPanel then M.mainMenuPanel:SetVisible(false) end
+    if M.mainMenuPanel then
+        M.mainMenuPanel:SetVisible(false)
+        StopHomeAnimations()
+    end
     if M.pauseOverlayPanel then M.pauseOverlayPanel:SetVisible(false) end
     if M.gameOverPanel then M.gameOverPanel:SetVisible(false) end
     SetGameplayUIVisible(false)
@@ -1985,7 +2333,10 @@ end
 function M.ShowGameOver(result)
     result = result or {}
     SetGameplayUIVisible(false)
-    if M.mainMenuPanel then M.mainMenuPanel:SetVisible(false) end
+    if M.mainMenuPanel then
+        M.mainMenuPanel:SetVisible(false)
+        StopHomeAnimations()
+    end
     if M.pauseOverlayPanel then M.pauseOverlayPanel:SetVisible(false) end
     if M.staticPagePanel then M.staticPagePanel:SetVisible(false) end
     if M.gameOverPanel then
