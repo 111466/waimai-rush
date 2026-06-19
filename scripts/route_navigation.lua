@@ -414,6 +414,7 @@ local function GetPlayerMinimapPoint(pathState, playerLaneOffset)
             x = pos.x,
             z = pos.z,
             nodeId = pathState.intersectionNodeId,
+            heading = pathState.intersectionExitHeading,
         }
     end
 
@@ -422,6 +423,7 @@ local function GetPlayerMinimapPoint(pathState, playerLaneOffset)
         if point then
             point.edgeId = pathState.currentEdge.id
             point.edgeDist = pathState.edgeDistance or 0.0
+            point.heading = pathState.currentHeading or pathState.currentEdge.heading
         end
         return point
     end

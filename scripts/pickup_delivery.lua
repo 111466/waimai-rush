@@ -32,8 +32,8 @@ local ORDER_TYPES = {
         timeFactor = CONFIG.ORDER_TIME_ROUTE_FACTOR,
         timeExtra = CONFIG.ORDER_TIME_EXTRA_SECONDS,
         latePenaltyMultiplier = 1.0,
-        color = "#FF5AA5",
-        labelColor = {255, 112, 178, 255},
+        color = "#2DD4BF",
+        labelColor = {45, 212, 191, 255},
     },
     {
         id = "rush",
@@ -46,8 +46,8 @@ local ORDER_TYPES = {
         timeFactor = 1.05,
         timeExtra = 2.0,
         latePenaltyMultiplier = 1.8,
-        color = "#FF4D4D",
-        labelColor = {255, 92, 92, 255},
+        color = "#FF8C2A",
+        labelColor = {255, 140, 42, 255},
     },
     {
         id = "long",
@@ -60,8 +60,8 @@ local ORDER_TYPES = {
         timeFactor = 1.45,
         timeExtra = 6.0,
         latePenaltyMultiplier = 1.0,
-        color = "#FFD34D",
-        labelColor = {255, 211, 77, 255},
+        color = "#F6D743",
+        labelColor = {246, 215, 67, 255},
     },
     {
         id = "nearby",
@@ -74,8 +74,8 @@ local ORDER_TYPES = {
         timeFactor = CONFIG.ORDER_TIME_ROUTE_FACTOR,
         timeExtra = CONFIG.ORDER_TIME_EXTRA_SECONDS,
         latePenaltyMultiplier = 0.8,
-        color = "#2EE66B",
-        labelColor = {46, 230, 107, 255},
+        color = "#4ADE80",
+        labelColor = {74, 222, 128, 255},
     },
     {
         id = "fragile",
@@ -89,8 +89,8 @@ local ORDER_TYPES = {
         timeExtra = 4.0,
         latePenaltyMultiplier = 1.2,
         fragile = true,
-        color = "#4DA3FF",
-        labelColor = {77, 163, 255, 255},
+        color = "#60A5FA",
+        labelColor = {96, 165, 250, 255},
     },
 }
 

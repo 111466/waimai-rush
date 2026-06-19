@@ -107,13 +107,23 @@
 
     .player {
       position: absolute;
-      width: 10px;
-      height: 10px;
-      border-radius: 4px;
-      background: #8a5cff;
-      box-shadow: 0 0 0 2px rgba(255,255,255,0.65), 0 0 10px rgba(138, 92, 255, 0.7);
-      transform: translate(-50%, -50%) rotate(45deg);
+      width: 0;
+      height: 0;
+      border-left: 7px solid transparent;
+      border-right: 7px solid transparent;
+      border-bottom: 15px solid #ff2f2f;
+      filter: drop-shadow(0 0 2px rgba(255,255,255,0.95)) drop-shadow(0 0 9px rgba(255, 47, 47, 0.75));
+      transform: translate(-50%, -50%);
+      transform-origin: 50% 60%;
       z-index: 8;
+    }
+
+    .player.east {
+      transform: translate(-50%, -50%) rotate(90deg);
+    }
+
+    .player.south {
+      transform: translate(-50%, -50%) rotate(180deg);
     }
 
     .target {
@@ -156,37 +166,12 @@
 
     .order.rush {
       background: rgba(255,255,255,0.86);
-      box-shadow: 0 0 0 2px rgba(255, 77, 77, 0.35), 0 0 12px rgba(255, 77, 77, 0.55);
-    }
-
-    .order.long {
-      border-radius: 3px;
-    }
-
-    .order.fragile {
-      border-radius: 3px;
-      transform: translate(-50%, -50%) rotate(45deg);
+      box-shadow: 0 0 0 2px rgba(255, 140, 42, 0.35), 0 0 12px rgba(255, 140, 42, 0.55);
     }
 
     .order.dim {
       opacity: 0.42;
       transform: translate(-50%, -50%) scale(0.82);
-    }
-
-    .label {
-      position: absolute;
-      min-width: 36px;
-      height: 16px;
-      padding: 0 5px;
-      border-radius: 4px;
-      background: rgba(8, 13, 18, 0.82);
-      color: #f4f7fa;
-      font-size: 10px;
-      line-height: 16px;
-      text-align: center;
-      transform: translate(-50%, -23px);
-      z-index: 9;
-      pointer-events: none;
     }
 
     .status {
@@ -201,6 +186,36 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+
+    .order-list {
+      width: 154px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: #ffffff;
+      box-shadow: 0 8px 18px rgba(20, 30, 40, 0.1);
+      font-size: 12px;
+      color: #33414d;
+    }
+
+    .order-list span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 700;
+      line-height: 15px;
+      white-space: nowrap;
+    }
+
+    .order-list i {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--color);
+      flex: 0 0 auto;
     }
 
     .legend {
@@ -227,6 +242,15 @@
       height: 10px;
       border-radius: 50%;
       background: var(--color);
+    }
+
+    .triangle {
+      width: 0;
+      height: 0;
+      border-left: 6px solid transparent;
+      border-right: 6px solid transparent;
+      border-bottom: 12px solid #ff2f2f;
+      transform: rotate(90deg);
     }
 
     @media (max-width: 720px) {
@@ -262,17 +286,19 @@
           <div class="node" style="left:25px;top:101px;"></div>
           <div class="node" style="left:65px;top:101px;"></div>
           <div class="node" style="left:105px;top:101px;"></div>
-          <div class="order nearest" style="--color:#ff5aa5;left:64px;top:62px;"></div>
-          <div class="label" style="left:64px;top:62px;">普/12￥</div>
-          <div class="order rush high" style="--color:#ff4d4d;left:105px;top:25px;"></div>
-          <div class="label" style="left:105px;top:25px;">急/16￥</div>
-          <div class="order long" style="--color:#ffd34d;left:105px;top:101px;"></div>
-          <div class="label" style="left:105px;top:101px;">远/18￥</div>
-          <div class="player" style="left:25px;top:101px;"></div>
+          <div class="order nearest" style="--color:#2dd4bf;left:64px;top:62px;"></div>
+          <div class="order rush high" style="--color:#ff8c2a;left:105px;top:25px;"></div>
+          <div class="order" style="--color:#f6d743;left:105px;top:101px;"></div>
+          <div class="player east" style="left:25px;top:101px;"></div>
         </div>
         <div class="status">当前订单</div>
       </div>
-      <div class="note">默认状态：底部只提示当前处于订单选择；金额直接写在接单点标签上。</div>
+      <div class="order-list">
+        <span><i style="--color:#2dd4bf"></i>普/12￥</span>
+        <span><i style="--color:#ff8c2a"></i>急/16￥</span>
+        <span><i style="--color:#f6d743"></i>远/18￥</span>
+      </div>
+      <div class="note">默认状态：地图内只放位置点；订单类型和金额放到小地图下方图例。</div>
     </section>
 
     <section class="sample">
@@ -294,13 +320,15 @@
           <div class="node" style="left:25px;top:101px;"></div>
           <div class="node" style="left:65px;top:101px;"></div>
           <div class="node" style="left:105px;top:101px;"></div>
-          <div class="order rush high nearest" style="--color:#ff4d4d;left:65px;top:63px;"></div>
-          <div class="label" style="left:65px;top:63px;">急/16￥</div>
-          <div class="order" style="--color:#2ee66b;left:105px;top:101px;"></div>
-          <div class="label" style="left:105px;top:101px;">顺/8￥</div>
-          <div class="player" style="left:64px;top:88px;"></div>
+          <div class="order rush high nearest" style="--color:#ff8c2a;left:65px;top:63px;"></div>
+          <div class="order" style="--color:#4ade80;left:105px;top:101px;"></div>
+          <div class="player south" style="left:64px;top:88px;"></div>
         </div>
         <div class="status">前方 急送 ¥16</div>
+      </div>
+      <div class="order-list">
+        <span><i style="--color:#ff8c2a"></i>急/16￥</span>
+        <span><i style="--color:#4ade80"></i>顺/8￥</span>
       </div>
       <div class="note">靠近时只强化一个订单，给“前方订单”提示，不弹窗、不要求点击。</div>
     </section>
@@ -326,23 +354,28 @@
           <div class="node" style="left:25px;top:101px;"></div>
           <div class="node" style="left:65px;top:101px;"></div>
           <div class="node" style="left:105px;top:101px;"></div>
-          <div class="order dim" style="--color:#2ee66b;left:25px;top:25px;"></div>
-          <div class="order dim long" style="--color:#ffd34d;left:105px;top:25px;"></div>
+          <div class="order dim" style="--color:#4ade80;left:25px;top:25px;"></div>
+          <div class="order dim" style="--color:#f6d743;left:105px;top:25px;"></div>
           <div class="target" style="left:105px;top:101px;"></div>
-          <div class="player" style="left:65px;top:63px;"></div>
+          <div class="player east" style="left:65px;top:63px;"></div>
         </div>
         <div class="status">当前 急送 120m</div>
+      </div>
+      <div class="order-list">
+        <span><i style="--color:#4ade80"></i>顺/8￥</span>
+        <span><i style="--color:#f6d743"></i>远/18￥</span>
       </div>
       <div class="note">接单后路线和送达点成为主视觉；未接订单降噪保留。</div>
     </section>
 
     <div class="legend">
-      <span><i class="dot" style="--color:#ff5aa5"></i>普通</span>
-      <span><i class="dot" style="--color:#ff4d4d"></i>急送</span>
-      <span><i class="dot" style="--color:#ffd34d"></i>远单</span>
-      <span><i class="dot" style="--color:#2ee66b"></i>顺路</span>
-      <span><i class="dot" style="--color:#4da3ff"></i>易碎</span>
-      <span>订单标签：类型/金额，如 普/12￥</span>
+      <span><i class="dot" style="--color:#2dd4bf"></i>普通</span>
+      <span><i class="dot" style="--color:#ff8c2a"></i>急送</span>
+      <span><i class="dot" style="--color:#f6d743"></i>远单</span>
+      <span><i class="dot" style="--color:#4ade80"></i>顺路</span>
+      <span><i class="dot" style="--color:#60a5fa"></i>易碎</span>
+      <span><i class="triangle"></i>玩家方向</span>
+      <span>小地图下方垂直显示订单类型/金额</span>
       <span>白色外圈：最近/靠近</span>
       <span>黄色方块：当前送达目标</span>
     </div>
