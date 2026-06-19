@@ -14,6 +14,7 @@ local rn = require("road_network")
 local mats = require("materials")
 local nav = require("route_navigation")
 local player = require("player")
+local progression = require("progression")
 
 local M = {}
 
@@ -26,6 +27,7 @@ local ORDER_TYPES = {
         label = "普",
         name = "普通",
         reward = 12,
+        xp = 8,
         weight = 42,
         minHops = 2,
         maxHops = 4,
@@ -40,6 +42,7 @@ local ORDER_TYPES = {
         label = "急",
         name = "急送",
         reward = 16,
+        xp = 12,
         weight = 20,
         minHops = 1,
         maxHops = 3,
@@ -54,6 +57,7 @@ local ORDER_TYPES = {
         label = "远",
         name = "远距",
         reward = 18,
+        xp = 14,
         weight = 18,
         minHops = 3,
         maxHops = 5,
@@ -68,6 +72,7 @@ local ORDER_TYPES = {
         label = "顺",
         name = "顺路",
         reward = 8,
+        xp = 6,
         weight = 15,
         minHops = 1,
         maxHops = 2,
@@ -82,6 +87,7 @@ local ORDER_TYPES = {
         label = "碎",
         name = "易碎",
         reward = 15,
+        xp = 12,
         weight = 5,
         minHops = 2,
         maxHops = 4,
@@ -178,7 +184,7 @@ local function GetMaxOrderCount()
 end
 
 local function GetTargetOrderCount()
-    local count = CONFIG.ORDER_AVAILABLE_COUNT_DEFAULT or 2
+    local count = progression.GetMaxAvailableOrders()
     return Clamp(math.floor(count), 1, GetMaxOrderCount())
 end
 
@@ -189,17 +195,27 @@ end
 local function PickOrderType()
     local totalWeight = 0
     for _, orderType in ipairs(ORDER_TYPES) do
-        totalWeight = totalWeight + (orderType.weight or 1)
+        local multiplier = progression.GetOrderWeightMultiplier(orderType.id)
+        if multiplier > 0.0 then
+            totalWeight = totalWeight + (orderType.weight or 1) * multiplier
+        end
+    end
+
+    if totalWeight <= 0.0 then
+        return ORDER_TYPE_BY_ID.normal or ORDER_TYPES[1]
     end
 
     local roll = math.random() * totalWeight
     for _, orderType in ipairs(ORDER_TYPES) do
-        roll = roll - (orderType.weight or 1)
-        if roll <= 0 then
-            return orderType
+        local multiplier = progression.GetOrderWeightMultiplier(orderType.id)
+        if multiplier > 0.0 then
+            roll = roll - (orderType.weight or 1) * multiplier
+            if roll <= 0 then
+                return orderType
+            end
         end
     end
-    return ORDER_TYPES[1]
+    return ORDER_TYPE_BY_ID.normal or ORDER_TYPES[1]
 end
 
 local function SyncLegacyPickupFields()
@@ -671,6 +687,7 @@ local function BuildOrderFromPickupCandidate(candidate)
         label = orderType.label,
         name = orderType.name,
         reward = orderType.reward,
+        xp = orderType.xp or CONFIG.PROGRESSION_DEFAULT_ORDER_XP or 8,
         fragile = orderType.fragile == true,
         color = orderType.color,
         markerColor = orderType.color,
@@ -871,6 +888,7 @@ end
 local function FailActiveOrder(reason)
     if M.activeOrder then
         print("[Order] Failed " .. M.activeOrder.displayText .. " reason " .. (reason or "unknown"))
+        progression.OnOrderFailed(M.activeOrder, reason)
     end
     M.comboCount = 0
     FinishActiveOrder()
@@ -959,9 +977,12 @@ function M.CheckDelivery()
         local baseReward = order.reward or orderType.reward or 10
         local reward = baseReward
 
-        if M.orderLateSeconds > 0.0 then
+        local onTime = M.orderLateSeconds <= 0.0
+        local lateSeconds = M.orderLateSeconds
+
+        if not onTime then
             local penaltyRate = (CONFIG.ORDER_LATE_PENALTY_PER_SEC or 2) * (orderType.latePenaltyMultiplier or 1.0)
-            reward = math.max(0, baseReward - math.floor(M.orderLateSeconds * penaltyRate))
+            reward = math.max(0, baseReward - math.floor(lateSeconds * penaltyRate))
             M.comboCount = 0
         else
             M.comboCount = M.comboCount + 1
@@ -969,9 +990,18 @@ function M.CheckDelivery()
             reward = baseReward + comboBonus
         end
 
+        local xpResult = progression.OnOrderDelivered(order, {
+            onTime = onTime,
+            lateSeconds = lateSeconds,
+            comboCount = M.comboCount,
+            reward = reward,
+        })
+
         M.totalIncome = M.totalIncome + reward
         print("[Delivery] Delivered " .. order.displayText ..
-            "! Income " .. reward .. " (combo x" .. M.comboCount .. ")")
+            "! Income " .. reward ..
+            " XP " .. tostring(xpResult.xpGained or 0) ..
+            " (combo x" .. M.comboCount .. ")")
         FinishActiveOrder()
     elseif distDiff > 3.0 then
         FailActiveOrder("missed delivery")
@@ -984,6 +1014,18 @@ function M.UpdateOrderTimer(dt)
 
     M.orderTimeRemaining = M.orderTimeRemaining - (dt or 0.0)
     M.orderLateSeconds = math.max(0.0, -M.orderTimeRemaining)
+end
+
+function M.HasActiveOrder()
+    return M.activeOrder ~= nil and M.orderTimerActive
+end
+
+function M.AddOrderTime(seconds)
+    if not M.orderTimerActive then return false end
+
+    M.orderTimeRemaining = M.orderTimeRemaining + (seconds or 0.0)
+    M.orderLateSeconds = math.max(0.0, -M.orderTimeRemaining)
+    return true
 end
 
 function M.GetOrderTimerData()

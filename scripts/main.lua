@@ -12,12 +12,14 @@ local mats = require("materials")
 local pools = require("pools")
 local obstacles = require("obstacles")
 local pickup = require("pickup_delivery")
+local powerups = require("powerups")
 local nav = require("route_navigation")
 local intersection = require("intersection")
 local player = require("player")
 local cam = require("camera")
 local ui = require("ui")
 local inp = require("input")
+local progression = require("progression")
 
 -- ============================================================================
 -- 全局变量
@@ -58,7 +60,9 @@ local function ResetRun()
     obstacles.distanceTraveled = 0.0
 
     -- 重置取件/送件
+    progression.ResetRun()
     pickup.Reset()
+    powerups.Reset()
     nav.Reset()
 
     -- 重置路口
@@ -147,6 +151,9 @@ local function HandleUpdate(eventType, eventData)
 
     -- 输入处理
     inp.HandleKeyboard(dt)
+    if input:GetKeyPress(KEY_E) then
+        powerups.UseCurrent()
+    end
 
     -- 检查死路（玩家选择方向无路或默认直走无路）
     if s.routeBlocked then
@@ -164,6 +171,7 @@ local function HandleUpdate(eventType, eventData)
 
     -- 推进路径（沿边前进 / 弧线过渡）
     pickup.CapturePathSnapshot()
+    powerups.CapturePathSnapshot()
     path.Advance(moveDist)
 
     -- 再次检查死路（Advance 中的 StartTurnAtNode 可能触发）
@@ -216,6 +224,8 @@ local function HandleUpdate(eventType, eventData)
     -- 先生成取件/送件点，障碍物生成时会避让订单点
     pickup.TrySpawnPickup()
     pickup.TrySpawnDelivery(player.currentSpeed)
+    powerups.Spawn()
+    powerups.CheckPickup()
 
     -- 生成障碍物
     obstacles.Spawn()
@@ -231,14 +241,17 @@ local function HandleUpdate(eventType, eventData)
     )
     pickup.HandleCollision(collisionType)
     if collisionType == "front" then
-        GameOver()
-        return
+        if not powerups.ConsumeShield() then
+            GameOver()
+            return
+        end
     elseif collisionType == "side" then
         player.BounceBackFromSideCollision()
     end
 
     -- 回收已过障碍物
     obstacles.Recycle()
+    powerups.Recycle()
 
     -- 取件/送件
     pickup.CheckPickup()
@@ -251,6 +264,7 @@ local function HandleUpdate(eventType, eventData)
         nav.Update(s, 0.0)
     end
     pickup.UpdateOrderTimer(dt)
+    powerups.Update(dt)
 
     -- 摄像机跟随
     cam.Update(dt, player.node, player.currentSpeed)
@@ -270,8 +284,10 @@ local function HandleUpdate(eventType, eventData)
         s.turnChoice,
         s.hasTurnChoice,
         s.availableTurns,
-        navData
+        navData,
+        progression.GetHUDData()
     )
+    ui.UpdatePowerupHUD(powerups.GetHUDData())
     ui.UpdateCameraDebugReadout()
 
     -- 取件/送件浮动动画
@@ -367,6 +383,7 @@ function CreateGameContent()
     -- 创建取件/送件节点
     pickup.CreatePickupNode(scene_)
     pickup.CreateDeliveryNode(scene_)
+    powerups.Init(scene_)
 
     -- 创建路口视觉（方向箭头）
     intersection.CreateVisuals(scene_)
@@ -374,7 +391,13 @@ function CreateGameContent()
     -- 创建玩家
     player.Create(scene_)
     pickup.packageVisualNode = player.packageVisualNode
+    powerups.SetUseContext({
+        addOrderTime = pickup.AddOrderTime,
+        hasActiveOrder = pickup.HasActiveOrder,
+        isNearOrderPoint = pickup.IsNearOrderPoint,
+    })
     pickup.Reset()
+    powerups.Reset()
 
     -- 初始化玩家位置
     player.UpdatePosition(0)
@@ -383,7 +406,7 @@ function CreateGameContent()
     cam.Setup(scene_, player.node)
 
     -- 创建 UI
-    ui.Create(RestartGame, TogglePause, StartRunFromMenu, ReturnToMenu)
+    ui.Create(RestartGame, TogglePause, StartRunFromMenu, ReturnToMenu, powerups.UseCurrent)
 
     -- 注册事件
     SubscribeToEvent("Update", HandleUpdate)

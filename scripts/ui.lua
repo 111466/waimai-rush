@@ -8,6 +8,7 @@ local CONFIG = cfg.CONFIG
 local rn = require("road_network")
 local nav = require("route_navigation")
 local cam = require("camera")
+local progression = require("progression")
 
 local M = {}
 
@@ -20,6 +21,12 @@ M.lblIncome = nil
 M.lblCombo = nil
 M.lblSpeed = nil
 M.lblHint = nil
+M.lblRiderLevel = nil
+M.lblRiderXP = nil
+M.lblMenuRiderLevel = nil
+M.powerupPanel = nil
+M.btnPowerup = nil
+M.lblPowerupStatus = nil
 M.hudPanel = nil
 M.mainMenuPanel = nil
 M.pauseOverlayPanel = nil
@@ -58,6 +65,7 @@ M.onRestart = nil
 M.onTogglePause = nil
 M.onStartGame = nil
 M.onReturnMenu = nil
+M.onUsePowerup = nil
 M.minimapVersion = -1
 M.rootPanel = nil
 M.activePickupSlot = nil
@@ -129,12 +137,46 @@ local function MakeNavButton(text, onClick)
     }
 end
 
-local function MakeMenuStat(text)
+local function MakeMenuStat(text, id)
     return UI.Label {
+        id = id,
         text = text,
         fontSize = 13,
         fontWeight = "bold",
         fontColor = {255,255,255,255},
+    }
+end
+
+local function FormatUnlockedOrderTypes(typeIds)
+    local names = {
+        normal = "普通",
+        nearby = "顺路",
+        rush = "急送",
+        long = "远距",
+        fragile = "易碎",
+    }
+    local parts = {}
+    for _, typeId in ipairs(typeIds or {}) do
+        parts[#parts + 1] = names[typeId] or typeId
+    end
+    if #parts == 0 then
+        return "普通"
+    end
+    return table.concat(parts, " / ")
+end
+
+local function BuildRiderRows()
+    local data = progression.GetHUDData()
+    local xpText = data.maxLevel and "MAX" or (tostring(data.xp or 0) .. "/" .. tostring(data.xpToNext or 0))
+    local highValueMultiplier = progression.GetOrderWeightMultiplier("rush")
+    local highValueBonus = math.max(0, math.floor((highValueMultiplier - 1.0) * 100 + 0.5))
+
+    return {
+        "Lv." .. tostring(data.level or 1) .. " " .. (data.title or "骑手") .. "  XP " .. xpText,
+        "同时订单: " .. tostring(progression.GetMaxAvailableOrders()) .. " 个取餐点",
+        "已解锁: " .. FormatUnlockedOrderTypes(progression.GetUnlockedOrderTypes()),
+        "高价订单概率: +" .. tostring(highValueBonus) .. "%",
+        data.maxLevel and "已达到当前等级上限" or "继续完成订单提升等级",
     }
 end
 
@@ -381,6 +423,46 @@ local function BuildMiniOrderList()
         backgroundColor = {255,255,255,238},
         borderRadius = 8,
         children = children,
+    }
+end
+
+local function BuildPowerupPanel()
+    return UI.Panel {
+        id = "powerupPanel",
+        width = 132,
+        height = 58,
+        position = "absolute",
+        right = 150,
+        top = 144,
+        padding = 8,
+        flexDirection = "column",
+        alignItems = "center",
+        backgroundColor = {255,255,255,238},
+        borderRadius = 8,
+        children = {
+            UI.Button {
+                id = "powerupButton",
+                text = "无道具",
+                width = 116,
+                height = 28,
+                onClick = function()
+                    if M.onUsePowerup then
+                        M.onUsePowerup()
+                    end
+                end,
+            },
+            UI.Label {
+                id = "powerupStatus",
+                text = "",
+                width = 116,
+                height = 16,
+                marginTop = 4,
+                fontSize = 11,
+                fontWeight = "bold",
+                fontColor = {51,65,77,255},
+                textAlign = "center",
+            },
+        },
     }
 end
 
@@ -1046,7 +1128,7 @@ local function BuildMainMenu()
                         borderRadius = 16,
                         justifyContent = "center",
                         alignItems = "center",
-                        children = { MakeMenuStat("Lv.3 城市快骑") },
+                        children = { MakeMenuStat("Lv.1 新手骑手", "menuRiderLevel") },
                     },
                     UI.Panel {
                         width = 82,
@@ -1304,12 +1386,13 @@ local function BuildStaticPage()
     }
 end
 
-function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu)
+function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu, onUsePowerup)
     local wasDebugVisible = M.debugPanelVisible
     M.onRestart = onRestart
     M.onTogglePause = onTogglePause
     M.onStartGame = onStartGame
     M.onReturnMenu = onReturnMenu
+    M.onUsePowerup = onUsePowerup
 
     UI.Init({
         theme = "default-dark",
@@ -1327,6 +1410,31 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu)
                 alignItems = "center",
                 paddingTop = 10,
                 children = {
+                    UI.Panel {
+                        width = 118,
+                        height = 42,
+                        justifyContent = "center",
+                        alignItems = "flex-start",
+                        children = {
+                            UI.Label {
+                                id = "riderLevel",
+                                text = "Lv.1 新手骑手",
+                                width = 118,
+                                height = 20,
+                                fontSize = 13,
+                                fontWeight = "bold",
+                                fontColor = {255,255,255,255},
+                            },
+                            UI.Label {
+                                id = "riderXP",
+                                text = "XP 0/60",
+                                width = 118,
+                                height = 18,
+                                fontSize = 11,
+                                fontColor = {168,230,214,255},
+                            },
+                        },
+                    },
                     UI.Panel {
                         width = 112,
                         height = 28,
@@ -1386,6 +1494,7 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu)
     M.minimapPanel = BuildMinimap()
     M.minimapOrderListPanel = BuildMiniOrderList()
     M.minimapOrderListPanel:SetVisible(false)
+    M.powerupPanel = BuildPowerupPanel()
     M.debugPanel = BuildDebugPanel()
     M.debugPanel:SetVisible(false)
     M.debugPanelVisible = wasDebugVisible
@@ -1432,6 +1541,7 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu)
             pauseButton,
             M.minimapPanel,
             M.minimapOrderListPanel,
+            M.powerupPanel,
             M.debugPanel,
             M.mainMenuPanel,
             M.pauseOverlayPanel,
@@ -1451,6 +1561,12 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu)
     M.lblCombo = root:FindById("combo")
     M.lblSpeed = root:FindById("speed")
     M.lblHint = root:FindById("hint")
+    M.lblRiderLevel = root:FindById("riderLevel")
+    M.lblRiderXP = root:FindById("riderXP")
+    M.lblMenuRiderLevel = root:FindById("menuRiderLevel")
+    M.powerupPanel = root:FindById("powerupPanel")
+    M.btnPowerup = root:FindById("powerupButton")
+    M.lblPowerupStatus = root:FindById("powerupStatus")
     M.lblFinalIncome = root:FindById("finalIncome")
     M.lblFinalDist = root:FindById("finalDist")
     M.lblMiniStatus = root:FindById("miniStatus")
@@ -1521,6 +1637,7 @@ local function SetGameplayUIVisible(visible)
     if M.hudPanel then M.hudPanel:SetVisible(visible) end
     if M.minimapPanel then M.minimapPanel:SetVisible(visible) end
     if M.minimapOrderListPanel and not visible then M.minimapOrderListPanel:SetVisible(false) end
+    if M.powerupPanel then M.powerupPanel:SetVisible(visible) end
     if M.btnDebugToggle then M.btnDebugToggle:SetVisible(visible) end
     if M.btnPause then M.btnPause:SetVisible(visible) end
     if M.debugPanel then
@@ -1538,6 +1655,10 @@ end
 function M.ShowMainMenu()
     SetGameplayUIVisible(false)
     HideTopLevelPanels()
+    if M.lblMenuRiderLevel then
+        local data = progression.GetHUDData()
+        M.lblMenuRiderLevel:SetText("Lv." .. tostring(data.level or 1) .. " " .. (data.title or "骑手"))
+    end
     if M.mainMenuPanel then M.mainMenuPanel:SetVisible(true) end
 end
 
@@ -1560,6 +1681,7 @@ end
 function M.ShowStaticPage(key, backMode)
     local data = STATIC_PAGE_DATA[key]
     if not data then return end
+    local rows = key == "rider" and BuildRiderRows() or data.rows
 
     M.staticBackMode = backMode or "menu"
     if M.mainMenuPanel then M.mainMenuPanel:SetVisible(false) end
@@ -1572,7 +1694,7 @@ function M.ShowStaticPage(key, backMode)
     end
     for i = 1, 6 do
         local row = M.staticRows[i]
-        local text = data.rows[i]
+        local text = rows[i]
         if row and row.panel then
             row.panel:SetVisible(text ~= nil)
         end
@@ -1649,8 +1771,21 @@ function M.SetOrderTimerDisplay(orderTimerData)
     end
 end
 
-function M.UpdateHUD(orderTimerData, totalIncome, comboCount, currentSpeed, intersectionActive, turnChoice, hasTurnChoice, availableTurns, navData)
+function M.UpdateHUD(orderTimerData, totalIncome, comboCount, currentSpeed, intersectionActive, turnChoice, hasTurnChoice, availableTurns, navData, progressionData)
     M.SetOrderTimerDisplay(orderTimerData)
+
+    if progressionData then
+        if M.lblRiderLevel then
+            M.lblRiderLevel:SetText("Lv." .. tostring(progressionData.level or 1) .. " " .. (progressionData.title or "骑手"))
+        end
+        if M.lblRiderXP then
+            if progressionData.maxLevel then
+                M.lblRiderXP:SetText("XP MAX")
+            else
+                M.lblRiderXP:SetText("XP " .. tostring(progressionData.xp or 0) .. "/" .. tostring(progressionData.xpToNext or 0))
+            end
+        end
+    end
 
     if M.lblIncome then
         M.lblIncome:SetText("¥" .. totalIncome)
@@ -1686,6 +1821,27 @@ function M.UpdateHUD(orderTimerData, totalIncome, comboCount, currentSpeed, inte
         else
             M.lblHint:SetText("")
         end
+    end
+end
+
+function M.UpdatePowerupHUD(powerupData)
+    local data = powerupData or {}
+    local buttonText = data.readyText or "无道具"
+    local statusText = ""
+
+    if data.message and data.message ~= "" then
+        statusText = data.message
+    elseif data.shieldActive then
+        statusText = "护盾已启动"
+    elseif data.held and data.name then
+        statusText = "当前: " .. data.name
+    end
+
+    if M.btnPowerup then
+        M.btnPowerup:SetText(buttonText)
+    end
+    if M.lblPowerupStatus then
+        M.lblPowerupStatus:SetText(statusText)
     end
 end
 

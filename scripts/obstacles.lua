@@ -10,6 +10,7 @@ local path = require("path")
 local rn = require("road_network")
 local mats = require("materials")
 local pickup = require("pickup_delivery")
+local powerups = require("powerups")
 
 local M = {}
 
@@ -166,6 +167,14 @@ local function IsNearOrderPoint(edgeId, edgeDist, lane)
     return false
 end
 
+local function IsNearPowerupPoint(edgeId, edgeDist, lane)
+    if powerups.IsNearPowerupPoint then
+        return powerups.IsNearPowerupPoint(edgeId, edgeDist, lane)
+    end
+
+    return false
+end
+
 local function IsSpawnDistSafe(edgeDist, effectiveLen, complex)
     local startBuffer = complex and CONFIG.OBSTACLE_EDGE_START_BUFFER or CONFIG.SAFE_ZONE_DIST
     local endBuffer = complex and CONFIG.OBSTACLE_EDGE_END_BUFFER or CONFIG.SAFE_ZONE_DIST
@@ -266,6 +275,9 @@ local function TryPlaceEntry(edge, edgeDist, entry)
     if IsNearOrderPoint(edge.id, edgeDist, entry.lane) then
         return false
     end
+    if IsNearPowerupPoint(edge.id, edgeDist, entry.lane) then
+        return false
+    end
 
     local obs = GetInactive(entry.typeIdx)
     if not obs then
@@ -281,7 +293,8 @@ end
 local function CanPlaceRow(edge, edgeDist, row)
     local placeable = 0
     for _, entry in ipairs(row.entries) do
-        if not IsNearOrderPoint(edge.id, edgeDist, entry.lane) then
+        if not IsNearOrderPoint(edge.id, edgeDist, entry.lane)
+            and not IsNearPowerupPoint(edge.id, edgeDist, entry.lane) then
             placeable = placeable + 1
         end
     end
@@ -319,7 +332,8 @@ end
 local function ClearOrderConflicts()
     for idx = #M.active, 1, -1 do
         local obs = M.active[idx]
-        if IsNearOrderPoint(obs.edgeId, obs.edgeDist, obs.lane) then
+        if IsNearOrderPoint(obs.edgeId, obs.edgeDist, obs.lane)
+            or IsNearPowerupPoint(obs.edgeId, obs.edgeDist, obs.lane) then
             obs.active = false
             obs.node.position = Vector3(0, -100, 0)
             table.remove(M.active, idx)
@@ -415,6 +429,7 @@ function M.CheckCollisions(playerLane, isJumping, jumpTime, isSliding, slideTime
                     end
                 else
                     if xDiff <= CONFIG.COLLISION_FRONT_X_THRESHOLD then
+                        obs.cleared = true
                         return "front"
                     end
                     if isChangingLane and obs.lane == targetLane and xDiff <= CONFIG.COLLISION_SIDE_X_THRESHOLD then
