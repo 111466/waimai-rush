@@ -1135,104 +1135,91 @@ local function BuildDebugPanel()
 end
 
 local function BuildMainMenu()
+    local function MakeMenuHotspot(left, top, width, height, onClick)
+        return UI.Button {
+            text = "",
+            position = "absolute",
+            left = left,
+            top = top,
+            width = width,
+            height = height,
+            backgroundColor = {0,0,0,0},
+            borderWidth = 0,
+            borderRadius = 0,
+            onClick = onClick,
+        }
+    end
+
     return UI.Panel {
         id = "mainMenuPanel",
         width = "100%",
         height = "100%",
         position = "absolute",
-        backgroundColor = "#EAF7FF",
-        padding = 18,
         children = {
             UI.Panel {
-                width = "100%",
-                height = 86,
-                flexDirection = "row",
-                justifyContent = "space-between",
-                alignItems = "center",
-                children = {
-                    UI.Panel {
-                        width = 170,
-                        height = 58,
-                        padding = 8,
-                        backgroundColor = "rgba(18,28,36,0.82)",
-                        borderRadius = 16,
-                        children = {
-                            MakeMenuStat("Lv.1 新手骑手", "menuRiderLevel"),
-                            UI.Label {
-                                id = "menuBest",
-                                text = "最高 0 单 / 连击 0",
-                                fontSize = 11,
-                                fontColor = {190,220,230,255},
-                                marginTop = 4,
-                            },
-                        },
-                    },
-                    UI.Panel {
-                        width = 110,
-                        height = 44,
-                        backgroundColor = "rgba(255,138,31,0.94)",
-                        borderRadius = 16,
-                        justifyContent = "center",
-                        alignItems = "center",
-                        children = {
-                            UI.Label {
-                                id = "menuCoins",
-                                text = "¥0",
-                                fontSize = 17,
-                                fontWeight = "bold",
-                                fontColor = {255,255,255,255},
-                            },
-                        },
-                    },
-                },
+                position = "absolute",
+                left = 0,
+                top = 0,
+                right = 0,
+                bottom = 0,
+                backgroundImage = "Textures/home_bg.png",
+                backgroundFit = "cover",
             },
             UI.Panel {
-                width = "100%",
-                height = 396,
-                justifyContent = "center",
-                alignItems = "center",
+                position = "absolute",
+                left = 28,
+                top = 28,
+                width = 170,
+                height = 70,
+                padding = 0,
                 children = {
                     UI.Label {
-                        text = "外卖\n冲冲冲",
-                        fontSize = 44,
+                        id = "menuRiderLevel",
+                        text = "Lv.1 新手骑手",
+                        fontSize = 15,
                         fontWeight = "bold",
-                        fontColor = {255,138,31,255},
-                        textAlign = "center",
+                        fontColor = {255,255,255,255},
                     },
                     UI.Label {
-                        text = "接单、看路线、避开障碍，准时送达赚金币",
-                        fontSize = 14,
-                        fontColor = {60,72,82,255},
-                        marginTop = 12,
-                        textAlign = "center",
-                    },
-                    UI.Button {
-                        text = "开始配送",
-                        variant = "primary",
-                        width = 260,
-                        height = 54,
-                        marginTop = 28,
-                        onClick = function()
-                            if M.onStartGame then
-                                M.onStartGame()
-                            end
-                        end,
+                        id = "menuBest",
+                        text = "最高 0 单 / 连击 0",
+                        fontSize = 11,
+                        fontWeight = "bold",
+                        fontColor = {190,220,230,255},
+                        marginTop = 4,
                     },
                 },
             },
             UI.Panel {
-                width = "100%",
-                height = 72,
-                flexDirection = "row",
+                position = "absolute",
+                right = 32,
+                top = 34,
+                width = 60,
+                height = 42,
                 justifyContent = "center",
+                alignItems = "center",
                 children = {
-                    MakeNavButton("骑手", function() M.ShowStaticPage("rider", "menu") end),
-                    MakeNavButton("升级", function() M.ShowStaticPage("upgrades", "menu") end),
-                    MakeNavButton("任务", function() M.ShowStaticPage("tasks", "menu") end),
-                    MakeNavButton("成就", function() M.ShowStaticPage("achievements", "menu") end),
-                    MakeNavButton("设置", function() M.ShowStaticPage("settings", "menu") end),
+                    UI.Label {
+                        id = "menuCoins",
+                        text = "0",
+                        fontSize = 25,
+                        fontWeight = "bold",
+                        fontColor = {255,255,255,255},
+                    },
                 },
             },
+            MakeMenuHotspot(28, 632, 337, 84, function()
+                if M.onStartGame then
+                    M.onStartGame()
+                end
+            end),
+            MakeMenuHotspot(304, 260, 70, 70, function() M.ShowStaticPage("tasks", "menu") end),
+            MakeMenuHotspot(304, 337, 70, 70, function() M.ShowStaticPage("achievements", "menu") end),
+            MakeMenuHotspot(304, 414, 70, 70, function() M.ShowStaticPage("settings", "menu") end),
+            MakeMenuHotspot(28, 724, 76, 82, function() M.ShowStaticPage("rider", "menu") end),
+            MakeMenuHotspot(112, 724, 76, 82, function() M.ShowStaticPage("upgrades", "menu") end),
+            MakeMenuHotspot(198, 724, 76, 82, function() M.ShowStaticPage("tasks", "menu") end),
+            MakeMenuHotspot(284, 724, 76, 82, function() M.ShowStaticPage("upgrades", "menu") end),
         },
     }
 end
@@ -1767,7 +1754,7 @@ function M.ShowMainMenu()
         M.lblMenuRiderLevel:SetText("Lv." .. tostring(summary.riderLevel or 1) .. " " .. (summary.riderTitle or "骑手"))
     end
     if M.lblMenuCoins then
-        M.lblMenuCoins:SetText("¥" .. tostring(summary.coins or 0))
+        M.lblMenuCoins:SetText(tostring(summary.coins or 0))
     end
     if M.lblMenuBest then
         M.lblMenuBest:SetText("最高 " .. tostring(summary.bestDeliveries or 0) .. " 单 / 连击 " .. tostring(summary.bestCombo or 0))
