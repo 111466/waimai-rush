@@ -280,7 +280,8 @@ end
 
 local function BuildVisibleEdgeSet()
     local edgeSet = {}
-    rn.ForEachVisibleEdge(function(edge)
+    local forEachEdge = rn.ForEachRenderableEdge or rn.ForEachVisibleEdge
+    forEachEdge(function(edge)
         edgeSet[edge.id] = edge
     end)
     return edgeSet

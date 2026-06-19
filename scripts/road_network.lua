@@ -374,6 +374,96 @@ local function AddPhysicalEdge(aNodeId, bNodeId)
     return true
 end
 
+local function NeighborGrid(gx, gz, heading)
+    if heading == M.HEADING_POS_Z then
+        return gx, gz + 1
+    elseif heading == M.HEADING_POS_X then
+        return gx + 1, gz
+    elseif heading == M.HEADING_NEG_Z then
+        return gx, gz - 1
+    elseif heading == M.HEADING_NEG_X then
+        return gx - 1, gz
+    end
+    return gx, gz
+end
+
+local function TryAddExitEdge(node, heading)
+    if not node then return false end
+
+    local gx, gz = NeighborGrid(node.gridX, node.gridZ, heading)
+    if gx < 1 or gx > M.GRID_SIZE or gz < 1 then
+        return false
+    end
+
+    EnsureNode(gx, gz)
+    return AddPhysicalEdge(node.id, M.GridToNodeId(gx, gz))
+end
+
+local function HasAnyExit(node, headings)
+    if not node or not node.edgeByHeading then return false end
+    for _, heading in ipairs(headings) do
+        if node.edgeByHeading[heading] then
+            return true
+        end
+    end
+    return false
+end
+
+local function OrderedExitHeadings(arrivalHeading)
+    if arrivalHeading == M.HEADING_POS_Z then
+        return { M.HEADING_POS_Z }
+    elseif arrivalHeading == M.HEADING_POS_X or arrivalHeading == M.HEADING_NEG_X then
+        return { M.HEADING_POS_Z, arrivalHeading }
+    end
+    return {}
+end
+
+local function EnsurePlayableExitForArrival(nodeId, arrivalHeading)
+    -- 前向无限地图不主动补回头路，只补 +Z 或横向延续出口。
+    if arrivalHeading == M.HEADING_NEG_Z then return false end
+
+    local node = M.GetNode(nodeId)
+    if not node then return false end
+
+    local preferred = OrderedExitHeadings(arrivalHeading)
+    if HasAnyExit(node, preferred) then
+        return false
+    end
+
+    for _, heading in ipairs(preferred) do
+        if TryAddExitEdge(node, heading) then
+            return true
+        end
+    end
+    return false
+end
+
+local function EnsurePlayableExitsForRow(gz)
+    local changed = false
+
+    for gx = 1, M.GRID_SIZE do
+        local node = M.GetNode(M.GridToNodeId(gx, gz))
+        if node and node.edges then
+            local edgeIds = {}
+            for i = 1, #node.edges do
+                edgeIds[i] = node.edges[i]
+            end
+
+            for _, edgeId in ipairs(edgeIds) do
+                local edge = M.GetEdge(edgeId)
+                if edge then
+                    local arrivalHeading = M.ReverseHeading(edge.heading)
+                    if EnsurePlayableExitForArrival(node.id, arrivalHeading) then
+                        changed = true
+                    end
+                end
+            end
+        end
+    end
+
+    return changed
+end
+
 local function ShouldOpenRoad(gz, gx, salt, keep)
     if keep then return true end
     local closureRate = CONFIG.ROAD_CLOSURE_RATE or 0.18
@@ -419,6 +509,9 @@ local function GenerateRow(gz)
             AddPhysicalEdge(M.GridToNodeId(gx, gz + 1), M.GridToNodeId(gx + 1, gz + 1))
         end
     end
+
+    EnsurePlayableExitsForRow(gz)
+    EnsurePlayableExitsForRow(gz + 1)
 
     M.generatedRows[gz] = true
     M.generatedMaxRow = math.max(M.generatedMaxRow, gz)
@@ -703,6 +796,13 @@ function M.IsEdgeVisible(edge)
     return M.IsNodeVisible(fromNode) and M.IsNodeVisible(toNode)
 end
 
+function M.IsEdgeRenderable(edge)
+    if not edge then return false end
+    local fromNode = M.GetNode(edge.fromNode)
+    local toNode = M.GetNode(edge.toNode)
+    return M.IsNodeVisible(fromNode) or M.IsNodeVisible(toNode)
+end
+
 function M.ForEachVisibleNode(fn)
     for _, node in pairs(M.nodes) do
         if M.IsNodeVisible(node) then
@@ -715,6 +815,20 @@ function M.ForEachVisibleEdge(fn)
     local seen = {}
     for _, edge in pairs(M.edges) do
         if edge and not seen[edge.physicalKey] and M.IsEdgeVisible(edge) then
+            local normalized = edge
+            if edge.fromNode > edge.toNode then
+                normalized = M.GetEdge(DirectedEdgeId(edge.toNode, M.ReverseHeading(edge.heading))) or edge
+            end
+            seen[edge.physicalKey] = true
+            fn(normalized)
+        end
+    end
+end
+
+function M.ForEachRenderableEdge(fn)
+    local seen = {}
+    for _, edge in pairs(M.edges) do
+        if edge and not seen[edge.physicalKey] and M.IsEdgeRenderable(edge) then
             local normalized = edge
             if edge.fromNode > edge.toNode then
                 normalized = M.GetEdge(DirectedEdgeId(edge.toNode, M.ReverseHeading(edge.heading))) or edge
