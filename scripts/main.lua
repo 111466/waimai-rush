@@ -214,6 +214,7 @@ local function HandleUpdate(eventType, eventData)
         player.slideTime,
         player.GetCollisionState()
     )
+    pickup.HandleCollision(collisionType)
     if collisionType == "front" then
         GameOver()
         return

@@ -41,11 +41,13 @@ M.minimapRouteSegments = {}
 M.minimapPlayerMarkers = {}
 M.minimapTargetMarkers = {}
 M.minimapPickupMarkers = {}
+M.minimapPickupLabels = {}
 M.onRestart = nil
 M.onTogglePause = nil
 M.minimapVersion = -1
 M.rootPanel = nil
 M.activePickupSlot = nil
+M.activePickupSlots = {}
 M.activePlayerSlot = nil
 M.activeTargetSlot = nil
 M.activeRouteSegments = {}
@@ -150,6 +152,20 @@ local function AddMiniMarker(children, id, x, y, size, color, radius)
     })
 end
 
+local function AddMiniOrderLabel(children, id, x, y)
+    table.insert(children, UI.Label {
+        id = id,
+        text = "",
+        position = "absolute",
+        left = x - 21,
+        top = y - 21,
+        width = 42,
+        height = 14,
+        fontSize = 9,
+        fontColor = {255,255,255,255},
+    })
+end
+
 local function AddMiniPlayerProgressMarkers(children, key, edge)
     local nodeA = rn.GetNode(math.min(edge.fromNode, edge.toNode))
     local nodeB = rn.GetNode(math.max(edge.fromNode, edge.toNode))
@@ -170,7 +186,9 @@ local function BindMinimapRefs(root)
     M.minimapPlayerMarkers = {}
     M.minimapTargetMarkers = {}
     M.minimapPickupMarkers = {}
+    M.minimapPickupLabels = {}
     M.activePickupSlot = nil
+    M.activePickupSlots = {}
     M.activePlayerSlot = nil
     M.activeTargetSlot = nil
     M.activeRouteSegments = {}
@@ -183,9 +201,11 @@ local function BindMinimapRefs(root)
                 M.minimapRouteSegments[key] = root:FindById("mini_route_" .. key)
                 M.minimapTargetMarkers[key] = root:FindById("mini_target_" .. key)
                 M.minimapPickupMarkers[key] = root:FindById("mini_pickup_" .. key)
+                M.minimapPickupLabels[key] = root:FindById("mini_pickup_label_" .. key)
                 if M.minimapRouteSegments[key] then M.minimapRouteSegments[key]:SetVisible(false) end
                 if M.minimapTargetMarkers[key] then M.minimapTargetMarkers[key]:SetVisible(false) end
                 if M.minimapPickupMarkers[key] then M.minimapPickupMarkers[key]:SetVisible(false) end
+                if M.minimapPickupLabels[key] then M.minimapPickupLabels[key]:SetVisible(false) end
                 for step = 0, nav.MINIMAP_PLAYER_EDGE_STEPS do
                     local playerKey = "p" .. key .. "_" .. step
                     M.minimapPlayerMarkers[playerKey] = root:FindById("mini_player_" .. playerKey)
@@ -258,6 +278,7 @@ local function BuildMinimap()
         local x = (x1 + x2) * 0.5
         local y = (y1 + y2) * 0.5
         AddMiniMarker(children, "mini_pickup_" .. key, x, y, 9, "#FF4FA3", 5)
+        AddMiniOrderLabel(children, "mini_pickup_label_" .. key, x, y)
     end
 
     for key, edge in pairs(segmentPositions) do
@@ -735,6 +756,7 @@ function M.Create(onRestart, onTogglePause)
     M.minimapPlayerMarkers = {}
     M.minimapTargetMarkers = {}
     M.minimapPickupMarkers = {}
+    M.minimapPickupLabels = {}
     BindMinimapRefs(root)
 
     M.minimapVersion = rn.visibleVersion
@@ -909,13 +931,67 @@ local function SetRouteSegmentsVisible(activeKeys)
     M.activeRouteSegments = activeKeys
 end
 
+local function HidePickupSlot(key)
+    if not key then return end
+    if M.minimapPickupMarkers[key] then
+        M.minimapPickupMarkers[key]:SetVisible(false)
+    end
+    if M.minimapPickupLabels[key] then
+        M.minimapPickupLabels[key]:SetVisible(false)
+        M.minimapPickupLabels[key]:SetText("")
+    end
+end
+
+local function SetPickupOrdersVisible(pickupMiniData)
+    local activeSlots = {}
+
+    if pickupMiniData and pickupMiniData.orders then
+        for _, order in ipairs(pickupMiniData.orders) do
+            local key = order.slot
+            if key then
+                activeSlots[key] = true
+                if M.minimapPickupMarkers[key] then
+                    M.minimapPickupMarkers[key]:SetVisible(true)
+                end
+                if M.minimapPickupLabels[key] then
+                    M.minimapPickupLabels[key]:SetText(order.displayText or order.label or "")
+                    M.minimapPickupLabels[key]:SetVisible(true)
+                end
+            end
+        end
+    elseif pickupMiniData and pickupMiniData.active and pickupMiniData.slot then
+        local key = pickupMiniData.slot
+        activeSlots[key] = true
+        if M.minimapPickupMarkers[key] then
+            M.minimapPickupMarkers[key]:SetVisible(true)
+        end
+        if M.minimapPickupLabels[key] then
+            M.minimapPickupLabels[key]:SetText(pickupMiniData.displayText or "")
+            M.minimapPickupLabels[key]:SetVisible(pickupMiniData.displayText ~= nil)
+        end
+    end
+
+    for key in pairs(M.activePickupSlots or {}) do
+        if not activeSlots[key] then
+            HidePickupSlot(key)
+        end
+    end
+
+    M.activePickupSlots = activeSlots
+    M.activePickupSlot = nil
+end
+
 function M.UpdateMinimap(navData, pickupMiniData)
     if M.minimapVersion ~= rn.visibleVersion and M.onRestart then
         M.RebuildMinimap()
     end
 
     if M.lblMiniStatus then
-        if navData and navData.message then
+        if navData and (navData.active or navData.transientMessage) and navData.message then
+            M.lblMiniStatus:SetText(navData.message)
+        elseif pickupMiniData and pickupMiniData.statusText then
+            M.lblMiniStatus:SetText(pickupMiniData.statusText)
+        elseif navData and navData.message then
             M.lblMiniStatus:SetText(navData.message)
         else
             M.lblMiniStatus:SetText("等待订单")
@@ -927,7 +1003,7 @@ function M.UpdateMinimap(navData, pickupMiniData)
         SetRouteSegmentsVisible(routeSegments)
         M.lastRouteSegments = routeSegments
     end
-    M.activePickupSlot = SetOnlyVisible(M.minimapPickupMarkers, pickupMiniData and pickupMiniData.active and pickupMiniData.slot or nil, M.activePickupSlot)
+    SetPickupOrdersVisible(pickupMiniData)
     M.activePlayerSlot = SetOnlyVisible(M.minimapPlayerMarkers, navData and navData.playerSlot or nil, M.activePlayerSlot)
     M.activeTargetSlot = SetOnlyVisible(M.minimapTargetMarkers, navData and navData.active and navData.targetSlot or nil, M.activeTargetSlot)
 end

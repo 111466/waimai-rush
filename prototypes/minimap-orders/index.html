@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>多订单小地图样式原型</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      min-height: 100%;
+      margin: 0;
+      background: #e8edf0;
+      color: #17212b;
+      font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+    }
+
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 28px;
+    }
+
+    .page {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(190px, 1fr));
+      gap: 22px;
+      width: min(980px, 100%);
+    }
+
+    .sample {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .title {
+      width: 100%;
+      font-size: 15px;
+      font-weight: 700;
+      color: #25313c;
+    }
+
+    .note {
+      width: 100%;
+      min-height: 38px;
+      color: #5d6a75;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .minimap {
+      position: relative;
+      width: 154px;
+      height: 176px;
+      border-radius: 8px;
+      overflow: hidden;
+      background: rgba(12, 18, 24, 0.76);
+      box-shadow: 0 14px 34px rgba(20, 30, 40, 0.26);
+    }
+
+    .map {
+      position: absolute;
+      left: 12px;
+      top: 10px;
+      width: 130px;
+      height: 130px;
+      border-radius: 6px;
+      background:
+        linear-gradient(rgba(255,255,255,0.04), rgba(255,255,255,0.04)),
+        #18232d;
+      overflow: hidden;
+    }
+
+    .road {
+      position: absolute;
+      background: rgba(150, 162, 172, 0.45);
+      border-radius: 2px;
+    }
+
+    .route {
+      background: #2ee66b;
+      box-shadow: 0 0 8px rgba(46, 230, 107, 0.55);
+      z-index: 2;
+    }
+
+    .muted-route {
+      background: rgba(46, 230, 107, 0.25);
+      box-shadow: none;
+    }
+
+    .node {
+      position: absolute;
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: rgba(216, 224, 230, 0.65);
+      transform: translate(-50%, -50%);
+      z-index: 3;
+    }
+
+    .player {
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      border-radius: 4px;
+      background: #8a5cff;
+      box-shadow: 0 0 0 2px rgba(255,255,255,0.65), 0 0 10px rgba(138, 92, 255, 0.7);
+      transform: translate(-50%, -50%) rotate(45deg);
+      z-index: 8;
+    }
+
+    .target {
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+      background: #ffd34d;
+      box-shadow: 0 0 0 2px rgba(36, 27, 4, 0.55), 0 0 10px rgba(255, 211, 77, 0.65);
+      transform: translate(-50%, -50%);
+      z-index: 7;
+    }
+
+    .order {
+      position: absolute;
+      width: 13px;
+      height: 13px;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 6;
+    }
+
+    .order::after {
+      content: "";
+      position: absolute;
+      inset: 2px;
+      border-radius: inherit;
+      background: var(--color);
+    }
+
+    .order.nearest {
+      background: rgba(255,255,255,0.86);
+      box-shadow: 0 0 9px rgba(255,255,255,0.5);
+    }
+
+    .order.high {
+      width: 15px;
+      height: 15px;
+    }
+
+    .order.rush {
+      background: rgba(255,255,255,0.86);
+      box-shadow: 0 0 0 2px rgba(255, 77, 77, 0.35), 0 0 12px rgba(255, 77, 77, 0.55);
+    }
+
+    .order.long {
+      border-radius: 3px;
+    }
+
+    .order.fragile {
+      border-radius: 3px;
+      transform: translate(-50%, -50%) rotate(45deg);
+    }
+
+    .order.dim {
+      opacity: 0.42;
+      transform: translate(-50%, -50%) scale(0.82);
+    }
+
+    .label {
+      position: absolute;
+      min-width: 36px;
+      height: 16px;
+      padding: 0 5px;
+      border-radius: 4px;
+      background: rgba(8, 13, 18, 0.82);
+      color: #f4f7fa;
+      font-size: 10px;
+      line-height: 16px;
+      text-align: center;
+      transform: translate(-50%, -23px);
+      z-index: 9;
+      pointer-events: none;
+    }
+
+    .status {
+      position: absolute;
+      left: 8px;
+      right: 8px;
+      bottom: 7px;
+      height: 23px;
+      color: #dce8ef;
+      font-size: 12px;
+      line-height: 23px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 12px;
+      grid-column: 1 / -1;
+      padding: 13px 14px;
+      border-radius: 8px;
+      background: #ffffff;
+      box-shadow: 0 8px 20px rgba(20, 30, 40, 0.08);
+      font-size: 12px;
+      color: #4c5964;
+    }
+
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--color);
+    }
+
+    @media (max-width: 720px) {
+      body {
+        align-items: flex-start;
+        padding: 18px;
+      }
+
+      .page {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="sample">
+      <div class="title">可接订单选择态</div>
+      <div class="minimap">
+        <div class="map">
+          <div class="road" style="left:18px;top:24px;width:92px;height:3px;"></div>
+          <div class="road" style="left:18px;top:62px;width:96px;height:3px;"></div>
+          <div class="road" style="left:30px;top:100px;width:76px;height:3px;"></div>
+          <div class="road" style="left:24px;top:18px;width:3px;height:92px;"></div>
+          <div class="road" style="left:64px;top:24px;width:3px;height:82px;"></div>
+          <div class="road" style="left:104px;top:24px;width:3px;height:82px;"></div>
+          <div class="node" style="left:25px;top:25px;"></div>
+          <div class="node" style="left:65px;top:25px;"></div>
+          <div class="node" style="left:105px;top:25px;"></div>
+          <div class="node" style="left:25px;top:63px;"></div>
+          <div class="node" style="left:65px;top:63px;"></div>
+          <div class="node" style="left:105px;top:63px;"></div>
+          <div class="node" style="left:25px;top:101px;"></div>
+          <div class="node" style="left:65px;top:101px;"></div>
+          <div class="node" style="left:105px;top:101px;"></div>
+          <div class="order nearest" style="--color:#ff5aa5;left:64px;top:62px;"></div>
+          <div class="label" style="left:64px;top:62px;">普/12￥</div>
+          <div class="order rush high" style="--color:#ff4d4d;left:105px;top:25px;"></div>
+          <div class="label" style="left:105px;top:25px;">急/16￥</div>
+          <div class="order long" style="--color:#ffd34d;left:105px;top:101px;"></div>
+          <div class="label" style="left:105px;top:101px;">远/18￥</div>
+          <div class="player" style="left:25px;top:101px;"></div>
+        </div>
+        <div class="status">当前订单</div>
+      </div>
+      <div class="note">默认状态：底部只提示当前处于订单选择；金额直接写在接单点标签上。</div>
+    </section>
+
+    <section class="sample">
+      <div class="title">靠近订单提示</div>
+      <div class="minimap">
+        <div class="map">
+          <div class="road" style="left:18px;top:24px;width:92px;height:3px;"></div>
+          <div class="road" style="left:18px;top:62px;width:96px;height:3px;"></div>
+          <div class="road" style="left:30px;top:100px;width:76px;height:3px;"></div>
+          <div class="road" style="left:24px;top:18px;width:3px;height:92px;"></div>
+          <div class="road" style="left:64px;top:24px;width:3px;height:82px;"></div>
+          <div class="road" style="left:104px;top:24px;width:3px;height:82px;"></div>
+          <div class="node" style="left:25px;top:25px;"></div>
+          <div class="node" style="left:65px;top:25px;"></div>
+          <div class="node" style="left:105px;top:25px;"></div>
+          <div class="node" style="left:25px;top:63px;"></div>
+          <div class="node" style="left:65px;top:63px;"></div>
+          <div class="node" style="left:105px;top:63px;"></div>
+          <div class="node" style="left:25px;top:101px;"></div>
+          <div class="node" style="left:65px;top:101px;"></div>
+          <div class="node" style="left:105px;top:101px;"></div>
+          <div class="order rush high nearest" style="--color:#ff4d4d;left:65px;top:63px;"></div>
+          <div class="label" style="left:65px;top:63px;">急/16￥</div>
+          <div class="order" style="--color:#2ee66b;left:105px;top:101px;"></div>
+          <div class="label" style="left:105px;top:101px;">顺/8￥</div>
+          <div class="player" style="left:64px;top:88px;"></div>
+        </div>
+        <div class="status">前方 急送 ¥16</div>
+      </div>
+      <div class="note">靠近时只强化一个订单，给“前方订单”提示，不弹窗、不要求点击。</div>
+    </section>
+
+    <section class="sample">
+      <div class="title">配送导航态</div>
+      <div class="minimap">
+        <div class="map">
+          <div class="road" style="left:18px;top:24px;width:92px;height:3px;"></div>
+          <div class="road" style="left:18px;top:62px;width:96px;height:3px;"></div>
+          <div class="road" style="left:30px;top:100px;width:76px;height:3px;"></div>
+          <div class="road" style="left:24px;top:18px;width:3px;height:92px;"></div>
+          <div class="road" style="left:64px;top:24px;width:3px;height:82px;"></div>
+          <div class="road" style="left:104px;top:24px;width:3px;height:82px;"></div>
+          <div class="road route" style="left:64px;top:62px;width:3px;height:40px;"></div>
+          <div class="road route" style="left:64px;top:100px;width:42px;height:3px;"></div>
+          <div class="node" style="left:25px;top:25px;"></div>
+          <div class="node" style="left:65px;top:25px;"></div>
+          <div class="node" style="left:105px;top:25px;"></div>
+          <div class="node" style="left:25px;top:63px;"></div>
+          <div class="node" style="left:65px;top:63px;"></div>
+          <div class="node" style="left:105px;top:63px;"></div>
+          <div class="node" style="left:25px;top:101px;"></div>
+          <div class="node" style="left:65px;top:101px;"></div>
+          <div class="node" style="left:105px;top:101px;"></div>
+          <div class="order dim" style="--color:#2ee66b;left:25px;top:25px;"></div>
+          <div class="order dim long" style="--color:#ffd34d;left:105px;top:25px;"></div>
+          <div class="target" style="left:105px;top:101px;"></div>
+          <div class="player" style="left:65px;top:63px;"></div>
+        </div>
+        <div class="status">当前 急送 120m</div>
+      </div>
+      <div class="note">接单后路线和送达点成为主视觉；未接订单降噪保留。</div>
+    </section>
+
+    <div class="legend">
+      <span><i class="dot" style="--color:#ff5aa5"></i>普通</span>
+      <span><i class="dot" style="--color:#ff4d4d"></i>急送</span>
+      <span><i class="dot" style="--color:#ffd34d"></i>远单</span>
+      <span><i class="dot" style="--color:#2ee66b"></i>顺路</span>
+      <span><i class="dot" style="--color:#4da3ff"></i>易碎</span>
+      <span>订单标签：类型/金额，如 普/12￥</span>
+      <span>白色外圈：最近/靠近</span>
+      <span>黄色方块：当前送达目标</span>
+    </div>
+  </main>
+</body>
+</html>

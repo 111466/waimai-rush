@@ -159,18 +159,8 @@ local function GetSpawnAheadDist(playerDist, effectiveLen)
 end
 
 local function IsNearOrderPoint(edgeId, edgeDist, lane)
-    local clearance = CONFIG.OBSTACLE_ORDER_CLEARANCE
-
-    if pickup.pickupActive and pickup.pickupEdgeId == edgeId and pickup.pickupLane == lane then
-        if math.abs(edgeDist - pickup.pickupEdgeDist) < clearance then
-            return true
-        end
-    end
-
-    if pickup.deliveryActive and pickup.deliveryEdgeId == edgeId and pickup.deliveryLane == lane then
-        if math.abs(edgeDist - pickup.deliveryEdgeDist) < clearance then
-            return true
-        end
+    if pickup.IsNearOrderPoint then
+        return pickup.IsNearOrderPoint(edgeId, edgeDist, lane)
     end
 
     return false

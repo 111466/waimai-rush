@@ -1,7 +1,10 @@
 -- ============================================================================
--- 外卖冲冲冲 - 取件/送件模块（基于 RoadGraph）
+-- 外卖冲冲冲 - 多订单取餐/送达模块
 -- ============================================================================
--- 取件/送件点绑定到真实 edge 上，根据 edgeProgress 生成
+-- 第一版多订单流程：
+--   1. 地图上同时保留多个可接取餐点。
+--   2. 玩家驶过某个取餐点即接下该订单。
+--   3. 只有当前接取订单会生成送达目标和导航路线。
 -- ============================================================================
 
 local cfg = require("config")
@@ -16,6 +19,75 @@ local M = {}
 
 local SHADOW_Y = CONFIG.PLAYER_GROUND_Y + 0.012
 local ORDER_LATERAL_THRESHOLD = 0.85
+
+local ORDER_TYPES = {
+    {
+        id = "normal",
+        label = "普",
+        name = "普通",
+        reward = 12,
+        weight = 42,
+        minHops = 2,
+        maxHops = 4,
+        timeFactor = CONFIG.ORDER_TIME_ROUTE_FACTOR,
+        timeExtra = CONFIG.ORDER_TIME_EXTRA_SECONDS,
+        latePenaltyMultiplier = 1.0,
+    },
+    {
+        id = "rush",
+        label = "急",
+        name = "急送",
+        reward = 16,
+        weight = 20,
+        minHops = 1,
+        maxHops = 3,
+        timeFactor = 1.05,
+        timeExtra = 2.0,
+        latePenaltyMultiplier = 1.8,
+    },
+    {
+        id = "long",
+        label = "远",
+        name = "远距",
+        reward = 18,
+        weight = 18,
+        minHops = 3,
+        maxHops = 5,
+        timeFactor = 1.45,
+        timeExtra = 6.0,
+        latePenaltyMultiplier = 1.0,
+    },
+    {
+        id = "nearby",
+        label = "顺",
+        name = "顺路",
+        reward = 8,
+        weight = 15,
+        minHops = 1,
+        maxHops = 2,
+        timeFactor = CONFIG.ORDER_TIME_ROUTE_FACTOR,
+        timeExtra = CONFIG.ORDER_TIME_EXTRA_SECONDS,
+        latePenaltyMultiplier = 0.8,
+    },
+    {
+        id = "fragile",
+        label = "碎",
+        name = "易碎",
+        reward = 15,
+        weight = 5,
+        minHops = 2,
+        maxHops = 4,
+        timeFactor = 1.3,
+        timeExtra = 4.0,
+        latePenaltyMultiplier = 1.2,
+        fragile = true,
+    },
+}
+
+local ORDER_TYPE_BY_ID = {}
+for _, orderType in ipairs(ORDER_TYPES) do
+    ORDER_TYPE_BY_ID[orderType.id] = orderType
+end
 
 local function CreateContactShadow(scene, name, scaleX, scaleZ)
     local shadow = scene:CreateChild(name)
@@ -40,7 +112,18 @@ local function PlaceShadow(node, worldPos, yaw)
     end
 end
 
--- 取件点状态
+local function Clamp(value, minValue, maxValue)
+    return math.max(minValue, math.min(maxValue, value))
+end
+
+local function Shuffle(list)
+    for i = #list, 2, -1 do
+        local j = math.random(1, i)
+        list[i], list[j] = list[j], list[i]
+    end
+end
+
+-- 旧单订单字段保持同步，便于旧调用方和调试面板继续读取。
 M.pickupNode = nil
 M.pickupShadowNode = nil
 M.pickupActive = false
@@ -49,9 +132,8 @@ M.pickupEdgeDist = 0.0
 M.pickupLane = 2
 M.lastPickupEdgeId = 0
 M.firstPickupPending = true
-M.nextPickupDistance = 0.0  -- 走多远后才能再生成下一个
+M.nextPickupDistance = 0.0
 
--- 送件点状态
 M.deliveryNode = nil
 M.deliveryShadowNode = nil
 M.deliveryActive = false
@@ -61,15 +143,12 @@ M.deliveryLane = 2
 M.lastDeliveryEdgeId = 0
 M.nextDeliveryDistance = 0.0
 
--- 游戏状态
 M.hasPackage = false
 M.packageVisualNode = nil
 
--- 计分
 M.totalIncome = 0
 M.comboCount = 0
 
--- 当前订单倒计时
 M.orderTimerActive = false
 M.orderTimeLimit = 0.0
 M.orderTimeRemaining = 0.0
@@ -77,12 +156,58 @@ M.orderLateSeconds = 0.0
 M.lastEdgeId = 0
 M.lastEdgeDistance = 0.0
 
--- ============================================================================
--- 创建视觉节点
--- ============================================================================
+M.pickupNodes = {}
+M.pickupShadowNodes = {}
+M.availableOrders = {}
+M.activeOrder = nil
+M.nextOrderId = 1
 
-function M.CreatePickupNode(scene)
-    local node = scene:CreateChild("Pickup")
+local function GetMaxOrderCount()
+    return math.max(1, CONFIG.ORDER_AVAILABLE_COUNT_MAX or 5)
+end
+
+local function GetTargetOrderCount()
+    local count = CONFIG.ORDER_AVAILABLE_COUNT_DEFAULT or 2
+    return Clamp(math.floor(count), 1, GetMaxOrderCount())
+end
+
+local function GetOrderType(typeId)
+    return ORDER_TYPE_BY_ID[typeId] or ORDER_TYPES[1]
+end
+
+local function PickOrderType()
+    local totalWeight = 0
+    for _, orderType in ipairs(ORDER_TYPES) do
+        totalWeight = totalWeight + (orderType.weight or 1)
+    end
+
+    local roll = math.random() * totalWeight
+    for _, orderType in ipairs(ORDER_TYPES) do
+        roll = roll - (orderType.weight or 1)
+        if roll <= 0 then
+            return orderType
+        end
+    end
+    return ORDER_TYPES[1]
+end
+
+local function SyncLegacyPickupFields()
+    local order = M.availableOrders[1]
+    if order and not M.hasPackage then
+        M.pickupActive = true
+        M.pickupEdgeId = order.pickupEdgeId
+        M.pickupEdgeDist = order.pickupEdgeDist
+        M.pickupLane = order.pickupLane
+    else
+        M.pickupActive = false
+        M.pickupEdgeId = 0
+        M.pickupEdgeDist = 0.0
+        M.pickupLane = 2
+    end
+end
+
+local function CreatePickupVisual(scene, index)
+    local node = scene:CreateChild("Pickup_" .. index)
 
     local bag = node:CreateChild("Bag")
     local bagModel = bag:CreateComponent("StaticModel")
@@ -119,10 +244,24 @@ function M.CreatePickupNode(scene)
     handleTop.scale = Vector3(0.52, 0.08, 0.08)
     handleTop.position = Vector3(0, 0.83, 0)
 
-    M.pickupShadowNode = CreateContactShadow(scene, "PickupShadow", 0.62, 0.46)
     node.position = Vector3(0, -100, 0)
-    M.pickupNode = node
     return node
+end
+
+function M.CreatePickupNode(scene)
+    M.pickupNodes = {}
+    M.pickupShadowNodes = {}
+
+    for i = 1, GetMaxOrderCount() do
+        local node = CreatePickupVisual(scene, i)
+        local shadow = CreateContactShadow(scene, "PickupShadow_" .. i, 0.62, 0.46)
+        M.pickupNodes[i] = node
+        M.pickupShadowNodes[i] = shadow
+    end
+
+    M.pickupNode = M.pickupNodes[1]
+    M.pickupShadowNode = M.pickupShadowNodes[1]
+    return M.pickupNode
 end
 
 function M.CreateDeliveryNode(scene)
@@ -160,19 +299,6 @@ function M.CreateDeliveryNode(scene)
     node.position = Vector3(0, -100, 0)
     M.deliveryNode = node
     return node
-end
-
--- ============================================================================
--- 送件目标工具
--- ============================================================================
-
-local function HideDeliveryNode()
-    HideNode(M.deliveryNode)
-    HideNode(M.deliveryShadowNode)
-end
-
-local function Clamp(value, minValue, maxValue)
-    return math.max(minValue, math.min(maxValue, value))
 end
 
 function M.CapturePathSnapshot()
@@ -223,15 +349,23 @@ local function StopOrderTimer()
     M.orderLateSeconds = 0.0
 end
 
-local function StartOrderTimer(routeDistance, currentSpeed)
+local function StartOrderTimer(order, routeDistance, currentSpeed)
+    local orderType = GetOrderType(order and order.typeId)
     local safeSpeed = math.max(1.0, currentSpeed or CONFIG.BASE_SPEED)
-    local estimatedTime = routeDistance / safeSpeed
-    local limit = estimatedTime * CONFIG.ORDER_TIME_ROUTE_FACTOR + CONFIG.ORDER_TIME_EXTRA_SECONDS
+    local estimatedTime = (routeDistance or 0.0) / safeSpeed
+    local factor = orderType.timeFactor or CONFIG.ORDER_TIME_ROUTE_FACTOR
+    local extra = orderType.timeExtra or CONFIG.ORDER_TIME_EXTRA_SECONDS
+    local limit = estimatedTime * factor + extra
 
     M.orderTimeLimit = Clamp(limit, CONFIG.ORDER_TIME_MIN_SECONDS, CONFIG.ORDER_TIME_MAX_SECONDS)
     M.orderTimeRemaining = M.orderTimeLimit
     M.orderLateSeconds = 0.0
     M.orderTimerActive = true
+end
+
+local function HideDeliveryNode()
+    HideNode(M.deliveryNode)
+    HideNode(M.deliveryShadowNode)
 end
 
 local function ClearDeliveryTarget()
@@ -244,201 +378,484 @@ local function ClearDeliveryTarget()
     StopOrderTimer()
 end
 
-local function SelectDeliveryCandidates(currentEdge)
-    local minHops = CONFIG.DELIVERY_TARGET_MIN_HOPS or 2
-    local maxHops = CONFIG.DELIVERY_TARGET_MAX_HOPS or 4
-    local candidates = nav.GetReachableTargetEdges(currentEdge, minHops, maxHops)
-
-    if #candidates == 0 then
-        candidates = nav.GetReachableTargetEdges(currentEdge, 1, 8)
+local function HidePickupOrderVisual(order)
+    if not order then return end
+    if order.nodeIndex then
+        HideNode(M.pickupNodes[order.nodeIndex])
+        HideNode(M.pickupShadowNodes[order.nodeIndex])
     end
-
-    return candidates
+    order.nodeIndex = nil
 end
 
-local function PlaceDeliveryOnCandidate(candidate, currentSpeed)
-    local s = path.state
-    if not candidate or not candidate.edge then return false end
+local function FindFreePickupNodeIndex()
+    local used = {}
+    for _, order in ipairs(M.availableOrders) do
+        if order.nodeIndex then
+            used[order.nodeIndex] = true
+        end
+    end
 
-    local edge = candidate.edge
+    for i = 1, GetMaxOrderCount() do
+        if not used[i] then
+            return i
+        end
+    end
+    return nil
+end
+
+local function PlacePickupOrderVisual(order)
+    if not order then return end
+    if M.hasPackage then
+        HidePickupOrderVisual(order)
+        return
+    end
+
+    local edge = rn.GetEdge(order.pickupEdgeId)
+    if not edge then
+        HidePickupOrderVisual(order)
+        return
+    end
+
+    if not order.nodeIndex then
+        order.nodeIndex = FindFreePickupNodeIndex()
+    end
+    if not order.nodeIndex then return end
+
+    local node = M.pickupNodes[order.nodeIndex]
+    local shadow = M.pickupShadowNodes[order.nodeIndex]
+    if not node then return end
+
+    local laneX = CONFIG.LANE_X[order.pickupLane]
+    local worldPos = rn.GetPositionOnEdgeByDist(edge, order.pickupEdgeDist, laneX)
+    local yaw = rn.HeadingToYaw(edge.heading)
+    node.position = Vector3(worldPos.x, 0.6, worldPos.z)
+    node.rotation = Quaternion(yaw, Vector3.UP)
+    PlaceShadow(shadow, worldPos, yaw)
+end
+
+local function RefreshPickupVisuals()
+    for _, order in ipairs(M.availableOrders) do
+        PlacePickupOrderVisual(order)
+    end
+end
+
+local function EstimateRouteDistance(route, startDist, targetDist)
+    if not route or #route == 0 then return 0.0 end
+
+    local distance = 0.0
+    for i, edgeId in ipairs(route) do
+        local edge = rn.GetEdge(edgeId)
+        if edge then
+            local effectiveLen = rn.GetEdgeEffectiveLength(edge)
+            if #route == 1 then
+                distance = distance + math.max(0.0, (targetDist or 0.0) - (startDist or 0.0))
+            elseif i == 1 then
+                distance = distance + math.max(0.0, effectiveLen - (startDist or 0.0))
+            elseif i == #route then
+                distance = distance + Clamp(targetDist or 0.0, 0.0, effectiveLen)
+            else
+                distance = distance + effectiveLen
+            end
+        end
+    end
+    return distance
+end
+
+local function IsOrderSlotUsed(slot)
+    if not slot then return false end
+    for _, order in ipairs(M.availableOrders) do
+        if order.pickupSlot == slot then
+            return true
+        end
+    end
+    return false
+end
+
+local function IsPickupSpotReserved(edgeId, edgeDist)
+    local minGap = CONFIG.ORDER_PICKUP_MIN_DISTANCE_BETWEEN or 22.0
+    for _, order in ipairs(M.availableOrders) do
+        if order.pickupEdgeId == edgeId and math.abs((order.pickupEdgeDist or 0.0) - edgeDist) < minGap then
+            return true
+        end
+    end
+    return false
+end
+
+local function IsDeliverySpotReserved(edgeId, edgeDist, lane)
+    local minGap = CONFIG.OBSTACLE_ORDER_CLEARANCE or 10.0
+    if M.deliveryActive and M.deliveryEdgeId == edgeId and M.deliveryLane == lane then
+        if math.abs((M.deliveryEdgeDist or 0.0) - edgeDist) < minGap then
+            return true
+        end
+    end
+    return false
+end
+
+local function IsPickupCandidateValid(edge, edgeDist)
+    if not edge then return false end
+
     local effectiveLen = rn.GetEdgeEffectiveLength(edge)
     local minDist = CONFIG.ORDER_EDGE_START_BUFFER
     local maxDist = effectiveLen - CONFIG.ORDER_EDGE_END_BUFFER
-    if maxDist <= minDist then return false end
+    if edgeDist < minDist or edgeDist > maxDist then return false end
 
-    local targetDist = minDist + math.random() * (maxDist - minDist)
-    local lane = math.random(1, 3)
-
-    if not nav.SetTarget(edge.id, targetDist, s) then
-        return false
-    end
-
-    M.deliveryEdgeId = edge.id
-    M.deliveryEdgeDist = targetDist
-    M.deliveryLane = lane
-    M.deliveryActive = true
-
-    local laneX = CONFIG.LANE_X[lane]
-    local worldPos = rn.GetPositionOnEdgeByDist(edge, targetDist, laneX)
-    M.deliveryNode.position = Vector3(worldPos.x, 0.15, worldPos.z)
-    M.deliveryNode.rotation = Quaternion(rn.HeadingToYaw(edge.heading), Vector3.UP)
-    PlaceShadow(M.deliveryShadowNode, worldPos, rn.HeadingToYaw(edge.heading))
-
-    M.lastDeliveryEdgeId = edge.id
-    M.nextDeliveryDistance = s.totalDistance + CONFIG.DELIVERY_INTERVAL_MIN + math.random() * (CONFIG.DELIVERY_INTERVAL_MAX - CONFIG.DELIVERY_INTERVAL_MIN)
-    StartOrderTimer(nav.distanceRemaining or 0.0, currentSpeed)
-
-    print("[Delivery] Spawned target edge " .. edge.id ..
-        " hops " .. candidate.hops ..
-        " dist " .. string.format("%.1f", targetDist) ..
-        " limit " .. string.format("%.1f", M.orderTimeLimit) .. "s")
+    local slot = nav.MakeEdgeSlot(edge)
+    if IsOrderSlotUsed(slot) then return false end
+    if IsPickupSpotReserved(edge.id, edgeDist) then return false end
     return true
 end
 
-local function SpawnReachableDeliveryTarget(currentSpeed)
-    local s = path.state
-    if not s.currentEdge then return false end
+local function AddPickupCandidate(candidates, edge, edgeDist)
+    if IsPickupCandidateValid(edge, edgeDist) then
+        candidates[#candidates + 1] = {
+            edge = edge,
+            edgeId = edge.id,
+            edgeDist = edgeDist,
+        }
+    end
+end
 
-    local candidates = SelectDeliveryCandidates(s.currentEdge)
-    while #candidates > 0 do
-        local index = math.random(1, #candidates)
-        local candidate = candidates[index]
-        table.remove(candidates, index)
-        if PlaceDeliveryOnCandidate(candidate, currentSpeed) then
+local function BuildPickupCandidates()
+    local s = path.state
+    local candidates = {}
+    if not s.currentEdge or s.insideIntersection then
+        return candidates
+    end
+
+    local currentEdge = s.currentEdge
+    local currentLen = rn.GetEdgeEffectiveLength(currentEdge)
+    local aheadMin = CONFIG.ORDER_PICKUP_SPAWN_AHEAD_MIN or 30.0
+    local aheadMax = CONFIG.ORDER_PICKUP_SPAWN_AHEAD_MAX or 110.0
+    local aheadRange = math.max(1.0, aheadMax - aheadMin)
+
+    for _ = 1, 4 do
+        local spawnDist = (s.edgeDistance or 0.0) + aheadMin + math.random() * aheadRange
+        if spawnDist < currentLen then
+            AddPickupCandidate(candidates, currentEdge, spawnDist)
+        end
+    end
+
+    local minHops = CONFIG.ORDER_PICKUP_REACHABLE_MIN_HOPS or 1
+    local maxHops = CONFIG.ORDER_PICKUP_REACHABLE_MAX_HOPS or 3
+    local reachable = nav.GetReachableTargetEdges(currentEdge, minHops, maxHops)
+    Shuffle(reachable)
+
+    for _, item in ipairs(reachable) do
+        local edge = item.edge
+        if edge then
+            local effectiveLen = rn.GetEdgeEffectiveLength(edge)
+            local minDist = CONFIG.ORDER_EDGE_START_BUFFER
+            local maxDist = effectiveLen - CONFIG.ORDER_EDGE_END_BUFFER
+            if maxDist > minDist then
+                AddPickupCandidate(candidates, edge, minDist + math.random() * (maxDist - minDist))
+            end
+        end
+    end
+
+    Shuffle(candidates)
+    return candidates
+end
+
+local function SelectDeliveryForOrder(orderType, pickupEdge, pickupDist)
+    if not pickupEdge then return nil end
+
+    local candidates = nav.GetReachableTargetEdges(
+        pickupEdge,
+        orderType.minHops or CONFIG.DELIVERY_TARGET_MIN_HOPS or 2,
+        orderType.maxHops or CONFIG.DELIVERY_TARGET_MAX_HOPS or 4
+    )
+
+    if #candidates == 0 then
+        candidates = nav.GetReachableTargetEdges(pickupEdge, 1, 8)
+    end
+
+    Shuffle(candidates)
+    for _, candidate in ipairs(candidates) do
+        local edge = candidate.edge
+        if edge then
+            local effectiveLen = rn.GetEdgeEffectiveLength(edge)
+            local minDist = CONFIG.ORDER_EDGE_START_BUFFER
+            local maxDist = effectiveLen - CONFIG.ORDER_EDGE_END_BUFFER
+            if maxDist > minDist then
+                local targetDist = minDist + math.random() * (maxDist - minDist)
+                local lane = math.random(1, 3)
+                if not IsDeliverySpotReserved(edge.id, targetDist, lane) then
+                    local route = candidate.route or nav.FindRouteFromEdge(pickupEdge, edge.id)
+                    local distance = EstimateRouteDistance(route, pickupDist, targetDist)
+                    return {
+                        edgeId = edge.id,
+                        edgeDist = targetDist,
+                        lane = lane,
+                        route = route,
+                        distance = distance,
+                        slot = nav.MakeEdgeSlot(edge),
+                    }
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+local function BuildOrderFromPickupCandidate(candidate)
+    if not candidate or not candidate.edge then return nil end
+
+    local orderType = PickOrderType()
+    local lane = math.random(1, 3)
+    if IsPickupSpotReserved(candidate.edgeId, candidate.edgeDist) then
+        return nil
+    end
+
+    local delivery = SelectDeliveryForOrder(orderType, candidate.edge, candidate.edgeDist)
+    if not delivery then
+        return nil
+    end
+
+    local id = M.nextOrderId
+    M.nextOrderId = M.nextOrderId + 1
+
+    return {
+        id = id,
+        typeId = orderType.id,
+        label = orderType.label,
+        name = orderType.name,
+        reward = orderType.reward,
+        fragile = orderType.fragile == true,
+        displayText = orderType.label .. "/" .. tostring(orderType.reward) .. "￥",
+        pickupEdgeId = candidate.edgeId,
+        pickupEdgeDist = candidate.edgeDist,
+        pickupLane = lane,
+        pickupSlot = nav.MakeEdgeSlot(candidate.edge),
+        deliveryEdgeId = delivery.edgeId,
+        deliveryEdgeDist = delivery.edgeDist,
+        deliveryLane = delivery.lane,
+        deliverySlot = delivery.slot,
+        route = delivery.route,
+        routeDistance = delivery.distance,
+    }
+end
+
+local function GenerateOneOrder()
+    local attempts = CONFIG.ORDER_PICKUP_MAX_ATTEMPTS or 24
+    for _ = 1, attempts do
+        local candidates = BuildPickupCandidates()
+        for _, candidate in ipairs(candidates) do
+            local order = BuildOrderFromPickupCandidate(candidate)
+            if order then
+                return order
+            end
+        end
+    end
+    return nil
+end
+
+local function RemoveAvailableOrderAt(index)
+    local order = M.availableOrders[index]
+    if order then
+        HidePickupOrderVisual(order)
+        table.remove(M.availableOrders, index)
+    end
+    SyncLegacyPickupFields()
+    return order
+end
+
+local function ShouldRecycleOrder(order)
+    if not order then return true end
+    if not rn.GetEdge(order.pickupEdgeId) then return true end
+    if not rn.GetEdge(order.deliveryEdgeId) then return true end
+
+    local s = path.state
+    if s.currentEdge and order.pickupEdgeId == s.currentEdge.id then
+        local behind = CONFIG.ORDER_RECYCLE_BEHIND_DISTANCE or 45.0
+        if (order.pickupEdgeDist or 0.0) < (s.edgeDistance or 0.0) - behind then
             return true
         end
+    elseif CONFIG.ORDER_RECYCLE_UNREACHABLE and s.currentEdge and not nav.FindRouteFromEdge(s.currentEdge, order.pickupEdgeId) then
+        return true
     end
 
     return false
 end
 
--- ============================================================================
--- 生成取件点（edge-based）
--- ============================================================================
-
-function M.TrySpawnPickup()
-    local s = path.state
-    if s.insideIntersection then return end
-    if M.pickupActive or M.hasPackage then return end
-    if not s.currentEdge then return end
-
-    -- 检查走过的距离是否满足间隔要求
-    if s.totalDistance < M.nextPickupDistance then return end
-
-    -- 生成位置：当前 edge 有效区段上玩家前方
-    local effectiveLen = rn.GetEdgeEffectiveLength(s.currentEdge)
-    local spawnAhead = M.firstPickupPending and (CONFIG.PICKUP_INITIAL_SPAWN_AHEAD or CONFIG.PICKUP_SPAWN_AHEAD) or CONFIG.PICKUP_SPAWN_AHEAD
-    local spawnDist = s.edgeDistance + spawnAhead
-    if spawnDist >= effectiveLen - CONFIG.ORDER_EDGE_END_BUFFER then return end  -- 太靠近末端不生成
-
-    -- 安全区检测
-    if spawnDist < CONFIG.ORDER_EDGE_START_BUFFER then return end
-
-    local lane = math.random(1, 3)
-    M.pickupEdgeId = s.currentEdge.id
-    M.pickupEdgeDist = spawnDist
-    M.pickupLane = lane
-    M.pickupActive = true
-
-    -- 计算世界位置
-    local laneX = CONFIG.LANE_X[lane]
-    local worldPos = rn.GetPositionOnEdgeByDist(s.currentEdge, spawnDist, laneX)
-    M.pickupNode.position = Vector3(worldPos.x, 0.6, worldPos.z)
-    M.pickupNode.rotation = Quaternion(rn.HeadingToYaw(s.currentEdge.heading), Vector3.UP)
-    PlaceShadow(M.pickupShadowNode, worldPos, rn.HeadingToYaw(s.currentEdge.heading))
-
-    M.lastPickupEdgeId = s.currentEdge.id
-    M.firstPickupPending = false
-    M.nextPickupDistance = s.totalDistance + CONFIG.PICKUP_INTERVAL_MIN + math.random() * (CONFIG.PICKUP_INTERVAL_MAX - CONFIG.PICKUP_INTERVAL_MIN)
-
-    print("[Pickup] Spawned at edge " .. s.currentEdge.id .. " dist " .. string.format("%.1f", spawnDist))
+local function RecycleInvalidOrders()
+    for i = #M.availableOrders, 1, -1 do
+        if ShouldRecycleOrder(M.availableOrders[i]) then
+            RemoveAvailableOrderAt(i)
+        end
+    end
 end
 
--- ============================================================================
--- 取件碰撞检测
--- ============================================================================
-
-function M.CheckPickup()
-    if not M.pickupActive then return end
-    local s = path.state
-    if not s.currentEdge then return end
-
-    local targetDist = M.pickupEdgeDist or 0
-    local hit = WasTargetSwept(M.pickupEdgeId, targetDist) and IsPlayerNearLane(M.pickupLane)
-
-    -- 只有在同一条边上才检测；若本帧扫过目标，则先结算命中。
-    if not hit and M.pickupEdgeId ~= s.currentEdge.id then
-        -- 玩家已离开该边，取件点消失
-        M.pickupActive = false
-        HideNode(M.pickupNode)
-        HideNode(M.pickupShadowNode)
+local function FillAvailableOrders()
+    if M.hasPackage then
+        RefreshPickupVisuals()
+        SyncLegacyPickupFields()
         return
     end
 
-    local distDiff = s.edgeDistance - targetDist
-    if hit then
-        -- 成功取件
-        M.hasPackage = true
-        M.pickupActive = false
-        HideNode(M.pickupNode)
-        HideNode(M.pickupShadowNode)
-        if M.packageVisualNode then
-            M.packageVisualNode.enabled = true
+    local targetCount = GetTargetOrderCount()
+    while #M.availableOrders < targetCount do
+        local order = GenerateOneOrder()
+        if not order then
+            break
         end
-        M.nextDeliveryDistance = s.totalDistance
-        print("[Pickup] Package collected!")
-    elseif distDiff > 3.0 then
-        -- 错过了
-        M.pickupActive = false
-        HideNode(M.pickupNode)
-        HideNode(M.pickupShadowNode)
+        M.availableOrders[#M.availableOrders + 1] = order
+        PlacePickupOrderVisual(order)
+        print("[Order] Available " .. order.displayText ..
+            " pickup edge " .. order.pickupEdgeId ..
+            " -> delivery edge " .. order.deliveryEdgeId)
     end
+
+    RefreshPickupVisuals()
+    SyncLegacyPickupFields()
 end
 
-function M.GetMinimapData()
-    if not M.pickupActive then
-        return {
-            active = false,
-            slot = nil,
-        }
-    end
+local function PlaceDeliveryForOrder(order)
+    if not order or not M.deliveryNode then return false end
 
-    local edge = rn.GetEdge(M.pickupEdgeId)
-    if not edge then
-        return {
-            active = false,
-            slot = nil,
-        }
-    end
+    local edge = rn.GetEdge(order.deliveryEdgeId)
+    if not edge then return false end
 
-    local slot = nav.MakeEdgeSlot(edge)
-    if not slot then
-        return {
-            active = false,
-            slot = nil,
-        }
-    end
+    M.deliveryEdgeId = order.deliveryEdgeId
+    M.deliveryEdgeDist = order.deliveryEdgeDist
+    M.deliveryLane = order.deliveryLane
+    M.deliveryActive = true
 
-    return {
-        active = true,
-        slot = slot,
-    }
+    local laneX = CONFIG.LANE_X[M.deliveryLane]
+    local worldPos = rn.GetPositionOnEdgeByDist(edge, M.deliveryEdgeDist, laneX)
+    local yaw = rn.HeadingToYaw(edge.heading)
+    M.deliveryNode.position = Vector3(worldPos.x, 0.15, worldPos.z)
+    M.deliveryNode.rotation = Quaternion(yaw, Vector3.UP)
+    PlaceShadow(M.deliveryShadowNode, worldPos, yaw)
+    return true
 end
 
--- ============================================================================
--- 生成送件点（edge-based）
--- ============================================================================
+local function ActivateDeliveryTarget(order, currentSpeed)
+    if not order then return false end
+    if not rn.GetEdge(order.deliveryEdgeId) then return false end
 
-function M.TrySpawnDelivery(currentSpeed)
     local s = path.state
-    if s.insideIntersection then return end
-    if M.deliveryActive or not M.hasPackage then return end
+    if not nav.SetTarget(order.deliveryEdgeId, order.deliveryEdgeDist, s) then
+        return false
+    end
+
+    if not PlaceDeliveryForOrder(order) then
+        nav.ClearTarget()
+        return false
+    end
+
+    local routeDistance = nav.distanceRemaining
+    if not routeDistance or routeDistance <= 0.0 then
+        routeDistance = order.routeDistance or 0.0
+    end
+    StartOrderTimer(order, routeDistance, currentSpeed)
+
+    M.lastDeliveryEdgeId = order.deliveryEdgeId
+    M.nextDeliveryDistance = (s.totalDistance or 0.0) + CONFIG.DELIVERY_INTERVAL_MIN
+    print("[Delivery] Active order " .. order.displayText ..
+        " target edge " .. order.deliveryEdgeId ..
+        " limit " .. string.format("%.1f", M.orderTimeLimit) .. "s")
+    return true
+end
+
+local function AssignNewDeliveryForActiveOrder(currentSpeed)
+    local order = M.activeOrder
+    local s = path.state
+    if not order or not s.currentEdge then return false end
+
+    local orderType = GetOrderType(order.typeId)
+    local delivery = SelectDeliveryForOrder(orderType, s.currentEdge, s.edgeDistance or 0.0)
+    if not delivery then
+        return false
+    end
+
+    order.deliveryEdgeId = delivery.edgeId
+    order.deliveryEdgeDist = delivery.edgeDist
+    order.deliveryLane = delivery.lane
+    order.deliverySlot = delivery.slot
+    order.route = delivery.route
+    order.routeDistance = delivery.distance
+
+    return ActivateDeliveryTarget(order, currentSpeed)
+end
+
+local function AcceptOrderAt(index)
+    local order = RemoveAvailableOrderAt(index)
+    if not order then return false end
+
+    M.activeOrder = order
+    M.hasPackage = true
+    if M.packageVisualNode then
+        M.packageVisualNode.enabled = true
+    end
+
+    RefreshPickupVisuals()
+    M.nextDeliveryDistance = path.state.totalDistance or 0.0
+
+    if not ActivateDeliveryTarget(order, player.currentSpeed) then
+        AssignNewDeliveryForActiveOrder(player.currentSpeed)
+    end
+
+    print("[Pickup] Accepted " .. order.displayText .. " order")
+    SyncLegacyPickupFields()
+    return true
+end
+
+local function FinishActiveOrder()
+    M.activeOrder = nil
+    M.hasPackage = false
+    if M.packageVisualNode then
+        M.packageVisualNode.enabled = false
+    end
+    ClearDeliveryTarget()
+    if CONFIG.ORDER_REFRESH_ON_DELIVERY then
+        RecycleInvalidOrders()
+        FillAvailableOrders()
+    end
+    SyncLegacyPickupFields()
+end
+
+local function FailActiveOrder(reason)
+    if M.activeOrder then
+        print("[Order] Failed " .. M.activeOrder.displayText .. " reason " .. (reason or "unknown"))
+    end
+    M.comboCount = 0
+    FinishActiveOrder()
+end
+
+-- 兼容旧主循环命名：这里实际负责补齐可接订单列表。
+function M.TrySpawnPickup()
+    RecycleInvalidOrders()
+    FillAvailableOrders()
+end
+
+function M.CheckPickup()
+    if M.hasPackage then return end
+
+    local s = path.state
     if not s.currentEdge then return end
 
-    -- 检查距离间隔
-    if s.totalDistance < M.nextDeliveryDistance then return end
+    for i = #M.availableOrders, 1, -1 do
+        local order = M.availableOrders[i]
+        local hit = WasTargetSwept(order.pickupEdgeId, order.pickupEdgeDist) and IsPlayerNearLane(order.pickupLane)
+        if hit then
+            AcceptOrderAt(i)
+            return
+        end
+    end
+end
 
-    SpawnReachableDeliveryTarget(currentSpeed)
+function M.TrySpawnDelivery(currentSpeed)
+    if M.deliveryActive or not M.hasPackage or not M.activeOrder then return end
+    if not path.state.currentEdge then return end
+
+    if (path.state.totalDistance or 0.0) < (M.nextDeliveryDistance or 0.0) then
+        return
+    end
+
+    if not ActivateDeliveryTarget(M.activeOrder, currentSpeed) then
+        AssignNewDeliveryForActiveOrder(currentSpeed)
+    end
 end
 
 function M.EnsureDeliveryTargetValid()
@@ -447,50 +864,46 @@ function M.EnsureDeliveryTargetValid()
 
     ClearDeliveryTarget()
     if M.hasPackage then
-        M.nextDeliveryDistance = path.state.totalDistance
+        M.nextDeliveryDistance = path.state.totalDistance or 0.0
     end
     return false
 end
 
 function M.ReselectDeliveryTarget(currentSpeed)
-    if not M.hasPackage then return false end
-    if not M.deliveryActive then return false end
+    if not M.hasPackage or not M.activeOrder then return false end
 
-    local ok = SpawnReachableDeliveryTarget(currentSpeed)
-    if ok then
+    ClearDeliveryTarget()
+    if AssignNewDeliveryForActiveOrder(currentSpeed) then
         print("[Delivery] Reselected reachable target")
         return true
     end
 
-    ClearDeliveryTarget()
+    M.nextDeliveryDistance = path.state.totalDistance or 0.0
     return false
 end
 
--- ============================================================================
--- 送件碰撞检测
--- ============================================================================
-
 function M.CheckDelivery()
-    if not M.deliveryActive then return end
+    if not M.deliveryActive or not M.activeOrder then return end
     local s = path.state
     if not s.currentEdge then return end
 
-    local targetDist = M.deliveryEdgeDist or 0
+    local targetDist = M.deliveryEdgeDist or 0.0
     local hit = WasTargetSwept(M.deliveryEdgeId, targetDist) and IsPlayerNearLane(M.deliveryLane)
 
-    -- 送件点是持久目标，离开/绕路不会清空，只有进入目标 edge 后才检测送达或错过。
     if not hit and M.deliveryEdgeId ~= s.currentEdge.id then
         return
     end
 
-    local distDiff = s.edgeDistance - targetDist
+    local distDiff = (s.edgeDistance or 0.0) - targetDist
     if hit then
-        -- 成功送达
-        local baseReward = 10
+        local order = M.activeOrder
+        local orderType = GetOrderType(order.typeId)
+        local baseReward = order.reward or orderType.reward or 10
         local reward = baseReward
 
         if M.orderLateSeconds > 0.0 then
-            reward = baseReward - math.floor(M.orderLateSeconds * CONFIG.ORDER_LATE_PENALTY_PER_SEC)
+            local penaltyRate = (CONFIG.ORDER_LATE_PENALTY_PER_SEC or 2) * (orderType.latePenaltyMultiplier or 1.0)
+            reward = math.max(0, baseReward - math.floor(M.orderLateSeconds * penaltyRate))
             M.comboCount = 0
         else
             M.comboCount = M.comboCount + 1
@@ -499,23 +912,12 @@ function M.CheckDelivery()
         end
 
         M.totalIncome = M.totalIncome + reward
-
-        M.hasPackage = false
-        ClearDeliveryTarget()
-        if M.packageVisualNode then
-            M.packageVisualNode.enabled = false
-        end
-        print("[Delivery] Delivered! Income " .. reward .. " (combo x" .. M.comboCount .. ")")
+        print("[Delivery] Delivered " .. order.displayText ..
+            "! Income " .. reward .. " (combo x" .. M.comboCount .. ")")
+        FinishActiveOrder()
     elseif distDiff > 3.0 then
-        -- 真正越过目标点才算错过；普通走错路只会触发导航重规划。
-        M.comboCount = 0
-        M.hasPackage = false
-        ClearDeliveryTarget()
-        if M.packageVisualNode then
-            M.packageVisualNode.enabled = false
-        end
-        M.nextPickupDistance = s.totalDistance + CONFIG.PICKUP_INTERVAL_MIN * 0.5
-        print("[Delivery] Missed target, combo reset")
+        FailActiveOrder("missed delivery")
+        M.nextPickupDistance = (s.totalDistance or 0.0) + CONFIG.PICKUP_INTERVAL_MIN * 0.5
     end
 end
 
@@ -537,6 +939,7 @@ function M.GetOrderTimerData()
         }
     end
 
+    local orderName = M.activeOrder and M.activeOrder.name or "订单"
     if M.orderTimeRemaining >= 0.0 then
         local displaySeconds = math.max(1, math.ceil(M.orderTimeRemaining))
         local state = "normal"
@@ -546,7 +949,7 @@ function M.GetOrderTimerData()
         return {
             active = true,
             state = state,
-            text = "订单 " .. displaySeconds .. "s",
+            text = orderName .. " " .. displaySeconds .. "s",
             remaining = M.orderTimeRemaining,
             lateSeconds = 0.0,
         }
@@ -562,22 +965,84 @@ function M.GetOrderTimerData()
     }
 end
 
--- ============================================================================
--- 浮动动画
--- ============================================================================
+function M.GetMinimapData()
+    local orders = {}
+
+    if not M.hasPackage then
+        for _, order in ipairs(M.availableOrders) do
+            local edge = rn.GetEdge(order.pickupEdgeId)
+            local slot = edge and nav.MakeEdgeSlot(edge) or nil
+            if slot then
+                orders[#orders + 1] = {
+                    id = order.id,
+                    slot = slot,
+                    edgeId = order.pickupEdgeId,
+                    edgeDist = order.pickupEdgeDist,
+                    lane = order.pickupLane,
+                    label = order.label,
+                    reward = order.reward,
+                    displayText = order.displayText,
+                    typeId = order.typeId,
+                }
+            end
+        end
+    end
+
+    return {
+        active = #orders > 0,
+        orders = orders,
+        slot = orders[1] and orders[1].slot or nil,
+        statusText = (#orders > 0 and not M.hasPackage) and "当前订单" or nil,
+    }
+end
+
+function M.IsNearOrderPoint(edgeId, edgeDist, lane)
+    local clearance = CONFIG.OBSTACLE_ORDER_CLEARANCE or 10.0
+
+    for _, order in ipairs(M.availableOrders) do
+        if order.pickupEdgeId == edgeId and order.pickupLane == lane then
+            if math.abs(edgeDist - (order.pickupEdgeDist or 0.0)) < clearance then
+                return true
+            end
+        end
+    end
+
+    if M.deliveryActive and M.deliveryEdgeId == edgeId and M.deliveryLane == lane then
+        if math.abs(edgeDist - (M.deliveryEdgeDist or 0.0)) < clearance then
+            return true
+        end
+    end
+
+    return false
+end
+
+function M.HandleCollision(collisionType)
+    if collisionType and M.activeOrder and M.activeOrder.fragile then
+        FailActiveOrder("fragile collision")
+        return true
+    end
+    return false
+end
 
 function M.UpdateAnimation()
-    if M.pickupActive and M.pickupNode then
-        local pos = M.pickupNode.position
-        M.pickupNode.position = Vector3(pos.x, 0.6 + math.sin(time.elapsedTime * 3.0) * 0.2, pos.z)
+    for _, order in ipairs(M.availableOrders) do
+        if order.nodeIndex and not M.hasPackage then
+            local node = M.pickupNodes[order.nodeIndex]
+            local shadow = M.pickupShadowNodes[order.nodeIndex]
+            if node then
+                local pos = node.position
+                node.position = Vector3(pos.x, 0.6 + math.sin(time.elapsedTime * 3.0 + order.id) * 0.2, pos.z)
+            end
+            if shadow and node then
+                shadow.rotation = node.rotation
+                shadow.scale = Vector3(0.62, 0.012, 0.46)
+            end
+        end
     end
+
     if M.deliveryActive and M.deliveryNode then
         local pos = M.deliveryNode.position
         M.deliveryNode.position = Vector3(pos.x, 0.15 + math.sin(time.elapsedTime * 2.5) * 0.1, pos.z)
-    end
-    if M.pickupActive and M.pickupShadowNode and M.pickupNode then
-        M.pickupShadowNode.rotation = M.pickupNode.rotation
-        M.pickupShadowNode.scale = Vector3(0.62, 0.012, 0.46)
     end
     if M.deliveryActive and M.deliveryShadowNode and M.deliveryNode then
         M.deliveryShadowNode.rotation = M.deliveryNode.rotation
@@ -585,21 +1050,33 @@ function M.UpdateAnimation()
     end
 end
 
--- ============================================================================
--- 重置
--- ============================================================================
-
 function M.Reset()
+    for _, order in ipairs(M.availableOrders) do
+        HidePickupOrderVisual(order)
+    end
+    M.availableOrders = {}
+    M.activeOrder = nil
+    M.nextOrderId = 1
+
+    for _, node in ipairs(M.pickupNodes) do
+        HideNode(node)
+    end
+    for _, node in ipairs(M.pickupShadowNodes) do
+        HideNode(node)
+    end
+
     M.pickupActive = false
-    HideNode(M.pickupNode)
-    HideNode(M.pickupShadowNode)
     M.pickupEdgeId = 0
     M.pickupEdgeDist = 0.0
+    M.pickupLane = 2
+    M.lastPickupEdgeId = 0
+    M.firstPickupPending = true
+    M.nextPickupDistance = 0.0
+
     ClearDeliveryTarget()
     M.hasPackage = false
     if M.packageVisualNode then M.packageVisualNode.enabled = false end
-    M.firstPickupPending = true
-    M.nextPickupDistance = 0.0
+
     M.nextDeliveryDistance = 100.0
     StopOrderTimer()
     M.totalIncome = 0
