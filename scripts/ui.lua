@@ -35,6 +35,7 @@ M.mainMenuPanel = nil
 M.menuCloudOne = nil
 M.menuCloudTwo = nil
 M.menuLaneStrip = nil
+M.menuLaneStrips = {}
 M.menuSpeedLineA = nil
 M.menuSpeedLineB = nil
 M.menuSpeedLineC = nil
@@ -49,7 +50,12 @@ M.lblStaticPageTitle = nil
 M.staticRows = {}
 M.upgradeButtons = {}
 M.upgradeButtonPanel = nil
+M.settingButtons = {}
+M.settingButtonPanel = nil
+M.taskClaimPanel = nil
+M.achievementClaimPanel = nil
 M.staticBackMode = "menu"
+M.staticPageKey = nil
 M.gameOverPanel = nil
 M.lblFinalIncome = nil
 M.lblFinalDist = nil
@@ -101,15 +107,15 @@ M.precisePlayerMarkerKey = nil
 M.preciseTargetMarkerKey = nil
 
 local MINI_PANEL_W = 132
-local MINI_PANEL_H = 154
+local MINI_PANEL_H = 148
 local MINI_ORDER_LIST_W = 132
-local MINI_ORDER_LIST_TOP = 250
-local MINI_ORDER_ROW_H = 15
+local MINI_ORDER_LIST_TOP = 248
+local MINI_ORDER_ROW_H = 18
 local MINI_ORDER_ROW_GAP = 5
 local MINI_ORDER_LIST_PADDING_Y = 8
-local MINI_MAP_SIZE = 112
+local MINI_MAP_SIZE = 104
 local MINI_LEFT = 10
-local MINI_TOP = 8
+local MINI_TOP = 28
 local MINI_MARGIN = 10
 
 local DEBUG_PANEL_W = 214
@@ -120,6 +126,23 @@ local DEBUG_STEP_SMALL = 0.25
 local DEBUG_STEP_BIG = 1.0
 local DEBUG_STEP_ANGLE = 2.5
 local DEBUG_STEP_PITCH = 0.25
+local STATIC_ROW_COUNT = 8
+
+local ORDER_TYPE_NAMES = {
+    normal = "普通",
+    nearby = "顺路",
+    rush = "急送",
+    long = "远距",
+    fragile = "易碎",
+}
+
+local SETTINGS_ACTIONS = {
+    { key = "sound", text = "音效" },
+    { key = "music", text = "音乐" },
+    { key = "vibration", text = "震动" },
+    { key = "controlMode", text = "操作" },
+    { key = "debugPanel", text = "调试" },
+}
 
 local function Pct(value)
     return string.format("%.3f%%", value)
@@ -141,7 +164,7 @@ local function H(value)
     return Pct(value / 844 * 100)
 end
 
-local function MakeImagePanel(id, image, left, top, width, height, fit)
+local function MakeImagePanel(id, image, left, top, width, height, fit, opacity)
     return UI.Panel {
         id = id,
         position = "absolute",
@@ -151,6 +174,7 @@ local function MakeImagePanel(id, image, left, top, width, height, fit)
         height = H(height),
         backgroundImage = image,
         backgroundFit = fit or "fill",
+        opacity = opacity,
     }
 end
 
@@ -220,21 +244,166 @@ local function MakeMenuStat(text, id)
 end
 
 local function FormatUnlockedOrderTypes(typeIds)
-    local names = {
-        normal = "普通",
-        nearby = "顺路",
-        rush = "急送",
-        long = "远距",
-        fragile = "易碎",
-    }
     local parts = {}
     for _, typeId in ipairs(typeIds or {}) do
-        parts[#parts + 1] = names[typeId] or typeId
+        parts[#parts + 1] = ORDER_TYPE_NAMES[typeId] or typeId
     end
     if #parts == 0 then
         return "普通"
     end
     return table.concat(parts, " / ")
+end
+
+local function FormatReward(row)
+    local parts = {}
+    if (row.coins or 0) > 0 then
+        parts[#parts + 1] = "¥" .. tostring(row.coins)
+    end
+    if (row.xp or 0) > 0 then
+        parts[#parts + 1] = "XP " .. tostring(row.xp)
+    end
+    if #parts == 0 then
+        return "无奖励"
+    end
+    return table.concat(parts, " / ")
+end
+
+local function FormatProgressRow(row)
+    local state = "进行中"
+    if row.claimed then
+        state = "已领取"
+    elseif row.done then
+        state = "可领取"
+    end
+    return row.name
+        .. "  " .. tostring(row.current or 0) .. "/" .. tostring(row.target or 1)
+        .. "  " .. state
+        .. "  奖励 " .. FormatReward(row)
+end
+
+local function FormatOnOff(value)
+    return value and "开" or "关"
+end
+
+local function FindNextUnlockText(level)
+    local bestLevel = nil
+    local parts = {}
+
+    for _, row in ipairs(CONFIG.RIDER_ORDER_COUNT_UNLOCKS or {}) do
+        if row.level and row.level > level and (not bestLevel or row.level < bestLevel) then
+            bestLevel = row.level
+        end
+    end
+    for _, unlockLevel in pairs(CONFIG.RIDER_ORDER_TYPE_UNLOCKS or {}) do
+        if unlockLevel and unlockLevel > level and (not bestLevel or unlockLevel < bestLevel) then
+            bestLevel = unlockLevel
+        end
+    end
+
+    if not bestLevel then
+        return "已解锁全部骑手成长内容"
+    end
+
+    for _, row in ipairs(CONFIG.RIDER_ORDER_COUNT_UNLOCKS or {}) do
+        if row.level == bestLevel then
+            parts[#parts + 1] = tostring(row.count or 0) .. " 个同时订单"
+        end
+    end
+    for typeId, unlockLevel in pairs(CONFIG.RIDER_ORDER_TYPE_UNLOCKS or {}) do
+        if unlockLevel == bestLevel then
+            parts[#parts + 1] = (ORDER_TYPE_NAMES[typeId] or typeId) .. "单"
+        end
+    end
+
+    if #parts == 0 then
+        return "下一等级继续提升订单能力"
+    end
+    return "下一解锁 Lv." .. tostring(bestLevel) .. ": " .. table.concat(parts, " / ")
+end
+
+local function BuildTaskRows()
+    local source = meta.GetTaskRows and meta.GetTaskRows() or {}
+    local rows = {}
+    for _, row in ipairs(source) do
+        rows[#rows + 1] = FormatProgressRow(row)
+    end
+    rows[#rows + 1] = "任务奖励为一次性领取，领取后写入本地存档"
+    return rows
+end
+
+local function BuildAchievementRows()
+    local source = meta.GetAchievementRows and meta.GetAchievementRows() or {}
+    local rows = {}
+    for _, row in ipairs(source) do
+        rows[#rows + 1] = FormatProgressRow(row)
+    end
+    return rows
+end
+
+local function BuildOrderRows()
+    local rows = {}
+    rows[#rows + 1] = "当前可同时显示 " .. tostring(progression.GetMaxAvailableOrders()) .. " 个取餐点"
+
+    local pickup = require("pickup_delivery")
+    local orderTypes = pickup.GetOrderTypeRows and pickup.GetOrderTypeRows() or {}
+    for _, orderType in ipairs(orderTypes) do
+        local unlockLevel = progression.GetOrderTypeUnlockLevel and progression.GetOrderTypeUnlockLevel(orderType.id) or 1
+        local unlocked = progression.IsOrderTypeUnlocked and progression.IsOrderTypeUnlocked(orderType.id)
+        local status = unlocked and "已解锁" or ("Lv." .. tostring(unlockLevel or 1) .. " 解锁")
+        local risk = orderType.fragile and "碰撞会失败" or ("罚时x" .. string.format("%.1f", orderType.latePenaltyMultiplier or 1.0))
+        local delivered = meta.GetDeliveredOrderTypeCount and meta.GetDeliveredOrderTypeCount(orderType.id) or 0
+        rows[#rows + 1] = string.format(
+            "%s单  ¥%s / XP %s  %s-%s段路  %s  %s  已送%s",
+            orderType.name or ORDER_TYPE_NAMES[orderType.id] or "订单",
+            tostring(orderType.reward or 0),
+            tostring(orderType.xp or 0),
+            tostring(orderType.minHops or 1),
+            tostring(orderType.maxHops or 1),
+            risk,
+            status,
+            tostring(delivered)
+        )
+    end
+
+    rows[#rows + 1] = "高价订单权重随骑手等级提升"
+    return rows
+end
+
+local function BuildSettingsRows()
+    local settings = meta.GetSettings and meta.GetSettings() or {}
+    return {
+        "音效: " .. FormatOnOff(settings.sound ~= false) .. "  按钮 / 金币 / 送达反馈",
+        "音乐: " .. FormatOnOff(settings.music ~= false) .. "  首页与跑单背景",
+        "震动: " .. FormatOnOff(settings.vibration ~= false) .. "  接单 / 碰撞 / 完成订单",
+        "操作方式: " .. tostring(settings.controlMode or "混合"),
+        "调试面板: " .. FormatOnOff(settings.debugPanel == true) .. "  开发相机参数入口",
+        "点击下方按钮可切换设置，设置会写入本地存档",
+    }
+end
+
+local function UpdateSettingButtonTexts()
+    local settings = meta.GetSettings and meta.GetSettings() or {}
+    local labels = {
+        sound = FormatOnOff(settings.sound ~= false),
+        music = FormatOnOff(settings.music ~= false),
+        vibration = FormatOnOff(settings.vibration ~= false),
+        controlMode = tostring(settings.controlMode or "混合"),
+        debugPanel = FormatOnOff(settings.debugPanel == true),
+    }
+    for i, action in ipairs(SETTINGS_ACTIONS) do
+        local button = M.settingButtons and M.settingButtons[i]
+        if button then
+            button:SetText(labels[action.key] or action.text)
+        end
+    end
+end
+
+local function BuildBackpackRows()
+    return {
+        "背包系统暂未开放",
+        "后续用于开局携带道具、装备保温箱、查看消耗品",
+        "当前局内道具仍会在路上刷新，可直接拾取使用",
+    }
 end
 
 local function BuildRiderRows()
@@ -249,6 +418,7 @@ local function BuildRiderRows()
         "已解锁: " .. FormatUnlockedOrderTypes(progression.GetUnlockedOrderTypes()),
         "配送奖励: +" .. tostring(summary.rewardBonusPercent or 0) .. "%  道具加时: +" .. string.format("%.1f", summary.powerupDurationBonus or 0) .. "s",
         "最高送达: " .. tostring(summary.bestDeliveries or 0) .. " 单  最高连击: " .. tostring(summary.bestCombo or 0),
+        FindNextUnlockText(data.level or 1),
     }
 end
 
@@ -272,11 +442,84 @@ local function BuildUpgradeButton(index, key)
     return UI.Button {
         id = "upgradeButton" .. tostring(index),
         text = "升级",
-        width = 78,
+        width = 88,
         height = 32,
         marginTop = 8,
         onClick = function()
             HandleUpgradeClick(key)
+        end,
+    }
+end
+
+local function HandleSettingClick(action)
+    if not action then
+        return
+    end
+
+    local message = ""
+    if action.key == "controlMode" then
+        local mode = meta.CycleControlMode and meta.CycleControlMode() or "混合"
+        message = "操作方式: " .. tostring(mode)
+    elseif action.key == "debugPanel" then
+        local ok, value = meta.ToggleSetting(action.key)
+        message = ok and ("调试面板: " .. FormatOnOff(value)) or tostring(value)
+        if not value and M.debugPanel then
+            M.debugPanelVisible = false
+            M.debugPanel:SetVisible(false)
+        end
+    else
+        local ok, value = false, nil
+        if meta.ToggleSetting then
+            ok, value = meta.ToggleSetting(action.key)
+        end
+        message = ok and (action.text .. ": " .. FormatOnOff(value)) or tostring(value)
+    end
+
+    print("[UI] " .. tostring(message))
+    M.ShowStaticPage("settings", M.staticBackMode)
+end
+
+local function ClaimAvailable(claimFunc)
+    if not claimFunc then
+        return false, "领取接口不存在"
+    end
+    return claimFunc()
+end
+
+local function HandleTaskClaimClick()
+    local ok, message = ClaimAvailable(meta.ClaimAvailableTasks)
+    progression.ApplyMetaState(meta.GetRiderState())
+    print("[UI] " .. tostring(message))
+    M.ShowStaticPage("tasks", M.staticBackMode)
+end
+
+local function HandleAchievementClaimClick()
+    local ok, message = ClaimAvailable(meta.ClaimAvailableAchievements)
+    progression.ApplyMetaState(meta.GetRiderState())
+    print("[UI] " .. tostring(message))
+    M.ShowStaticPage("achievements", M.staticBackMode)
+end
+
+local function BuildClaimButton(id, text, onClick)
+    return UI.Button {
+        id = id,
+        text = text,
+        width = 148,
+        height = 34,
+        marginTop = 8,
+        onClick = onClick,
+    }
+end
+
+local function BuildSettingButton(index, action)
+    return UI.Button {
+        id = "settingButton" .. tostring(index),
+        text = action.text,
+        width = 58,
+        height = 32,
+        marginTop = 8,
+        onClick = function()
+            HandleSettingClick(action)
         end,
     }
 end
@@ -305,52 +548,31 @@ end
 local STATIC_PAGE_DATA = {
     rider = {
         title = "骑手成长",
-        rows = {
-            "Lv.3 城市快骑  XP 120/220",
-            "同时订单: 3 个取餐点",
-            "已解锁: 普通 / 顺路 / 急送",
-            "高价订单概率: +5%",
-            "下一等级: Lv.4 解锁护盾",
-        },
+        rows = {},
     },
     upgrades = {
         title = "局外升级",
-        rows = {
-            "起步速度 Lv.2  开局速度 +0.6m/s",
-            "最高速度 Lv.1  最大速度 +0.4m/s",
-            "操控能力 Lv.3  变道更灵敏",
-            "时间管理 Lv.1  订单时限增加",
-            "幸运派单 Lv.0  高价订单概率提升",
-        },
+        rows = {},
+    },
+    orders = {
+        title = "订单图鉴",
+        rows = {},
+    },
+    backpack = {
+        title = "背包",
+        rows = {},
     },
     tasks = {
-        title = "任务",
-        rows = {
-            "本局完成 3 单  1/3",
-            "准时送达 2 单  1/2",
-            "完成 1 个急送单  0/1",
-            "连续送达 3 单  0/3",
-        },
+        title = "今日任务",
+        rows = {},
     },
     achievements = {
-        title = "成就",
-        rows = {
-            "完成首单  已完成",
-            "累计完成 50 单  12/50",
-            "累计准时送达 30 单  8/30",
-            "完成 20 个急送单  4/20",
-            "单局收入达到 ¥300  未完成",
-        },
+        title = "成就墙",
+        rows = {},
     },
     settings = {
         title = "设置",
-        rows = {
-            "音效: 开",
-            "音乐: 开",
-            "震动: 开",
-            "操作方式: 滑动 / 键盘",
-            "调试面板: 开发入口保留",
-        },
+        rows = {},
     },
 }
 
@@ -489,14 +711,24 @@ local function MakeMiniOrderRow(index)
                 marginLeft = 6,
                 fontSize = 12,
                 fontWeight = "bold",
-                fontColor = {51,65,77,255},
+                fontColor = {36,54,64,255},
             },
         },
     }
 end
 
 local function BuildMiniOrderList()
-    local children = {}
+    local children = {
+        UI.Label {
+            text = "可接订单",
+            width = MINI_ORDER_LIST_W - 16,
+            height = 16,
+            fontSize = 11,
+            fontWeight = "bold",
+            fontColor = {255,138,31,255},
+            textAlign = "center",
+        },
+    }
     local maxRows = CONFIG.ORDER_AVAILABLE_COUNT_MAX or 5
     for i = 1, maxRows do
         children[#children + 1] = MakeMiniOrderRow(i)
@@ -505,15 +737,15 @@ local function BuildMiniOrderList()
     return UI.Panel {
         id = "miniOrderList",
         width = MINI_ORDER_LIST_W,
-        height = maxRows * MINI_ORDER_ROW_H + (maxRows - 1) * MINI_ORDER_ROW_GAP + MINI_ORDER_LIST_PADDING_Y * 2,
+        height = 16 + maxRows * MINI_ORDER_ROW_H + maxRows * MINI_ORDER_ROW_GAP + MINI_ORDER_LIST_PADDING_Y * 2,
         position = "absolute",
         right = 12,
         top = MINI_ORDER_LIST_TOP,
         padding = MINI_ORDER_LIST_PADDING_Y,
         flexDirection = "column",
         gap = MINI_ORDER_ROW_GAP,
-        backgroundColor = {255,255,255,238},
-        borderRadius = 8,
+        backgroundColor = "rgba(255,248,224,0.94)",
+        borderRadius = 12,
         children = children,
     }
 end
@@ -521,22 +753,28 @@ end
 local function BuildPowerupPanel()
     return UI.Panel {
         id = "powerupPanel",
-        width = 132,
-        height = 58,
+        width = 142,
+        height = 66,
         position = "absolute",
-        right = 150,
-        top = 144,
-        padding = 8,
+        left = 14,
+        top = 724,
+        padding = 7,
         flexDirection = "column",
         alignItems = "center",
-        backgroundColor = {255,255,255,238},
-        borderRadius = 8,
+        backgroundColor = "rgba(255,248,224,0.94)",
+        borderRadius = 18,
         children = {
             UI.Button {
                 id = "powerupButton",
                 text = "无道具",
-                width = 116,
-                height = 28,
+                width = 128,
+                height = 34,
+                backgroundColor = "#28B8F0",
+                borderRadius = 17,
+                borderWidth = 0,
+                fontSize = 16,
+                fontWeight = "bold",
+                fontColor = {255,255,255,255},
                 onClick = function()
                     if M.onUsePowerup then
                         M.onUsePowerup()
@@ -546,12 +784,12 @@ local function BuildPowerupPanel()
             UI.Label {
                 id = "powerupStatus",
                 text = "",
-                width = 116,
+                width = 128,
                 height = 16,
-                marginTop = 4,
+                marginTop = 3,
                 fontSize = 11,
                 fontWeight = "bold",
-                fontColor = {51,65,77,255},
+                fontColor = {91,54,8,255},
                 textAlign = "center",
             },
         },
@@ -848,7 +1086,31 @@ local function BindMinimapRefs(root)
 end
 
 local function BuildMinimap()
-    local children = {}
+    local children = {
+        UI.Label {
+            text = "路线雷达",
+            position = "absolute",
+            left = 10,
+            top = 7,
+            width = 74,
+            height = 17,
+            fontSize = 12,
+            fontWeight = "bold",
+            fontColor = {255,255,255,255},
+        },
+        UI.Label {
+            text = "N",
+            position = "absolute",
+            left = 102,
+            top = 7,
+            width = 20,
+            height = 17,
+            fontSize = 11,
+            fontWeight = "bold",
+            fontColor = {92,221,255,255},
+            textAlign = "right",
+        },
+    }
     local seenSegments = {}
     local segmentPositions = {}
 
@@ -916,12 +1178,14 @@ local function BuildMinimap()
         id = "miniStatus",
         text = "等待订单",
         position = "absolute",
-        left = 8,
-        top = 126,
-        width = MINI_PANEL_W - 16,
-        height = 20,
+        left = 10,
+        top = 132,
+        width = MINI_PANEL_W - 20,
+        height = 15,
         fontSize = 12,
-        fontColor = {220,230,235,255},
+        fontWeight = "bold",
+        fontColor = {255,232,118,255},
+        textAlign = "center",
     })
 
     return UI.Panel {
@@ -931,8 +1195,8 @@ local function BuildMinimap()
         position = "absolute",
         right = 12,
         top = 92,
-        backgroundColor = "rgba(12,18,24,0.72)",
-        borderRadius = 8,
+        backgroundColor = "rgba(15,28,42,0.78)",
+        borderRadius = 14,
         children = children,
     }
 end
@@ -1198,42 +1462,80 @@ local function BuildDebugPanel()
 end
 
 local function BuildMainMenu()
+    local function MakeLocalTextLabel(id, text, left, top, width, height, fontSize, fontColor, align)
+        return UI.Panel {
+            position = "absolute",
+            left = left,
+            top = top,
+            width = width,
+            height = height,
+            justifyContent = "center",
+            children = {
+                UI.Label {
+                    id = id,
+                    text = text,
+                    width = "100%",
+                    height = fontSize + 4,
+                    fontSize = fontSize,
+                    fontWeight = "bold",
+                    fontColor = fontColor,
+                    textAlign = align or "center",
+                },
+            },
+        }
+    end
+
     local function MakeMenuImageButton(id, text, image, pressedImage, left, top, width, height, onClick)
-        return UI.Button {
+        return UI.Panel {
             id = id,
-            text = text or "",
             position = "absolute",
             left = X(left),
             top = Y(top),
             width = W(width),
             height = H(height),
             backgroundImage = image,
-            pressedBackgroundImage = pressedImage,
             backgroundFit = "fill",
-            backgroundColor = {0,0,0,0},
-            borderWidth = 0,
-            borderRadius = 0,
-            fontSize = 30,
-            fontWeight = "bold",
-            fontColor = {255,255,255,255},
-            textAlign = "center",
-            onClick = onClick,
+            children = {
+                MakeLocalTextLabel(nil, text or "", 0, -6, "100%", "70%", 30, {255,255,255,255}, "center"),
+                UI.Button {
+                    text = "",
+                    position = "absolute",
+                    left = 0,
+                    top = 0,
+                    width = "100%",
+                    height = "100%",
+                    backgroundImage = image,
+                    pressedBackgroundImage = pressedImage,
+                    backgroundFit = "fill",
+                    backgroundColor = {0,0,0,0},
+                    borderWidth = 0,
+                    borderRadius = 0,
+                    onClick = onClick,
+                },
+            },
         }
     end
 
     local function MakeTextLabel(id, text, left, top, width, height, fontSize, fontColor, align)
-        return UI.Label {
-            id = id,
-            text = text,
+        return UI.Panel {
             position = "absolute",
             left = X(left),
             top = Y(top),
             width = W(width),
             height = H(height),
-            fontSize = fontSize,
-            fontWeight = "bold",
-            fontColor = fontColor,
-            textAlign = align or "center",
+            justifyContent = "center",
+            children = {
+                UI.Label {
+                    id = id,
+                    text = text,
+                    width = "100%",
+                    height = fontSize + 4,
+                    fontSize = fontSize,
+                    fontWeight = "bold",
+                    fontColor = fontColor,
+                    textAlign = align or "center",
+                },
+            },
         }
     end
 
@@ -1248,30 +1550,8 @@ local function BuildMainMenu()
             backgroundFit = "fill",
             children = {
                 MakeLocalImagePanel(nil, iconImage, "31.250%", "15.385%", "37.500%", "38.462%"),
-                UI.Label {
-                    text = mark,
-                    position = "absolute",
-                    left = "31.250%",
-                    top = "16.667%",
-                    width = "37.500%",
-                    height = "23.077%",
-                    fontSize = 14,
-                    fontWeight = "bold",
-                    fontColor = {255,255,255,255},
-                    textAlign = "center",
-                },
-                UI.Label {
-                    text = label,
-                    position = "absolute",
-                    left = 0,
-                    top = "61.538%",
-                    width = "100%",
-                    height = "23.077%",
-                    fontSize = 13,
-                    fontWeight = "bold",
-                    fontColor = {99,51,5,255},
-                    textAlign = "center",
-                },
+                MakeLocalTextLabel(nil, mark, "31.250%", "15.385%", "37.500%", "38.462%", 14, {255,255,255,255}, "center"),
+                MakeLocalTextLabel(nil, label, 0, "58.974%", "100%", "26.923%", 13, {99,51,5,255}, "center"),
                 UI.Button {
                     text = "",
                     position = "absolute",
@@ -1299,18 +1579,7 @@ local function BuildMainMenu()
             backgroundImage = image,
             backgroundFit = "fill",
             children = {
-                UI.Label {
-                    text = label,
-                    position = "absolute",
-                    left = 0,
-                    top = "24.242%",
-                    width = "100%",
-                    height = "33.333%",
-                    fontSize = 15,
-                    fontWeight = "bold",
-                    fontColor = {255,255,255,255},
-                    textAlign = "center",
-                },
+                MakeLocalTextLabel(nil, label, 0, "17.000%", "100%", "46.000%", 15, {255,255,255,255}, "center"),
                 UI.Button {
                     text = "",
                     position = "absolute",
@@ -1329,7 +1598,14 @@ local function BuildMainMenu()
 
     local cloudOne = MakeImagePanel("menuCloudOne", "Textures/home_cloud_one.png", 24, 62, 104, 48)
     local cloudTwo = MakeImagePanel("menuCloudTwo", "Textures/home_cloud_two.png", 236, 110, 122, 58)
-    local laneStrip = MakeImagePanel("menuLaneStrip", "Textures/home_lane_strip.png", 189, 236, 12, 530)
+    local laneStrips = {
+        MakeImagePanel("menuLaneStrip", "Textures/home_lane_strip.png", 189, 236, 12, 530, nil, 1),
+        MakeImagePanel("menuLaneStrip2", "Textures/home_lane_strip_1.png", 189, 236, 12, 530, nil, 0),
+        MakeImagePanel("menuLaneStrip3", "Textures/home_lane_strip_2.png", 189, 236, 12, 530, nil, 0),
+        MakeImagePanel("menuLaneStrip4", "Textures/home_lane_strip_3.png", 189, 236, 12, 530, nil, 0),
+        MakeImagePanel("menuLaneStrip5", "Textures/home_lane_strip_4.png", 189, 236, 12, 530, nil, 0),
+        MakeImagePanel("menuLaneStrip6", "Textures/home_lane_strip_5.png", 189, 236, 12, 530, nil, 0),
+    }
     local speedLineA = MakeImagePanel("menuSpeedLineA", "Textures/home_speed_line_a.png", 28, 318, 96, 23)
     local speedLineB = MakeImagePanel("menuSpeedLineB", "Textures/home_speed_line_b.png", 296, 384, 96, 23)
     local speedLineC = MakeImagePanel("menuSpeedLineC", "Textures/home_speed_line_c.png", 64, 466, 66, 23)
@@ -1355,7 +1631,8 @@ local function BuildMainMenu()
 
     M.menuCloudOne = cloudOne
     M.menuCloudTwo = cloudTwo
-    M.menuLaneStrip = laneStrip
+    M.menuLaneStrip = laneStrips[1]
+    M.menuLaneStrips = laneStrips
     M.menuSpeedLineA = speedLineA
     M.menuSpeedLineB = speedLineB
     M.menuSpeedLineC = speedLineC
@@ -1382,7 +1659,12 @@ local function BuildMainMenu()
             },
             cloudOne,
             cloudTwo,
-            laneStrip,
+            laneStrips[1],
+            laneStrips[2],
+            laneStrips[3],
+            laneStrips[4],
+            laneStrips[5],
+            laneStrips[6],
             speedLineA,
             speedLineB,
             speedLineC,
@@ -1395,14 +1677,14 @@ local function BuildMainMenu()
             xpFill,
             MakeImagePanel(nil, "Textures/home_coin_badge_base.png", 258, 0, 114, 58),
             coinIcon,
-            MakeTextLabel("menuCoins", "0", 322, 14, 36, 30, 22, {255,255,255,255}, "left"),
+            MakeTextLabel("menuCoins", "0", 322, 4, 36, 36, 22, {255,255,255,255}, "left"),
             MakeImagePanel(nil, "Textures/home_title.png", 70, 96, 250, 138),
             MakeImagePanel(nil, "Textures/home_subtitle_badge.png", 111, 220, 168, 34),
             MakeTextLabel(nil, "接单上路，准时送达", 123, 226, 144, 17, 13, {92,43,0,255}, "center"),
             MakeImagePanel(nil, "Textures/home_order_sign.png", 0, 250, 159, 146),
-            MakeTextLabel(nil, "+¥30", 37, 282, 64, 22, 18, {160,50,0,255}, "center"),
-            MakeTextLabel(nil, "准时送达", 45, 304, 48, 14, 11, {92,43,0,255}, "center"),
-            MakeTextLabel(nil, "2 单", 51, 318, 36, 14, 11, {92,43,0,255}, "center"),
+            MakeTextLabel(nil, "+¥30", 37, 273, 64, 22, 18, {160,50,0,255}, "center"),
+            MakeTextLabel(nil, "准时送达", 45, 297, 48, 14, 11, {92,43,0,255}, "center"),
+            MakeTextLabel(nil, "2 单", 51, 311, 36, 14, 11, {92,43,0,255}, "center"),
             MakeRoundEntry("menuTaskButton", "Textures/home_round_blue.png", "任务", 303, 272, function() M.ShowStaticPage("tasks", "menu") end),
             MakeRoundEntry("menuAchievementButton", "Textures/home_round_green.png", "成就", 303, 350, function() M.ShowStaticPage("achievements", "menu") end),
             MakeRoundEntry("menuSettingsButton", "Textures/home_round_red.png", "设置", 303, 428, function() M.ShowStaticPage("settings", "menu") end),
@@ -1410,8 +1692,8 @@ local function BuildMainMenu()
             startButton,
             MakeDockEntry(17, "Textures/home_dock_icon_orange.png", "骑", "骑手", function() M.ShowStaticPage("rider", "menu") end),
             MakeDockEntry(105, "Textures/home_dock_icon_blue.png", "升", "升级", function() M.ShowStaticPage("upgrades", "menu") end),
-            MakeDockEntry(193, "Textures/home_dock_icon_green.png", "单", "订单", function() M.ShowStaticPage("tasks", "menu") end),
-            MakeDockEntry(281, "Textures/home_dock_icon_gray.png", "包", "背包", function() M.ShowStaticPage("upgrades", "menu") end),
+            MakeDockEntry(193, "Textures/home_dock_icon_green.png", "单", "订单", function() M.ShowStaticPage("orders", "menu") end),
+            MakeDockEntry(281, "Textures/home_dock_icon_gray.png", "包", "背包", function() M.ShowStaticPage("backpack", "menu") end),
         },
     }
 end
@@ -1433,7 +1715,9 @@ end
 local function StopHomeAnimations()
     StopNodeAnimation(M.menuCloudOne)
     StopNodeAnimation(M.menuCloudTwo)
-    StopNodeAnimation(M.menuLaneStrip)
+    for _, node in ipairs(M.menuLaneStrips or {}) do
+        StopNodeAnimation(node)
+    end
     StopNodeAnimation(M.menuSpeedLineA)
     StopNodeAnimation(M.menuSpeedLineB)
     StopNodeAnimation(M.menuSpeedLineC)
@@ -1441,6 +1725,42 @@ local function StopHomeAnimations()
     StopNodeAnimation(M.menuRiderShadow)
     StopNodeAnimation(M.menuRiderPanel)
     StopNodeAnimation(M.menuStartButton)
+end
+
+local function PlayLaneStripAnimations()
+    local laneStrips = M.menuLaneStrips or {}
+    local count = #laneStrips
+    if count <= 0 then
+        return
+    end
+
+    for i, node in ipairs(laneStrips) do
+        local segment = 1 / count
+        local startAt = (i - 1) * segment
+        local endAt = i * segment
+        local keyframes = {
+            [0] = { opacity = 0 },
+            [1] = { opacity = 0 },
+        }
+
+        if i == 1 then
+            keyframes[0] = { opacity = 1 }
+            keyframes[segment] = { opacity = 0 }
+            keyframes[1 - segment] = { opacity = 0 }
+            keyframes[1] = { opacity = 1 }
+        else
+            keyframes[math.max(0, startAt - segment)] = { opacity = 0 }
+            keyframes[startAt] = { opacity = 1 }
+            keyframes[math.min(1, endAt)] = { opacity = 0 }
+        end
+
+        PlayNodeAnimation(node, {
+            keyframes = keyframes,
+            duration = 0.9,
+            easing = "linear",
+            loop = true,
+        })
+    end
 end
 
 local function StartHomeAnimations()
@@ -1464,15 +1784,7 @@ local function StartHomeAnimations()
         easing = "easeInOut",
         loop = true,
     })
-    PlayNodeAnimation(M.menuLaneStrip, {
-        keyframes = {
-            [0] = { translateY = 0 },
-            [1] = { translateY = 58 },
-        },
-        duration = 0.9,
-        easing = "linear",
-        loop = true,
-    })
+    PlayLaneStripAnimations()
     PlayNodeAnimation(M.menuSpeedLineA, {
         keyframes = {
             [0] = { opacity = 0.18, translateY = 0 },
@@ -1675,7 +1987,7 @@ local function BuildGameOverPanel(onRestart)
                                 text = "骑手成长",
                                 width = 104,
                                 height = 36,
-                                onClick = function() M.ShowStaticPage("upgrades", "result") end,
+                                onClick = function() M.ShowStaticPage("rider", "result") end,
                             },
                             UI.Button {
                                 text = "主菜单",
@@ -1697,7 +2009,7 @@ end
 
 local function BuildStaticPage()
     local rows = {}
-    for i = 1, 6 do
+    for i = 1, STATIC_ROW_COUNT do
         rows[#rows + 1] = MakeStaticRow(i)
     end
 
@@ -1705,6 +2017,10 @@ local function BuildStaticPage()
     local upgradeKeys = meta.GetUpgradeKeys and meta.GetUpgradeKeys() or {}
     for i, key in ipairs(upgradeKeys) do
         upgradeButtons[#upgradeButtons + 1] = BuildUpgradeButton(i, key)
+    end
+    local settingButtons = {}
+    for i, action in ipairs(SETTINGS_ACTIONS) do
+        settingButtons[#settingButtons + 1] = BuildSettingButton(i, action)
     end
 
     return UI.Panel {
@@ -1763,6 +2079,37 @@ local function BuildStaticPage()
                 justifyContent = "space-around",
                 children = upgradeButtons,
             },
+            UI.Panel {
+                id = "settingButtonPanel",
+                width = "100%",
+                height = 48,
+                marginTop = 12,
+                flexDirection = "row",
+                justifyContent = "space-around",
+                children = settingButtons,
+            },
+            UI.Panel {
+                id = "taskClaimPanel",
+                width = "100%",
+                height = 48,
+                marginTop = 12,
+                justifyContent = "center",
+                alignItems = "center",
+                children = {
+                    BuildClaimButton("taskClaimButton", "领取可领任务", HandleTaskClaimClick),
+                },
+            },
+            UI.Panel {
+                id = "achievementClaimPanel",
+                width = "100%",
+                height = 48,
+                marginTop = 12,
+                justifyContent = "center",
+                alignItems = "center",
+                children = {
+                    BuildClaimButton("achievementClaimButton", "领取可领成就", HandleAchievementClaimClick),
+                },
+            },
         },
     }
 end
@@ -1785,110 +2132,140 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu, onUsePowe
         width = "100%", height = "100%",
         children = {
             UI.Panel {
-                width = "100%", height = 82,
-                flexDirection = "row",
-                justifyContent = "space-between",
-                alignItems = "center",
-                paddingTop = 10,
-                paddingLeft = 14,
-                paddingRight = 74,
+                position = "absolute",
+                left = 14,
+                top = 14,
+                width = 128,
+                height = 58,
+                backgroundColor = "rgba(16,38,52,0.74)",
+                borderRadius = 16,
                 children = {
-                    UI.Panel {
-                        width = 118,
-                        height = 42,
-                        justifyContent = "center",
-                        alignItems = "flex-start",
-                        children = {
-                            UI.Label {
-                                id = "income",
-                                text = "¥0",
-                                width = 118,
-                                height = 24,
-                                fontSize = 22,
-                                fontWeight = "bold",
-                                fontColor = {255,215,0,255},
-                            },
-                            UI.Label {
-                                id = "riderLevel",
-                                text = "Lv.1 新手骑手",
-                                width = 118,
-                                height = 16,
-                                fontSize = 11,
-                                fontColor = {220,235,235,255},
-                            },
-                            UI.Label {
-                                id = "riderXP",
-                                text = "XP 0/60",
-                                width = 118,
-                                height = 1,
-                                fontSize = 1,
-                                fontColor = {0,0,0,0},
-                            },
-                        },
+                    UI.Label {
+                        id = "income",
+                        text = "¥0",
+                        position = "absolute",
+                        left = 12,
+                        top = 5,
+                        width = 104,
+                        height = 26,
+                        fontSize = 22,
+                        fontWeight = "bold",
+                        fontColor = {255,215,0,255},
                     },
-                    UI.Panel {
-                        width = 116,
-                        height = 34,
-                        children = {
-                            UI.Label {
-                                id = "timerNormal",
-                                text = "等待订单",
-                                position = "absolute",
-                                left = 0,
-                                top = 0,
-                                width = 116,
-                                height = 34,
-                                fontSize = 18,
-                                fontWeight = "bold",
-                                fontColor = {235,235,235,255},
-                                textAlign = "center",
-                            },
-                            UI.Label {
-                                id = "timerWarning",
-                                text = "订单 5s",
-                                position = "absolute",
-                                left = 0,
-                                top = 0,
-                                width = 116,
-                                height = 34,
-                                fontSize = 18,
-                                fontWeight = "bold",
-                                fontColor = {255,210,64,255},
-                                textAlign = "center",
-                            },
-                            UI.Label {
-                                id = "timerLate",
-                                text = "迟到 1s",
-                                position = "absolute",
-                                left = 0,
-                                top = 0,
-                                width = 116,
-                                height = 34,
-                                fontSize = 18,
-                                fontWeight = "bold",
-                                fontColor = {255,88,88,255},
-                                textAlign = "center",
-                            },
-                        },
+                    UI.Label {
+                        id = "riderLevel",
+                        text = "Lv.1 新手骑手",
+                        position = "absolute",
+                        left = 12,
+                        top = 31,
+                        width = 104,
+                        height = 14,
+                        fontSize = 11,
+                        fontWeight = "bold",
+                        fontColor = {220,245,255,255},
                     },
-                    UI.Panel {
-                        width = 88,
-                        height = 42,
-                        alignItems = "flex-end",
-                        children = {
-                            UI.Label { id = "combo", text = "", width = 88, height = 22, fontSize = 16, fontWeight = "bold", fontColor = {0,255,136,255}, textAlign = "right" },
-                            UI.Label { id = "speed", text = "", width = 88, height = 16, fontSize = 11, fontColor = {170,170,170,255}, textAlign = "right" },
-                        },
+                    UI.Label {
+                        id = "riderXP",
+                        text = "XP 0/60",
+                        position = "absolute",
+                        left = 12,
+                        top = 44,
+                        width = 104,
+                        height = 12,
+                        fontSize = 10,
+                        fontColor = {145,223,255,255},
                     },
                 },
             },
             UI.Panel {
-                width = "100%", height = 40,
+                position = "absolute",
+                left = 146,
+                top = 18,
+                width = 112,
+                height = 44,
+                backgroundColor = "rgba(255,248,224,0.90)",
+                borderRadius = 18,
+                children = {
+                    UI.Label {
+                        id = "timerNormal",
+                        text = "等待订单",
+                        position = "absolute",
+                        left = 0,
+                        top = 8,
+                        width = 112,
+                        height = 26,
+                        fontSize = 18,
+                        fontWeight = "bold",
+                        fontColor = {255,138,31,255},
+                        textAlign = "center",
+                    },
+                    UI.Label {
+                        id = "timerWarning",
+                        text = "",
+                        position = "absolute",
+                        left = 0,
+                        top = 8,
+                        width = 112,
+                        height = 26,
+                        fontSize = 18,
+                        fontWeight = "bold",
+                        fontColor = {226,120,0,255},
+                        textAlign = "center",
+                    },
+                    UI.Label {
+                        id = "timerLate",
+                        text = "",
+                        position = "absolute",
+                        left = 0,
+                        top = 8,
+                        width = 112,
+                        height = 26,
+                        fontSize = 18,
+                        fontWeight = "bold",
+                        fontColor = {255,73,73,255},
+                        textAlign = "center",
+                    },
+                },
+            },
+            UI.Panel {
+                position = "absolute",
+                left = 268,
+                top = 18,
+                width = 58,
+                height = 34,
+                backgroundColor = "rgba(16,38,52,0.68)",
+                borderRadius = 14,
                 justifyContent = "center",
                 alignItems = "center",
                 children = {
-                    UI.Label { id = "hint", text = "", fontSize = 18, fontColor = {0,221,255,255} },
+                    UI.Label { id = "speed", text = "", width = 58, height = 22, fontSize = 14, fontWeight = "bold", fontColor = {220,245,255,255}, textAlign = "center" },
                 },
+            },
+            UI.Label {
+                id = "combo",
+                text = "",
+                position = "absolute",
+                left = 242,
+                top = 56,
+                width = 82,
+                height = 22,
+                fontSize = 16,
+                fontWeight = "bold",
+                fontColor = {0,229,184,255},
+                textAlign = "center",
+            },
+            UI.Label {
+                id = "hint",
+                text = "",
+                position = "absolute",
+                left = 52,
+                top = 82,
+                width = 184,
+                height = 34,
+                fontSize = 15,
+                fontWeight = "bold",
+                fontColor = {255,232,118,255},
+                textAlign = "center",
             },
         },
     }
@@ -1909,8 +2286,8 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu, onUsePowe
         width = 52,
         height = 22,
         position = "absolute",
-        right = 150,
-        top = 92,
+        left = 14,
+        top = 88,
         onClick = function()
             M.ToggleDebugPanel()
         end,
@@ -1919,11 +2296,17 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu, onUsePowe
     local pauseButton = UI.Button {
         id = "pauseButton",
         text = "暂停",
-        width = 52,
-        height = 22,
+        width = 50,
+        height = 30,
         position = "absolute",
-        right = 150,
-        top = 118,
+        left = 330,
+        top = 18,
+        backgroundColor = "#28B8F0",
+        borderRadius = 15,
+        borderWidth = 0,
+        fontSize = 13,
+        fontWeight = "bold",
+        fontColor = {255,255,255,255},
         onClick = function()
             if onTogglePause then
                 onTogglePause()
@@ -1973,6 +2356,14 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu, onUsePowe
     M.menuCloudOne = root:FindById("menuCloudOne") or M.menuCloudOne
     M.menuCloudTwo = root:FindById("menuCloudTwo") or M.menuCloudTwo
     M.menuLaneStrip = root:FindById("menuLaneStrip") or M.menuLaneStrip
+    M.menuLaneStrips = {
+        root:FindById("menuLaneStrip") or (M.menuLaneStrips and M.menuLaneStrips[1]) or M.menuLaneStrip,
+        root:FindById("menuLaneStrip2") or (M.menuLaneStrips and M.menuLaneStrips[2]),
+        root:FindById("menuLaneStrip3") or (M.menuLaneStrips and M.menuLaneStrips[3]),
+        root:FindById("menuLaneStrip4") or (M.menuLaneStrips and M.menuLaneStrips[4]),
+        root:FindById("menuLaneStrip5") or (M.menuLaneStrips and M.menuLaneStrips[5]),
+        root:FindById("menuLaneStrip6") or (M.menuLaneStrips and M.menuLaneStrips[6]),
+    }
     M.menuSpeedLineA = root:FindById("menuSpeedLineA") or M.menuSpeedLineA
     M.menuSpeedLineB = root:FindById("menuSpeedLineB") or M.menuSpeedLineB
     M.menuSpeedLineC = root:FindById("menuSpeedLineC") or M.menuSpeedLineC
@@ -2003,12 +2394,23 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu, onUsePowe
     M.btnPause = root:FindById("pauseButton")
     M.lblStaticPageTitle = root:FindById("staticPageTitle")
     M.upgradeButtonPanel = root:FindById("upgradeButtonPanel")
+    M.settingButtonPanel = root:FindById("settingButtonPanel")
+    M.taskClaimPanel = root:FindById("taskClaimPanel")
+    M.achievementClaimPanel = root:FindById("achievementClaimPanel")
+    if M.upgradeButtonPanel then M.upgradeButtonPanel:SetVisible(false) end
+    if M.settingButtonPanel then M.settingButtonPanel:SetVisible(false) end
+    if M.taskClaimPanel then M.taskClaimPanel:SetVisible(false) end
+    if M.achievementClaimPanel then M.achievementClaimPanel:SetVisible(false) end
     M.upgradeButtons = {}
-    for i = 1, 3 do
+    for i = 1, #(meta.GetUpgradeKeys and meta.GetUpgradeKeys() or {}) do
         M.upgradeButtons[i] = root:FindById("upgradeButton" .. tostring(i))
     end
+    M.settingButtons = {}
+    for i = 1, #SETTINGS_ACTIONS do
+        M.settingButtons[i] = root:FindById("settingButton" .. tostring(i))
+    end
     M.staticRows = {}
-    for i = 1, 6 do
+    for i = 1, STATIC_ROW_COUNT do
         M.staticRows[i] = {
             panel = root:FindById("staticRow" .. tostring(i)),
             text = root:FindById("staticRowText" .. tostring(i)),
@@ -2060,14 +2462,16 @@ function M.RebuildMinimap()
 end
 
 local function SetGameplayUIVisible(visible)
+    local settings = meta.GetSettings and meta.GetSettings() or {}
+    local debugAllowed = settings.debugPanel == true
     if M.hudPanel then M.hudPanel:SetVisible(visible) end
     if M.minimapPanel then M.minimapPanel:SetVisible(visible) end
     if M.minimapOrderListPanel and not visible then M.minimapOrderListPanel:SetVisible(false) end
     if M.powerupPanel then M.powerupPanel:SetVisible(visible) end
-    if M.btnDebugToggle then M.btnDebugToggle:SetVisible(false) end
+    if M.btnDebugToggle then M.btnDebugToggle:SetVisible(visible and debugAllowed) end
     if M.btnPause then M.btnPause:SetVisible(visible) end
     if M.debugPanel then
-        M.debugPanel:SetVisible(visible and M.debugPanelVisible)
+        M.debugPanel:SetVisible(visible and debugAllowed and M.debugPanelVisible)
     end
 end
 
@@ -2127,12 +2531,24 @@ function M.ShowStaticPage(key, backMode)
     local data = STATIC_PAGE_DATA[key]
     if not data then return end
     ---@type string[]
-    local rows = key == "rider" and BuildRiderRows() or data.rows
-    if key == "upgrades" and meta.GetUpgradeRows then
+    local rows = data.rows
+    if key == "rider" then
+        rows = BuildRiderRows()
+    elseif key == "upgrades" and meta.GetUpgradeRows then
         rows = meta.GetUpgradeRows()
+    elseif key == "orders" then
+        rows = BuildOrderRows()
+    elseif key == "tasks" then
+        rows = BuildTaskRows()
+    elseif key == "achievements" then
+        rows = BuildAchievementRows()
+    elseif key == "settings" then
+        rows = BuildSettingsRows()
+    elseif key == "backpack" then
+        rows = BuildBackpackRows()
     end
-
     M.staticBackMode = backMode or "menu"
+    M.staticPageKey = key
     if M.mainMenuPanel then
         M.mainMenuPanel:SetVisible(false)
         StopHomeAnimations()
@@ -2144,7 +2560,7 @@ function M.ShowStaticPage(key, backMode)
     if M.lblStaticPageTitle then
         M.lblStaticPageTitle:SetText(data.title)
     end
-    for i = 1, 6 do
+    for i = 1, STATIC_ROW_COUNT do
         local row = M.staticRows[i]
         local text = rows[i]
         if row and row.panel then
@@ -2156,18 +2572,48 @@ function M.ShowStaticPage(key, backMode)
     end
 
     local showUpgradeButtons = key == "upgrades"
+    local showSettingButtons = key == "settings"
+    local showTaskClaim = key == "tasks"
+    local showAchievementClaim = key == "achievements"
     if M.upgradeButtonPanel then
         M.upgradeButtonPanel:SetVisible(showUpgradeButtons)
     end
+    if M.settingButtonPanel then
+        M.settingButtonPanel:SetVisible(showSettingButtons)
+    end
+    if M.taskClaimPanel then
+        M.taskClaimPanel:SetVisible(showTaskClaim)
+    end
+    if M.achievementClaimPanel then
+        M.achievementClaimPanel:SetVisible(showAchievementClaim)
+    end
+    for i = 1, #SETTINGS_ACTIONS do
+        local button = M.settingButtons and M.settingButtons[i]
+        if button then
+            button:SetVisible(showSettingButtons)
+        end
+    end
+    if showSettingButtons then
+        UpdateSettingButtonTexts()
+    end
     if showUpgradeButtons then
         local keys = meta.GetUpgradeKeys and meta.GetUpgradeKeys() or {}
-        for i, button in ipairs(M.upgradeButtons or {}) do
+        for i = 1, #keys do
+            local button = M.upgradeButtons and M.upgradeButtons[i]
             local upgradeKey = keys[i]
             if button then
                 button:SetVisible(upgradeKey ~= nil)
                 if upgradeKey then
-                    button:SetText("升级" .. tostring(i))
+                    button:SetText(meta.GetUpgradeName and meta.GetUpgradeName(upgradeKey) or ("升级" .. tostring(i)))
                 end
+            end
+        end
+    else
+        local keys = meta.GetUpgradeKeys and meta.GetUpgradeKeys() or {}
+        for i = 1, #keys do
+            local button = M.upgradeButtons and M.upgradeButtons[i]
+            if button then
+                button:SetVisible(false)
             end
         end
     end
@@ -2418,8 +2864,9 @@ local function SetMiniOrderListVisible(pickupMiniData)
         M.minimapOrderListPanel:SetVisible(hasOrders)
         if hasOrders and M.minimapOrderListPanel.SetStyle then
             M.minimapOrderListPanel:SetStyle({
-                height = visibleCount * MINI_ORDER_ROW_H
-                    + math.max(visibleCount - 1, 0) * MINI_ORDER_ROW_GAP
+                height = 16
+                    + visibleCount * MINI_ORDER_ROW_H
+                    + visibleCount * MINI_ORDER_ROW_GAP
                     + MINI_ORDER_LIST_PADDING_Y * 2,
             })
         end

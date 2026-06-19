@@ -12,6 +12,7 @@ local cfg = require("config")
 local CONFIG = cfg.CONFIG
 local path = require("path")
 local player = require("player")
+local meta = require("meta_progress")
 
 local M = {}
 
@@ -19,6 +20,11 @@ local M = {}
 local touchStartX = 0
 local touchStartY = 0
 local touchActive = false
+
+local function GetControlMode()
+    local settings = meta.GetSettings and meta.GetSettings() or {}
+    return settings.controlMode or "混合"
+end
 
 -- ============================================================================
 -- 通用左右输入处理
@@ -76,12 +82,14 @@ end
 -- ============================================================================
 
 function M.HandleTouchBegin(eventType, eventData)
+    if GetControlMode() == "键盘" then return end
     touchStartX = eventData:GetInt("X")
     touchStartY = eventData:GetInt("Y")
     touchActive = true
 end
 
 function M.HandleTouchEnd(eventType, eventData)
+    if GetControlMode() == "键盘" then return end
     if not touchActive then return end
     touchActive = false
 
@@ -112,6 +120,7 @@ end
 -- ============================================================================
 
 function M.HandleKeyboard(dt)
+    if GetControlMode() == "滑动" then return end
     if input:GetKeyPress(KEY_A) or input:GetKeyPress(KEY_LEFT) then
         HandleHorizontalInput(-1)
     end

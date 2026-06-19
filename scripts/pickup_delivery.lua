@@ -1005,6 +1005,8 @@ function M.CheckDelivery()
         if onTime then
             M.runOnTimeDeliveries = (M.runOnTimeDeliveries or 0) + 1
         end
+        M.runOrderTypeCounts = M.runOrderTypeCounts or {}
+        M.runOrderTypeCounts[order.typeId] = (M.runOrderTypeCounts[order.typeId] or 0) + 1
         M.runBestCombo = math.max(M.runBestCombo or 0, M.comboCount or 0)
         M.totalIncome = M.totalIncome + reward
         print("[Delivery] Delivered " .. order.displayText ..
@@ -1072,6 +1074,27 @@ function M.GetOrderTimerData()
         remaining = M.orderTimeRemaining,
         lateSeconds = M.orderLateSeconds,
     }
+end
+
+function M.GetOrderTypeRows()
+    local rows = {}
+    for _, orderType in ipairs(ORDER_TYPES) do
+        rows[#rows + 1] = {
+            id = orderType.id,
+            label = orderType.label,
+            name = orderType.name,
+            reward = orderType.reward,
+            xp = orderType.xp or CONFIG.PROGRESSION_DEFAULT_ORDER_XP or 8,
+            minHops = orderType.minHops,
+            maxHops = orderType.maxHops,
+            timeFactor = orderType.timeFactor,
+            timeExtra = orderType.timeExtra,
+            latePenaltyMultiplier = orderType.latePenaltyMultiplier,
+            fragile = orderType.fragile == true,
+            color = orderType.color,
+        }
+    end
+    return rows
 end
 
 function M.GetMinimapData()
@@ -1197,6 +1220,7 @@ function M.Reset()
     M.runDeliveries = 0
     M.runOnTimeDeliveries = 0
     M.runBestCombo = 0
+    M.runOrderTypeCounts = {}
     M.CapturePathSnapshot()
 end
 
@@ -1206,6 +1230,7 @@ function M.GetRunStats()
         deliveries = M.runDeliveries or 0,
         onTimeDeliveries = M.runOnTimeDeliveries or 0,
         bestCombo = M.runBestCombo or 0,
+        orderTypeCounts = M.runOrderTypeCounts or {},
         distance = player.distanceTraveled or 0,
     }
 end

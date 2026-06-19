@@ -17,6 +17,7 @@
 | `assets/Textures/home_cloud_one.png` | 104x48 | 左上云，供 `cloudDrift` 动效使用 | 不包含 |
 | `assets/Textures/home_cloud_two.png` | 122x58 | 太阳前方云，供 `cloudDrift` 动效使用 | 不包含 |
 | `assets/Textures/home_lane_strip.png` | 12x530 | 中央车道虚线，供 `laneRun` 动效使用 | 不包含 |
+| `assets/Textures/home_lane_strip_1.png` ~ `home_lane_strip_5.png` | 12x530 | 中央车道虚线相位帧，用于 Lua 中交替淡入淡出，避免整张贴图位移回跳 | 不包含 |
 | `assets/Textures/home_speed_line_a.png` | 96x23 | 左侧速度线 A，供 `streak` 动效使用 | 不包含 |
 | `assets/Textures/home_speed_line_b.png` | 96x23 | 右侧速度线 B，供 `streak` 动效使用 | 不包含 |
 | `assets/Textures/home_speed_line_c.png` | 66x23 | 左下速度线 C，供 `streak` 动效使用 | 不包含 |
@@ -53,7 +54,7 @@
 
 1. `home_scene_bg_static.png`
 2. `home_cloud_one.png`、`home_cloud_two.png`
-3. `home_lane_strip.png`
+3. `home_lane_strip.png` 及 `home_lane_strip_1.png` ~ `home_lane_strip_5.png`
 4. `home_speed_line_a.png`、`home_speed_line_b.png`、`home_speed_line_c.png`
 5. `home_rider_shadow.png`
 6. `home_bottom_fade.png`

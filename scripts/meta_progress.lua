@@ -10,6 +10,14 @@ local M = {}
 local SAVE_DIR = "save"
 local SAVE_PATH = SAVE_DIR .. "/meta_progress.json"
 
+local DEFAULT_SETTINGS = {
+    sound = true,
+    music = true,
+    vibration = true,
+    controlMode = "混合",
+    debugPanel = false,
+}
+
 local UPGRADE_DEFS = {
     rewardBonusLevel = {
         name = "配送奖励",
@@ -32,6 +40,26 @@ local UPGRADE_DEFS = {
 }
 
 local UPGRADE_ORDER = {"rewardBonusLevel", "powerupDurationLevel", "maxOrdersLevel"}
+
+local TASK_DEFS = {
+    { id = "task_first_run", name = "完成首局配送", metric = "totalRuns", target = 1, coins = 50, xp = 0 },
+    { id = "task_run_three", name = "单局送达 3 单", metric = "bestDeliveries", target = 3, coins = 80, xp = 10 },
+    { id = "task_ontime_two", name = "单局准时 2 单", metric = "bestOnTimeDeliveries", target = 2, coins = 80, xp = 10 },
+    { id = "task_combo_three", name = "最高连击达到 3", metric = "bestCombo", target = 3, coins = 100, xp = 12 },
+    { id = "task_income_120", name = "单局收入达到 ¥120", metric = "bestIncome", target = 120, coins = 120, xp = 15 },
+    { id = "task_total_20", name = "累计送达 20 单", metric = "totalDeliveries", target = 20, coins = 180, xp = 20 },
+}
+
+local ACHIEVEMENT_DEFS = {
+    { id = "ach_first_order", name = "完成首单", metric = "totalDeliveries", target = 1, coins = 100, xp = 10 },
+    { id = "ach_total_50", name = "累计完成 50 单", metric = "totalDeliveries", target = 50, coins = 300, xp = 30 },
+    { id = "ach_ontime_30", name = "累计准时 30 单", metric = "totalOnTimeDeliveries", target = 30, coins = 260, xp = 28 },
+    { id = "ach_runs_10", name = "累计跑单 10 局", metric = "totalRuns", target = 10, coins = 180, xp = 20 },
+    { id = "ach_combo_8", name = "最高连击达到 8", metric = "bestCombo", target = 8, coins = 240, xp = 26 },
+    { id = "ach_income_300", name = "单局收入达到 ¥300", metric = "bestIncome", target = 300, coins = 300, xp = 32 },
+    { id = "ach_distance_5000", name = "累计骑行 5000m", metric = "totalDistance", target = 5000, coins = 350, xp = 35 },
+    { id = "ach_rush_20", name = "累计完成 20 个急送单", metric = "orderType", typeId = "rush", target = 20, coins = 400, xp = 40 },
+}
 
 local function CloneTable(source)
     local copy = {}
@@ -57,8 +85,13 @@ local function CreateDefaultData()
         totalOnTimeDeliveries = 0,
         totalDistance = 0,
         bestDeliveries = 0,
+        bestOnTimeDeliveries = 0,
         bestCombo = 0,
         bestIncome = 0,
+        deliveredOrderTypes = {},
+        claimedTasks = {},
+        claimedAchievements = {},
+        settings = CloneTable(DEFAULT_SETTINGS),
         upgrades = {
             rewardBonusLevel = 0,
             powerupDurationLevel = 0,
@@ -77,9 +110,13 @@ local function MergeDefaults(data)
         if data[key] == nil then
             data[key] = CloneTable(value)
         elseif type(value) == "table" then
-            for subKey, subValue in pairs(value) do
-                if data[key][subKey] == nil then
-                    data[key][subKey] = subValue
+            if type(data[key]) ~= "table" then
+                data[key] = CloneTable(value)
+            else
+                for subKey, subValue in pairs(value) do
+                    if data[key][subKey] == nil then
+                        data[key][subKey] = subValue
+                    end
                 end
             end
         end
@@ -119,6 +156,116 @@ local function GetUpgradeCost(key)
     local level = GetUpgradeLevel(key)
     if level >= def.maxLevel then return nil end
     return def.costs[level + 1] or (100 * (level + 1) * (level + 1))
+end
+
+local function EnsureProgressTables()
+    if type(M.data.deliveredOrderTypes) ~= "table" then
+        M.data.deliveredOrderTypes = {}
+    end
+    if type(M.data.claimedTasks) ~= "table" then
+        M.data.claimedTasks = {}
+    end
+    if type(M.data.claimedAchievements) ~= "table" then
+        M.data.claimedAchievements = {}
+    end
+end
+
+local function GetMetricValue(def)
+    if not def then return 0 end
+    if def.metric == "orderType" then
+        EnsureProgressTables()
+        return M.data.deliveredOrderTypes[def.typeId] or 0
+    end
+    return M.data[def.metric] or 0
+end
+
+local function BuildProgressRows(defs, claimedTable)
+    EnsureProgressTables()
+    local rows = {}
+    for _, def in ipairs(defs or {}) do
+        local current = math.max(0, math.floor(GetMetricValue(def)))
+        local target = math.max(1, math.floor(def.target or 1))
+        local done = current >= target
+        local claimed = claimedTable and claimedTable[def.id] == true
+        rows[#rows + 1] = {
+            id = def.id,
+            name = def.name,
+            current = current,
+            target = target,
+            done = done,
+            claimed = claimed,
+            coins = def.coins or 0,
+            xp = def.xp or 0,
+        }
+    end
+    return rows
+end
+
+local function ApplyClaimReward(def)
+    local coins = math.max(0, math.floor(def.coins or 0))
+    local xp = math.max(0, math.floor(def.xp or 0))
+    M.data.coins = math.floor(math.max(0, (M.data.coins or 0) + coins))
+
+    local xpResult = nil
+    if xp > 0 then
+        local progression = require("progression")
+        progression.ApplyMetaState(M.GetRiderState())
+        xpResult = progression.AddXP(xp, "claim:" .. tostring(def.id))
+        local hud = progression.GetHUDData()
+        M.data.riderLevel = hud.level or M.data.riderLevel or 1
+        M.data.riderXp = hud.xp or M.data.riderXp or 0
+        M.data.totalXp = hud.totalXp or M.data.totalXp or 0
+    end
+
+    return {
+        coins = coins,
+        xp = xp,
+        xpResult = xpResult,
+    }
+end
+
+local function ClaimFromList(defs, claimedTable, id)
+    EnsureProgressTables()
+    for _, def in ipairs(defs or {}) do
+        if def.id == id then
+            if claimedTable[def.id] then
+                return false, "奖励已领取"
+            end
+            local current = GetMetricValue(def)
+            if current < (def.target or 1) then
+                return false, "目标未完成"
+            end
+            claimedTable[def.id] = true
+            local reward = ApplyClaimReward(def)
+            M.Save()
+            return true, "领取 " .. def.name .. "  ¥" .. tostring(reward.coins) .. " / XP " .. tostring(reward.xp)
+        end
+    end
+    return false, "目标不存在"
+end
+
+local function ClaimAvailableFromList(defs, claimedTable)
+    EnsureProgressTables()
+    local claimedCount = 0
+    local totalCoins = 0
+    local totalXp = 0
+
+    for _, def in ipairs(defs or {}) do
+        if not claimedTable[def.id] and GetMetricValue(def) >= (def.target or 1) then
+            claimedTable[def.id] = true
+            local reward = ApplyClaimReward(def)
+            claimedCount = claimedCount + 1
+            totalCoins = totalCoins + (reward.coins or 0)
+            totalXp = totalXp + (reward.xp or 0)
+        end
+    end
+
+    if claimedCount <= 0 then
+        return false, "没有可领取奖励"
+    end
+
+    M.Save()
+    return true, "领取 " .. tostring(claimedCount) .. " 项奖励  ¥" .. tostring(totalCoins) .. " / XP " .. tostring(totalXp)
 end
 
 function M.Load()
@@ -199,7 +346,9 @@ function M.GetSummary()
         totalRuns = M.data.totalRuns or 0,
         totalDeliveries = M.data.totalDeliveries or 0,
         totalOnTimeDeliveries = M.data.totalOnTimeDeliveries or 0,
+        totalDistance = M.data.totalDistance or 0,
         bestDeliveries = M.data.bestDeliveries or 0,
+        bestOnTimeDeliveries = M.data.bestOnTimeDeliveries or 0,
         bestCombo = M.data.bestCombo or 0,
         bestIncome = M.data.bestIncome or 0,
         rewardBonusPercent = math.floor((M.GetRewardMultiplier() - 1.0) * 100 + 0.5),
@@ -232,8 +381,13 @@ function M.ApplyRunResult(runStats, progressBefore, progressAfter)
     M.data.totalOnTimeDeliveries = (M.data.totalOnTimeDeliveries or 0) + onTimeDeliveries
     M.data.totalDistance = math.floor((M.data.totalDistance or 0) + distance)
     M.data.bestDeliveries = math.max(M.data.bestDeliveries or 0, deliveries)
+    M.data.bestOnTimeDeliveries = math.max(M.data.bestOnTimeDeliveries or 0, onTimeDeliveries)
     M.data.bestCombo = math.max(M.data.bestCombo or 0, bestCombo)
     M.data.bestIncome = math.max(M.data.bestIncome or 0, income)
+    EnsureProgressTables()
+    for typeId, count in pairs(runStats.orderTypeCounts or {}) do
+        M.data.deliveredOrderTypes[typeId] = (M.data.deliveredOrderTypes[typeId] or 0) + math.floor(math.max(0, count or 0))
+    end
 
     local result = {
         coinsEarned = income,
@@ -250,6 +404,7 @@ function M.ApplyRunResult(runStats, progressBefore, progressAfter)
         xpToNext = progressAfter.xpToNext or 0,
         leveledUp = (progressAfter.level or 1) > (progressBefore.level or 1),
         unlocks = progressAfter.lastLevelUp and progressAfter.lastLevelUp.unlocks or {},
+        orderTypeCounts = CloneTable(runStats.orderTypeCounts or {}),
         totalCoins = M.data.coins,
     }
 
@@ -317,6 +472,90 @@ end
 function M.GetUpgradeName(key)
     local def = UPGRADE_DEFS[key]
     return def and def.name or key
+end
+
+function M.GetTaskRows()
+    EnsureProgressTables()
+    return BuildProgressRows(TASK_DEFS, M.data.claimedTasks)
+end
+
+function M.GetAchievementRows()
+    EnsureProgressTables()
+    return BuildProgressRows(ACHIEVEMENT_DEFS, M.data.claimedAchievements)
+end
+
+function M.ClaimTask(id)
+    EnsureProgressTables()
+    return ClaimFromList(TASK_DEFS, M.data.claimedTasks, id)
+end
+
+function M.ClaimAchievement(id)
+    EnsureProgressTables()
+    return ClaimFromList(ACHIEVEMENT_DEFS, M.data.claimedAchievements, id)
+end
+
+function M.ClaimAvailableTasks()
+    EnsureProgressTables()
+    return ClaimAvailableFromList(TASK_DEFS, M.data.claimedTasks)
+end
+
+function M.ClaimAvailableAchievements()
+    EnsureProgressTables()
+    return ClaimAvailableFromList(ACHIEVEMENT_DEFS, M.data.claimedAchievements)
+end
+
+function M.GetDeliveredOrderTypeCount(typeId)
+    EnsureProgressTables()
+    return M.data.deliveredOrderTypes[typeId] or 0
+end
+
+function M.GetLastRunResult()
+    return M.lastRunResult
+end
+
+function M.GetSettings()
+    if type(M.data.settings) ~= "table" then
+        M.data.settings = CloneTable(DEFAULT_SETTINGS)
+    end
+    for key, value in pairs(DEFAULT_SETTINGS) do
+        if M.data.settings[key] == nil then
+            M.data.settings[key] = value
+        end
+    end
+    return CloneTable(M.data.settings)
+end
+
+function M.ToggleSetting(key)
+    if type(M.data.settings) ~= "table" then
+        M.data.settings = CloneTable(DEFAULT_SETTINGS)
+    end
+    if type(M.data.settings[key]) ~= "boolean" then
+        return false, "设置项不可切换"
+    end
+    M.data.settings[key] = not M.data.settings[key]
+    M.Save()
+    return true, M.data.settings[key]
+end
+
+function M.CycleControlMode()
+    local modes = {"混合", "滑动", "键盘"}
+    if type(M.data.settings) ~= "table" then
+        M.data.settings = CloneTable(DEFAULT_SETTINGS)
+    end
+    local current = M.data.settings.controlMode or DEFAULT_SETTINGS.controlMode
+    local nextIndex = 1
+    for i, mode in ipairs(modes) do
+        if mode == current then
+            nextIndex = i + 1
+            break
+        end
+    end
+    if nextIndex > #modes then
+        nextIndex = 1
+    end
+    M.data.settings.controlMode = modes[nextIndex]
+    M.Save()
+    return M.data.settings.controlMode
 end
 
 return M

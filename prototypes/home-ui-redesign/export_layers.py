@@ -229,14 +229,21 @@ def draw_cloud_two():
     return save(image, "home_cloud_two.png")
 
 
-def draw_lane_strip():
+def draw_lane_strip(name="home_lane_strip.png", phase=0):
     lane_w = 12
     lane_h = 530
     image = new_image(lane_w, lane_h)
     draw = ImageDraw.Draw(image)
-    for y in range(-58, lane_h + 58, 58):
+    for y in range(-58 + phase, lane_h + 58, 58):
         rounded_rect(draw, (3, y, 9, y + 28), 3, (255, 255, 255, 218))
-    return save(image, "home_lane_strip.png")
+    return save(image, name)
+
+
+def draw_lane_strip_frames():
+    phases = [0, 10, 19, 29, 39, 48]
+    for index, phase in enumerate(phases):
+        name = "home_lane_strip.png" if index == 0 else f"home_lane_strip_{index}.png"
+        draw_lane_strip(name, phase)
 
 
 def draw_speed_line(name, width, alpha):
@@ -401,13 +408,13 @@ def draw_order_sign():
     base.paste(body, (sc(13), sc(10)), mask)
     rounded_rect(draw, (13, 10, 131, 70), 12, None, rgba("#8c3e06"), 3)
     rounded_rect(draw, (68, 68, 76, 122), 4, rgba("#8c3e06"))
-    rotated = base.rotate(-7, resample=Image.Resampling.BICUBIC, expand=True)
+    rotated = base.rotate(7, resample=Image.Resampling.BICUBIC, expand=True)
     save(rotated, "home_order_sign.png")
 
 
 def draw_rider():
     image = new_image(188, 188)
-    bg = vertical_gradient(188, 188, [(0, rgba("#e6f7ff")), (1, rgba("#fff3d8"))])
+    bg = vertical_gradient(188, 188, [(0, (230, 247, 255, 255)), (1, (255, 243, 216, 255))])
     mask = Image.new("L", (sc(188), sc(188)), 0)
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, sc(188), sc(188)), radius=sc(42), fill=255)
     image.paste(bg, (0, 0), mask)
@@ -415,7 +422,7 @@ def draw_rider():
     draw.ellipse(box((44, 150, 144, 174)), fill=(24, 49, 62, 38))
     draw.pieslice(box((52, 42, 136, 126)), 180, 360, fill=rgba("#ff8a1f"))
     draw.ellipse(box((62, 54, 126, 118)), fill=rgba("#ffd1a6"))
-    draw.rectangle(box((62, 72, 126, 86)), fill=(24, 35, 45, 35))
+    draw.rectangle(box((62, 72, 126, 86)), fill=rgba("#314657"))
     draw.ellipse(box((80, 82, 88, 90)), fill=rgba("#17212b"))
     draw.ellipse(box((104, 82, 112, 90)), fill=rgba("#17212b"))
     draw.arc(box((80, 94, 112, 112)), 20, 160, fill=rgba("#17212b"), width=sc(4))
@@ -799,7 +806,7 @@ def compose_asset_layers_sheet():
 def main():
     draw_cloud_one()
     draw_cloud_two()
-    draw_lane_strip()
+    draw_lane_strip_frames()
     draw_speed_line("home_speed_line_a.png", 74, 158)
     draw_speed_line("home_speed_line_b.png", 74, 132)
     draw_speed_line("home_speed_line_c.png", 44, 132)
