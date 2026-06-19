@@ -616,7 +616,7 @@ local function SelectDeliveryForOrder(orderType, pickupEdge, pickupDist)
     )
 
     if #candidates == 0 then
-        candidates = nav.GetReachableTargetEdges(pickupEdge, 1, 8)
+        candidates = nav.GetReachableTargetEdges(pickupEdge, 1, 8) or {}
     end
 
     Shuffle(candidates)
