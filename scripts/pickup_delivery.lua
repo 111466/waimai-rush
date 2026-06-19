@@ -15,6 +15,7 @@ local mats = require("materials")
 local nav = require("route_navigation")
 local player = require("player")
 local progression = require("progression")
+local meta = require("meta_progress")
 
 local M = {}
 
@@ -164,6 +165,9 @@ M.packageVisualNode = nil
 
 M.totalIncome = 0
 M.comboCount = 0
+M.runDeliveries = 0
+M.runOnTimeDeliveries = 0
+M.runBestCombo = 0
 
 M.orderTimerActive = false
 M.orderTimeLimit = 0.0
@@ -974,7 +978,7 @@ function M.CheckDelivery()
     if hit then
         local order = M.activeOrder
         local orderType = GetOrderType(order.typeId)
-        local baseReward = order.reward or orderType.reward or 10
+        local baseReward = math.floor((order.reward or orderType.reward or 10) * (meta.GetRewardMultiplier and meta.GetRewardMultiplier() or 1.0))
         local reward = baseReward
 
         local onTime = M.orderLateSeconds <= 0.0
@@ -997,6 +1001,11 @@ function M.CheckDelivery()
             reward = reward,
         })
 
+        M.runDeliveries = (M.runDeliveries or 0) + 1
+        if onTime then
+            M.runOnTimeDeliveries = (M.runOnTimeDeliveries or 0) + 1
+        end
+        M.runBestCombo = math.max(M.runBestCombo or 0, M.comboCount or 0)
         M.totalIncome = M.totalIncome + reward
         print("[Delivery] Delivered " .. order.displayText ..
             "! Income " .. reward ..
@@ -1185,7 +1194,20 @@ function M.Reset()
     StopOrderTimer()
     M.totalIncome = 0
     M.comboCount = 0
+    M.runDeliveries = 0
+    M.runOnTimeDeliveries = 0
+    M.runBestCombo = 0
     M.CapturePathSnapshot()
+end
+
+function M.GetRunStats()
+    return {
+        income = M.totalIncome or 0,
+        deliveries = M.runDeliveries or 0,
+        onTimeDeliveries = M.runOnTimeDeliveries or 0,
+        bestCombo = M.runBestCombo or 0,
+        distance = player.distanceTraveled or 0,
+    }
 end
 
 return M

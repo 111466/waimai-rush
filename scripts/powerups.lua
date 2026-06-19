@@ -12,6 +12,7 @@ local path = require("path")
 local rn = require("road_network")
 local mats = require("materials")
 local player = require("player")
+local meta = require("meta_progress")
 
 local M = {}
 
@@ -297,7 +298,7 @@ local function UseClock()
         return false
     end
 
-    local seconds = CONFIG.POWERUP_CLOCK_ADD_SECONDS or 6.0
+    local seconds = (CONFIG.POWERUP_CLOCK_ADD_SECONDS or 6.0) + (meta.GetPowerupDurationBonus and meta.GetPowerupDurationBonus() or 0.0)
     if M.context.addOrderTime and M.context.addOrderTime(seconds) then
         M.heldPowerup = nil
         ShowMessage("订单时间 +" .. tostring(math.floor(seconds)) .. "s")

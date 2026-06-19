@@ -4,6 +4,7 @@
 
 local cfg = require("config")
 local CONFIG = cfg.CONFIG
+local meta = require("meta_progress")
 
 local M = {}
 
@@ -170,6 +171,15 @@ function M.ResetRun()
     M.lastLevelUp = nil
 end
 
+function M.ApplyMetaState(state)
+    if not state then return end
+    M.level = Clamp(math.floor(state.level or M.level or 1), 1, GetMaxLevel())
+    M.xp = math.max(0, math.floor(state.xp or M.xp or 0))
+    M.totalXp = math.max(0, math.floor(state.totalXp or M.totalXp or 0))
+    M.runXp = 0
+    M.lastLevelUp = nil
+end
+
 function M.AddXP(amount, source)
     amount = math.floor(math.max(0, amount or 0))
 
@@ -312,6 +322,7 @@ function M.GetMaxAvailableOrders()
         end
     end
 
+    count = count + (meta.GetMaxActiveOrdersBonus and meta.GetMaxActiveOrdersBonus() or 0)
     local cap = CONFIG.ORDER_AVAILABLE_COUNT_MAX or count
     return Clamp(math.floor(count), 1, math.max(1, cap))
 end

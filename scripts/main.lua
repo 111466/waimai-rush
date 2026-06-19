@@ -20,6 +20,7 @@ local cam = require("camera")
 local ui = require("ui")
 local inp = require("input")
 local progression = require("progression")
+local meta = require("meta_progress")
 
 -- ============================================================================
 -- 全局变量
@@ -31,6 +32,7 @@ local zone_ = nil
 
 -- 游戏状态: "menu" / "running" / "paused" / "gameOver"
 local gameState_ = "menu"
+local runStartProgress_ = nil
 
 local function IsPaused()
     return gameState_ == "paused"
@@ -89,8 +91,13 @@ end
 
 local function GameOver()
     gameState_ = "gameOver"
-    ui.ShowGameOver(pickup.totalIncome, player.distanceTraveled)
-    print("[Game] Game Over! Income: " .. pickup.totalIncome .. " Distance: " .. string.format("%.0f", player.distanceTraveled))
+    local runStats = pickup.GetRunStats and pickup.GetRunStats() or {
+        income = pickup.totalIncome,
+        distance = player.distanceTraveled,
+    }
+    local result = meta.ApplyRunResult(runStats, runStartProgress_, progression.GetHUDData())
+    ui.ShowGameOver(result)
+    print("[Game] Game Over! Income: " .. tostring(runStats.income or 0) .. " Distance: " .. string.format("%.0f", runStats.distance or 0))
 end
 
 -- ============================================================================
@@ -100,6 +107,7 @@ end
 local function RestartGame()
     gameState_ = "running"
     ResetRun()
+    runStartProgress_ = progression.GetHUDData()
     ui.ShowGameplay()
     ui.SetPaused(false)
 
@@ -363,6 +371,8 @@ end
 
 function CreateGameContent()
     math.randomseed(os.time())
+    meta.Load()
+    progression.ApplyMetaState(meta.GetRiderState())
 
     -- 初始化路径系统（生成路网 + 选择起始边）
     path.Init(NextRoadSeed())

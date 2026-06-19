@@ -9,6 +9,7 @@ local rn = require("road_network")
 local nav = require("route_navigation")
 local cam = require("camera")
 local progression = require("progression")
+local meta = require("meta_progress")
 
 local M = {}
 
@@ -24,6 +25,8 @@ M.lblHint = nil
 M.lblRiderLevel = nil
 M.lblRiderXP = nil
 M.lblMenuRiderLevel = nil
+M.lblMenuCoins = nil
+M.lblMenuBest = nil
 M.powerupPanel = nil
 M.btnPowerup = nil
 M.lblPowerupStatus = nil
@@ -33,10 +36,16 @@ M.pauseOverlayPanel = nil
 M.staticPagePanel = nil
 M.lblStaticPageTitle = nil
 M.staticRows = {}
+M.upgradeButtons = {}
+M.upgradeButtonPanel = nil
 M.staticBackMode = "menu"
 M.gameOverPanel = nil
 M.lblFinalIncome = nil
 M.lblFinalDist = nil
+M.lblFinalStats = nil
+M.lblFinalGain = nil
+M.lblFinalLevel = nil
+M.lblFinalUnlocks = nil
 M.minimapPanel = nil
 M.minimapOrderListPanel = nil
 M.lblMiniStatus = nil
@@ -167,16 +176,16 @@ end
 
 local function BuildRiderRows()
     local data = progression.GetHUDData()
+    local summary = meta.GetSummary()
     local xpText = data.maxLevel and "MAX" or (tostring(data.xp or 0) .. "/" .. tostring(data.xpToNext or 0))
-    local highValueMultiplier = progression.GetOrderWeightMultiplier("rush")
-    local highValueBonus = math.max(0, math.floor((highValueMultiplier - 1.0) * 100 + 0.5))
 
     return {
         "Lv." .. tostring(data.level or 1) .. " " .. (data.title or "骑手") .. "  XP " .. xpText,
+        "金币: ¥" .. tostring(summary.coins or 0) .. "  总局数: " .. tostring(summary.totalRuns or 0),
         "同时订单: " .. tostring(progression.GetMaxAvailableOrders()) .. " 个取餐点",
         "已解锁: " .. FormatUnlockedOrderTypes(progression.GetUnlockedOrderTypes()),
-        "高价订单概率: +" .. tostring(highValueBonus) .. "%",
-        data.maxLevel and "已达到当前等级上限" or "继续完成订单提升等级",
+        "配送奖励: +" .. tostring(summary.rewardBonusPercent or 0) .. "%  道具加时: +" .. string.format("%.1f", summary.powerupDurationBonus or 0) .. "s",
+        "最高送达: " .. tostring(summary.bestDeliveries or 0) .. " 单  最高连击: " .. tostring(summary.bestCombo or 0),
     }
 end
 
@@ -186,6 +195,26 @@ local function MakePanelTitle(text)
         fontSize = 24,
         fontWeight = "bold",
         fontColor = {30,38,46,255},
+    }
+end
+
+local function HandleUpgradeClick(key)
+    local ok, message = meta.TryUpgrade(key)
+    progression.ApplyMetaState(meta.GetRiderState())
+    print("[UI] " .. tostring(message))
+    M.ShowStaticPage("upgrades", M.staticBackMode)
+end
+
+local function BuildUpgradeButton(index, key)
+    return UI.Button {
+        id = "upgradeButton" .. tostring(index),
+        text = "升级",
+        width = 78,
+        height = 32,
+        marginTop = 8,
+        onClick = function()
+            HandleUpgradeClick(key)
+        end,
     }
 end
 
@@ -1116,34 +1145,50 @@ local function BuildMainMenu()
         children = {
             UI.Panel {
                 width = "100%",
-                height = 52,
+                height = 86,
                 flexDirection = "row",
                 justifyContent = "space-between",
                 alignItems = "center",
                 children = {
                     UI.Panel {
-                        width = 116,
-                        height = 32,
-                        backgroundColor = "rgba(18,28,36,0.78)",
+                        width = 170,
+                        height = 58,
+                        padding = 8,
+                        backgroundColor = "rgba(18,28,36,0.82)",
                         borderRadius = 16,
-                        justifyContent = "center",
-                        alignItems = "center",
-                        children = { MakeMenuStat("Lv.1 新手骑手", "menuRiderLevel") },
+                        children = {
+                            MakeMenuStat("Lv.1 新手骑手", "menuRiderLevel"),
+                            UI.Label {
+                                id = "menuBest",
+                                text = "最高 0 单 / 连击 0",
+                                fontSize = 11,
+                                fontColor = {190,220,230,255},
+                                marginTop = 4,
+                            },
+                        },
                     },
                     UI.Panel {
-                        width = 82,
-                        height = 32,
-                        backgroundColor = "rgba(18,28,36,0.78)",
+                        width = 110,
+                        height = 44,
+                        backgroundColor = "rgba(255,138,31,0.94)",
                         borderRadius = 16,
                         justifyContent = "center",
                         alignItems = "center",
-                        children = { MakeMenuStat("¥320") },
+                        children = {
+                            UI.Label {
+                                id = "menuCoins",
+                                text = "¥0",
+                                fontSize = 17,
+                                fontWeight = "bold",
+                                fontColor = {255,255,255,255},
+                            },
+                        },
                     },
                 },
             },
             UI.Panel {
                 width = "100%",
-                height = 430,
+                height = 396,
                 justifyContent = "center",
                 alignItems = "center",
                 children = {
@@ -1155,7 +1200,7 @@ local function BuildMainMenu()
                         textAlign = "center",
                     },
                     UI.Label {
-                        text = "接单、转向、冲刺，把城市跑成你的路线",
+                        text = "接单、看路线、避开障碍，准时送达赚金币",
                         fontSize = 14,
                         fontColor = {60,72,82,255},
                         marginTop = 12,
@@ -1277,23 +1322,36 @@ local function BuildGameOverPanel(onRestart)
         backgroundColor = "rgba(0,0,0,0.7)",
         children = {
             UI.Panel {
-                width = 300,
-                height = 292,
+                width = 318,
+                height = 410,
                 backgroundColor = "#FFFFFF",
                 borderRadius = 14,
                 padding = 18,
                 alignItems = "center",
                 children = {
-                    MakePanelTitle("配送结束"),
-                    UI.Label { id = "finalIncome", text = "收入: ¥0", fontSize = 20, fontWeight = "bold", fontColor = {255,138,31,255}, marginTop = 14 },
-                    UI.Label { id = "finalDist", text = "距离: 0m", fontSize = 16, fontColor = {70,82,92,255}, marginTop = 8 },
-                    UI.Label { text = "完成订单、经验和任务奖励后续接入", fontSize = 12, fontColor = {92,104,114,255}, marginTop = 8 },
+                    MakePanelTitle("配送完成"),
+                    UI.Label { id = "finalIncome", text = "本局收入: ¥0", fontSize = 22, fontWeight = "bold", fontColor = {255,138,31,255}, marginTop = 12 },
+                    UI.Label { id = "finalStats", text = "送达 0 单  准时 0 单", fontSize = 14, fontWeight = "bold", fontColor = {45,58,70,255}, marginTop = 8 },
+                    UI.Label { id = "finalDist", text = "距离: 0m  连击: 0", fontSize = 14, fontColor = {70,82,92,255}, marginTop = 6 },
+                    UI.Panel {
+                        width = 250,
+                        height = 74,
+                        marginTop = 12,
+                        padding = 10,
+                        backgroundColor = "#FFF7E8",
+                        borderRadius = 10,
+                        children = {
+                            UI.Label { id = "finalGain", text = "金币 +0  XP +0", fontSize = 17, fontWeight = "bold", fontColor = {210,105,18,255} },
+                            UI.Label { id = "finalLevel", text = "Lv.1  XP 0/60", fontSize = 13, fontColor = {80,72,60,255}, marginTop = 8 },
+                        },
+                    },
+                    UI.Label { id = "finalUnlocks", text = "继续配送提升等级", width = 250, height = 34, fontSize = 12, fontColor = {92,104,114,255}, marginTop = 8, textAlign = "center" },
                     UI.Button {
-                        text = "再来一局",
+                        text = "再来一单",
                         variant = "primary",
                         width = 220,
                         height = 40,
-                        marginTop = 18,
+                        marginTop = 14,
                         onClick = function()
                             onRestart()
                         end,
@@ -1306,7 +1364,7 @@ local function BuildGameOverPanel(onRestart)
                         marginTop = 10,
                         children = {
                             UI.Button {
-                                text = "升级",
+                                text = "骑手成长",
                                 width = 104,
                                 height = 36,
                                 onClick = function() M.ShowStaticPage("upgrades", "result") end,
@@ -1333,6 +1391,12 @@ local function BuildStaticPage()
     local rows = {}
     for i = 1, 6 do
         rows[#rows + 1] = MakeStaticRow(i)
+    end
+
+    local upgradeButtons = {}
+    local upgradeKeys = meta.GetUpgradeKeys and meta.GetUpgradeKeys() or {}
+    for i, key in ipairs(upgradeKeys) do
+        upgradeButtons[#upgradeButtons + 1] = BuildUpgradeButton(i, key)
     end
 
     return UI.Panel {
@@ -1382,6 +1446,15 @@ local function BuildStaticPage()
                 borderRadius = 12,
                 children = rows,
             },
+            UI.Panel {
+                id = "upgradeButtonPanel",
+                width = "100%",
+                height = 48,
+                marginTop = 12,
+                flexDirection = "row",
+                justifyContent = "space-around",
+                children = upgradeButtons,
+            },
         },
     }
 end
@@ -1404,11 +1477,13 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu, onUsePowe
         width = "100%", height = "100%",
         children = {
             UI.Panel {
-                width = "100%", height = 80,
+                width = "100%", height = 82,
                 flexDirection = "row",
-                justifyContent = "space-around",
+                justifyContent = "space-between",
                 alignItems = "center",
                 paddingTop = 10,
+                paddingLeft = 14,
+                paddingRight = 74,
                 children = {
                     UI.Panel {
                         width = 118,
@@ -1417,27 +1492,35 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu, onUsePowe
                         alignItems = "flex-start",
                         children = {
                             UI.Label {
+                                id = "income",
+                                text = "¥0",
+                                width = 118,
+                                height = 24,
+                                fontSize = 22,
+                                fontWeight = "bold",
+                                fontColor = {255,215,0,255},
+                            },
+                            UI.Label {
                                 id = "riderLevel",
                                 text = "Lv.1 新手骑手",
                                 width = 118,
-                                height = 20,
-                                fontSize = 13,
-                                fontWeight = "bold",
-                                fontColor = {255,255,255,255},
+                                height = 16,
+                                fontSize = 11,
+                                fontColor = {220,235,235,255},
                             },
                             UI.Label {
                                 id = "riderXP",
                                 text = "XP 0/60",
                                 width = 118,
-                                height = 18,
-                                fontSize = 11,
-                                fontColor = {168,230,214,255},
+                                height = 1,
+                                fontSize = 1,
+                                fontColor = {0,0,0,0},
                             },
                         },
                     },
                     UI.Panel {
-                        width = 112,
-                        height = 28,
+                        width = 116,
+                        height = 34,
                         children = {
                             UI.Label {
                                 id = "timerNormal",
@@ -1445,10 +1528,12 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu, onUsePowe
                                 position = "absolute",
                                 left = 0,
                                 top = 0,
-                                width = 112,
-                                height = 28,
+                                width = 116,
+                                height = 34,
                                 fontSize = 18,
+                                fontWeight = "bold",
                                 fontColor = {235,235,235,255},
+                                textAlign = "center",
                             },
                             UI.Label {
                                 id = "timerWarning",
@@ -1456,10 +1541,12 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu, onUsePowe
                                 position = "absolute",
                                 left = 0,
                                 top = 0,
-                                width = 112,
-                                height = 28,
+                                width = 116,
+                                height = 34,
                                 fontSize = 18,
+                                fontWeight = "bold",
                                 fontColor = {255,210,64,255},
+                                textAlign = "center",
                             },
                             UI.Label {
                                 id = "timerLate",
@@ -1467,16 +1554,24 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu, onUsePowe
                                 position = "absolute",
                                 left = 0,
                                 top = 0,
-                                width = 112,
-                                height = 28,
+                                width = 116,
+                                height = 34,
                                 fontSize = 18,
+                                fontWeight = "bold",
                                 fontColor = {255,88,88,255},
+                                textAlign = "center",
                             },
                         },
                     },
-                    UI.Label { id = "income", text = "¥0", fontSize = 20, fontColor = {255,215,0,255} },
-                    UI.Label { id = "combo", text = "", fontSize = 16, fontColor = {0,255,136,255} },
-                    UI.Label { id = "speed", text = "8m/s", fontSize = 14, fontColor = {170,170,170,255} },
+                    UI.Panel {
+                        width = 88,
+                        height = 42,
+                        alignItems = "flex-end",
+                        children = {
+                            UI.Label { id = "combo", text = "", width = 88, height = 22, fontSize = 16, fontWeight = "bold", fontColor = {0,255,136,255}, textAlign = "right" },
+                            UI.Label { id = "speed", text = "", width = 88, height = 16, fontSize = 11, fontColor = {170,170,170,255}, textAlign = "right" },
+                        },
+                    },
                 },
             },
             UI.Panel {
@@ -1512,6 +1607,7 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu, onUsePowe
             M.ToggleDebugPanel()
         end,
     }
+    debugToggle:SetVisible(false)
     local pauseButton = UI.Button {
         id = "pauseButton",
         text = "暂停",
@@ -1564,11 +1660,17 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu, onUsePowe
     M.lblRiderLevel = root:FindById("riderLevel")
     M.lblRiderXP = root:FindById("riderXP")
     M.lblMenuRiderLevel = root:FindById("menuRiderLevel")
+    M.lblMenuCoins = root:FindById("menuCoins")
+    M.lblMenuBest = root:FindById("menuBest")
     M.powerupPanel = root:FindById("powerupPanel")
     M.btnPowerup = root:FindById("powerupButton")
     M.lblPowerupStatus = root:FindById("powerupStatus")
     M.lblFinalIncome = root:FindById("finalIncome")
     M.lblFinalDist = root:FindById("finalDist")
+    M.lblFinalStats = root:FindById("finalStats")
+    M.lblFinalGain = root:FindById("finalGain")
+    M.lblFinalLevel = root:FindById("finalLevel")
+    M.lblFinalUnlocks = root:FindById("finalUnlocks")
     M.lblMiniStatus = root:FindById("miniStatus")
     M.btnDebugToggle = root:FindById("debugToggle")
     M.lblDebugOffsetY = root:FindById("dbgOffsetY")
@@ -1581,6 +1683,11 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu, onUsePowe
     M.lblDebugFovCurrent = root:FindById("dbgFovCurrent")
     M.btnPause = root:FindById("pauseButton")
     M.lblStaticPageTitle = root:FindById("staticPageTitle")
+    M.upgradeButtonPanel = root:FindById("upgradeButtonPanel")
+    M.upgradeButtons = {}
+    for i = 1, 3 do
+        M.upgradeButtons[i] = root:FindById("upgradeButton" .. tostring(i))
+    end
     M.staticRows = {}
     for i = 1, 6 do
         M.staticRows[i] = {
@@ -1638,7 +1745,7 @@ local function SetGameplayUIVisible(visible)
     if M.minimapPanel then M.minimapPanel:SetVisible(visible) end
     if M.minimapOrderListPanel and not visible then M.minimapOrderListPanel:SetVisible(false) end
     if M.powerupPanel then M.powerupPanel:SetVisible(visible) end
-    if M.btnDebugToggle then M.btnDebugToggle:SetVisible(visible) end
+    if M.btnDebugToggle then M.btnDebugToggle:SetVisible(false) end
     if M.btnPause then M.btnPause:SetVisible(visible) end
     if M.debugPanel then
         M.debugPanel:SetVisible(visible and M.debugPanelVisible)
@@ -1655,9 +1762,15 @@ end
 function M.ShowMainMenu()
     SetGameplayUIVisible(false)
     HideTopLevelPanels()
+    local summary = meta.GetSummary()
     if M.lblMenuRiderLevel then
-        local data = progression.GetHUDData()
-        M.lblMenuRiderLevel:SetText("Lv." .. tostring(data.level or 1) .. " " .. (data.title or "骑手"))
+        M.lblMenuRiderLevel:SetText("Lv." .. tostring(summary.riderLevel or 1) .. " " .. (summary.riderTitle or "骑手"))
+    end
+    if M.lblMenuCoins then
+        M.lblMenuCoins:SetText("¥" .. tostring(summary.coins or 0))
+    end
+    if M.lblMenuBest then
+        M.lblMenuBest:SetText("最高 " .. tostring(summary.bestDeliveries or 0) .. " 单 / 连击 " .. tostring(summary.bestCombo or 0))
     end
     if M.mainMenuPanel then M.mainMenuPanel:SetVisible(true) end
 end
@@ -1681,7 +1794,11 @@ end
 function M.ShowStaticPage(key, backMode)
     local data = STATIC_PAGE_DATA[key]
     if not data then return end
+    ---@type string[]
     local rows = key == "rider" and BuildRiderRows() or data.rows
+    if key == "upgrades" and meta.GetUpgradeRows then
+        rows = meta.GetUpgradeRows()
+    end
 
     M.staticBackMode = backMode or "menu"
     if M.mainMenuPanel then M.mainMenuPanel:SetVisible(false) end
@@ -1702,6 +1819,24 @@ function M.ShowStaticPage(key, backMode)
             row.text:SetText(text or "")
         end
     end
+
+    local showUpgradeButtons = key == "upgrades"
+    if M.upgradeButtonPanel then
+        M.upgradeButtonPanel:SetVisible(showUpgradeButtons)
+    end
+    if showUpgradeButtons then
+        local keys = meta.GetUpgradeKeys and meta.GetUpgradeKeys() or {}
+        for i, button in ipairs(M.upgradeButtons or {}) do
+            local upgradeKey = keys[i]
+            if button then
+                button:SetVisible(upgradeKey ~= nil)
+                if upgradeKey then
+                    button:SetText("升级" .. tostring(i))
+                end
+            end
+        end
+    end
+
     if M.staticPagePanel then
         M.staticPagePanel:SetVisible(true)
     end
@@ -1845,7 +1980,23 @@ function M.UpdatePowerupHUD(powerupData)
     end
 end
 
-function M.ShowGameOver(totalIncome, distanceTraveled)
+local function FormatUnlocks(unlocks)
+    local parts = {}
+    for _, item in ipairs(unlocks or {}) do
+        if item.type == "order_count" then
+            parts[#parts + 1] = "同时订单 " .. tostring(item.value)
+        elseif item.type == "order_type" then
+            parts[#parts + 1] = "解锁" .. FormatUnlockedOrderTypes({item.value})
+        end
+    end
+    if #parts == 0 then
+        return "继续配送提升等级"
+    end
+    return table.concat(parts, " / ")
+end
+
+function M.ShowGameOver(result)
+    result = result or {}
     SetGameplayUIVisible(false)
     if M.mainMenuPanel then M.mainMenuPanel:SetVisible(false) end
     if M.pauseOverlayPanel then M.pauseOverlayPanel:SetVisible(false) end
@@ -1853,10 +2004,28 @@ function M.ShowGameOver(totalIncome, distanceTraveled)
     if M.gameOverPanel then
         M.gameOverPanel:SetVisible(true)
         if M.lblFinalIncome then
-            M.lblFinalIncome:SetText("收入: ¥" .. totalIncome)
+            M.lblFinalIncome:SetText("本局收入: ¥" .. tostring(result.income or result.coinsEarned or 0))
+        end
+        if M.lblFinalStats then
+            M.lblFinalStats:SetText("送达 " .. tostring(result.deliveries or 0) .. " 单  准时 " .. tostring(result.onTimeDeliveries or 0) .. " 单")
         end
         if M.lblFinalDist then
-            M.lblFinalDist:SetText("距离: " .. math.floor(distanceTraveled) .. "m")
+            M.lblFinalDist:SetText("距离: " .. tostring(math.floor(result.distance or 0)) .. "m  连击: " .. tostring(result.bestCombo or 0))
+        end
+        if M.lblFinalGain then
+            M.lblFinalGain:SetText("金币 +" .. tostring(result.coinsEarned or 0) .. "  XP +" .. tostring(result.xpEarned or 0))
+        end
+        if M.lblFinalLevel then
+            local levelText = "Lv." .. tostring(result.levelAfter or 1)
+            if result.leveledUp then
+                levelText = "升级! Lv." .. tostring(result.levelBefore or 1) .. " → Lv." .. tostring(result.levelAfter or 1)
+            elseif (result.xpToNext or 0) > 0 then
+                levelText = levelText .. "  XP " .. tostring(result.xpAfter or 0) .. "/" .. tostring(result.xpToNext or 0)
+            end
+            M.lblFinalLevel:SetText(levelText)
+        end
+        if M.lblFinalUnlocks then
+            M.lblFinalUnlocks:SetText(FormatUnlocks(result.unlocks))
         end
     end
 end
