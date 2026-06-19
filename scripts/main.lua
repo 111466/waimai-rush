@@ -27,25 +27,11 @@ local scene_ = nil
 local groundNode_ = nil
 local zone_ = nil
 
--- 游戏状态: "running" / "paused" / "gameOver"
-local gameState_ = "running"
+-- 游戏状态: "menu" / "running" / "paused" / "gameOver"
+local gameState_ = "menu"
 
 local function IsPaused()
     return gameState_ == "paused"
-end
-
-local function TogglePause()
-    if gameState_ == "gameOver" then
-        return
-    end
-
-    if gameState_ == "paused" then
-        gameState_ = "running"
-        ui.SetPaused(false)
-    else
-        gameState_ = "paused"
-        ui.SetPaused(true)
-    end
 end
 
 local function NextRoadSeed()
@@ -55,23 +41,7 @@ local function NextRoadSeed()
     return rn.currentSeed or rn.DEFAULT_SEED
 end
 
--- ============================================================================
--- 游戏结束
--- ============================================================================
-
-local function GameOver()
-    gameState_ = "gameOver"
-    ui.ShowGameOver(pickup.totalIncome, player.distanceTraveled)
-    print("[Game] Game Over! Income: " .. pickup.totalIncome .. " Distance: " .. string.format("%.0f", player.distanceTraveled))
-end
-
--- ============================================================================
--- 重新开始
--- ============================================================================
-
-local function RestartGame()
-    gameState_ = "running"
-
+local function ResetRun()
     -- 重置路径系统（重新选择起始边，内部会重置所有状态机字段）
     path.Init(NextRoadSeed())
     cam.ResetDebugParams()
@@ -93,12 +63,52 @@ local function RestartGame()
 
     -- 重置路口
     intersection.Hide()
+end
 
-    -- 隐藏结算面板
-    ui.Create(RestartGame, TogglePause)
+local function TogglePause()
+    if gameState_ == "gameOver" then
+        return
+    end
+
+    if gameState_ == "paused" then
+        gameState_ = "running"
+        ui.SetPaused(false)
+    else
+        gameState_ = "paused"
+        ui.SetPaused(true)
+    end
+end
+
+-- ============================================================================
+-- 游戏结束
+-- ============================================================================
+
+local function GameOver()
+    gameState_ = "gameOver"
+    ui.ShowGameOver(pickup.totalIncome, player.distanceTraveled)
+    print("[Game] Game Over! Income: " .. pickup.totalIncome .. " Distance: " .. string.format("%.0f", player.distanceTraveled))
+end
+
+-- ============================================================================
+-- 重新开始
+-- ============================================================================
+
+local function RestartGame()
+    gameState_ = "running"
+    ResetRun()
+    ui.ShowGameplay()
     ui.SetPaused(false)
 
     print("[Game] Restarted with road seed " .. rn.currentSeed)
+end
+
+local function StartRunFromMenu()
+    RestartGame()
+end
+
+local function ReturnToMenu()
+    gameState_ = "menu"
+    ui.ShowMainMenu()
 end
 
 -- ============================================================================
@@ -109,6 +119,11 @@ end
 ---@param eventData UpdateEventData
 local function HandleUpdate(eventType, eventData)
     local dt = eventData:GetFloat("TimeStep")
+
+    if gameState_ == "menu" then
+        ui.UpdateCameraDebugReadout()
+        return
+    end
 
     if gameState_ == "gameOver" then return end
 
@@ -368,7 +383,7 @@ function CreateGameContent()
     cam.Setup(scene_, player.node)
 
     -- 创建 UI
-    ui.Create(RestartGame, TogglePause)
+    ui.Create(RestartGame, TogglePause, StartRunFromMenu, ReturnToMenu)
 
     -- 注册事件
     SubscribeToEvent("Update", HandleUpdate)

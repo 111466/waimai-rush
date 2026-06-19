@@ -1,0 +1,2923 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RoadGen C 模板设计原型</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Inter, "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+      background: #dbe2df;
+      color: #1f2e32;
+      --panel: #f4f7f5;
+      --panel-strong: #ffffff;
+      --ink: #1f2e32;
+      --muted: #66777b;
+      --line: #c6d0cc;
+      --road: #687174;
+      --road-dark: #505a5d;
+      --sidewalk: #cfd8d4;
+      --lane: #eaf0ed;
+      --block: #d65b4a;
+      --jump: #e5ba41;
+      --slide: #8a64c9;
+      --precision: #4b9ac7;
+      --dynamic: #e47b45;
+      --ramp: #36b882;
+      --order: #36b882;
+      --safe: #4b9ac7;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      min-height: 100%;
+      margin: 0;
+    }
+
+    body {
+      background: #dbe2df;
+      overflow-x: hidden;
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 14px;
+      padding: 18px;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) auto;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .brand {
+      display: grid;
+      gap: 4px;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 26px;
+      line-height: 1.1;
+      letter-spacing: 0;
+    }
+
+    .brand .subline {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .metrics {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: end;
+      gap: 8px;
+    }
+
+    .metric {
+      min-width: 86px;
+      padding: 8px 10px;
+      border: 1px solid rgba(93, 116, 111, 0.22);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.48);
+    }
+
+    .metric .value {
+      font-size: 20px;
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    .metric .label {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .workspace {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 250px minmax(420px, 1fr) 330px;
+      gap: 14px;
+    }
+
+    .panel {
+      min-width: 0;
+      border: 1px solid rgba(93, 116, 111, 0.22);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: 0 14px 34px rgba(42, 59, 61, 0.08);
+      overflow: hidden;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 13px 14px;
+      border-bottom: 1px solid rgba(93, 116, 111, 0.18);
+      background: rgba(255, 255, 255, 0.48);
+    }
+
+    .panel-title {
+      font-size: 15px;
+      font-weight: 800;
+    }
+
+    .panel-kicker {
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .template-list {
+      height: 100%;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    .template-buttons {
+      overflow: auto;
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+      align-content: start;
+    }
+
+    .template-button {
+      width: 100%;
+      min-height: 72px;
+      display: grid;
+      grid-template-columns: 48px 1fr;
+      gap: 10px;
+      align-items: center;
+      padding: 8px;
+      border: 1px solid rgba(93, 116, 111, 0.22);
+      border-radius: 8px;
+      background: #ffffff;
+      color: var(--ink);
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .template-button[aria-selected="true"] {
+      border-color: rgba(31, 46, 50, 0.68);
+      box-shadow: inset 4px 0 0 var(--accent);
+      background: color-mix(in srgb, var(--accent) 10%, #ffffff);
+    }
+
+    .template-button:focus-visible {
+      outline: 3px solid rgba(75, 154, 199, 0.45);
+      outline-offset: 2px;
+    }
+
+    .template-mini {
+      width: 48px;
+      height: 48px;
+      border-radius: 6px;
+      background: #eef3f0;
+      overflow: hidden;
+    }
+
+    .template-copy {
+      min-width: 0;
+      display: grid;
+      gap: 3px;
+    }
+
+    .template-name {
+      font-size: 14px;
+      font-weight: 800;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .template-meta {
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .stage-panel {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      min-height: 650px;
+    }
+
+    .stage-top {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 13px 14px;
+      border-bottom: 1px solid rgba(93, 116, 111, 0.18);
+      background: rgba(255, 255, 255, 0.48);
+    }
+
+    .stage-title {
+      display: grid;
+      gap: 4px;
+    }
+
+    .stage-title h2 {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.15;
+      letter-spacing: 0;
+    }
+
+    .stage-title span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: end;
+      gap: 6px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      padding: 4px 8px;
+      border: 1px solid rgba(93, 116, 111, 0.22);
+      border-radius: 7px;
+      background: #ffffff;
+      color: #34464a;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .chip.accent {
+      border-color: color-mix(in srgb, var(--accent) 54%, #ffffff);
+      background: color-mix(in srgb, var(--accent) 14%, #ffffff);
+    }
+
+    .stage-canvas-wrap {
+      position: relative;
+      min-height: 0;
+      display: grid;
+      place-items: center;
+      min-height: clamp(420px, 52vw, 690px);
+      padding: 0;
+      background: #d8e1dc;
+      overflow: hidden;
+    }
+
+    .stage-canvas {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      background: #d8e1dc;
+      overflow: hidden;
+    }
+
+    .stage-canvas svg,
+    .stage-canvas canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    .stage-canvas canvas {
+      cursor: grab;
+    }
+
+    .stage-canvas canvas:active {
+      cursor: grabbing;
+    }
+
+    .runner-hint {
+      position: absolute;
+      left: 12px;
+      bottom: 12px;
+      z-index: 2;
+      padding: 7px 9px;
+      border: 1px solid rgba(255, 255, 255, 0.28);
+      border-radius: 7px;
+      background: rgba(20, 35, 38, 0.58);
+      color: rgba(255, 255, 255, 0.9);
+      font-size: 12px;
+      font-weight: 700;
+      pointer-events: none;
+      text-shadow: 0 1px 5px rgba(0, 0, 0, 0.18);
+    }
+
+    .stage-footer {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      border-top: 1px solid rgba(93, 116, 111, 0.18);
+      background: var(--panel-strong);
+    }
+
+    .footer-stat {
+      min-width: 0;
+      padding: 13px 14px;
+      border-right: 1px solid rgba(93, 116, 111, 0.16);
+    }
+
+    .footer-stat:last-child {
+      border-right: 0;
+    }
+
+    .footer-stat strong {
+      display: block;
+      font-size: 17px;
+      line-height: 1.15;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .footer-stat span {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .inspector {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      min-height: 0;
+    }
+
+    .inspector-body {
+      overflow: auto;
+      padding: 12px;
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+
+    .section {
+      border: 1px solid rgba(93, 116, 111, 0.18);
+      border-radius: 8px;
+      background: #ffffff;
+      overflow: hidden;
+    }
+
+    .section-title {
+      padding: 10px 11px;
+      border-bottom: 1px solid rgba(93, 116, 111, 0.14);
+      font-size: 13px;
+      font-weight: 800;
+      background: rgba(242, 246, 244, 0.74);
+    }
+
+    .section-content {
+      padding: 10px 11px;
+      display: grid;
+      gap: 9px;
+    }
+
+    .lane-row {
+      display: grid;
+      grid-template-columns: 48px 1fr 76px;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .lane-distance {
+      color: var(--muted);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .lane-grid {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+    }
+
+    .lane-cell {
+      min-width: 0;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(93, 116, 111, 0.16);
+      border-radius: 6px;
+      background: #f3f7f5;
+      color: #91a09d;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .lane-cell.block,
+    .lane-cell.large-blocker {
+      background: color-mix(in srgb, var(--block) 18%, #ffffff);
+      color: #9d2f23;
+      border-color: color-mix(in srgb, var(--block) 50%, #ffffff);
+    }
+
+    .lane-cell.jump,
+    .lane-cell.low-jump {
+      background: color-mix(in srgb, var(--jump) 22%, #ffffff);
+      color: #8a6212;
+      border-color: color-mix(in srgb, var(--jump) 55%, #ffffff);
+    }
+
+    .lane-cell.slide,
+    .lane-cell.high-slide {
+      background: color-mix(in srgb, var(--slide) 18%, #ffffff);
+      color: #563a8c;
+      border-color: color-mix(in srgb, var(--slide) 48%, #ffffff);
+    }
+
+    .lane-cell.precision {
+      background: color-mix(in srgb, var(--precision) 18%, #ffffff);
+      color: #245b78;
+      border-color: color-mix(in srgb, var(--precision) 48%, #ffffff);
+    }
+
+    .lane-cell.dynamic {
+      background: color-mix(in srgb, var(--dynamic) 18%, #ffffff);
+      color: #9a3c1c;
+      border-color: color-mix(in srgb, var(--dynamic) 48%, #ffffff);
+    }
+
+    .lane-cell.ramp {
+      background: color-mix(in srgb, var(--ramp) 18%, #ffffff);
+      color: #1f704f;
+      border-color: color-mix(in srgb, var(--ramp) 48%, #ffffff);
+    }
+
+    .lane-action {
+      color: var(--muted);
+      font-size: 12px;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .legend-grid {
+      display: grid;
+      gap: 8px;
+    }
+
+    .legend-item {
+      display: grid;
+      grid-template-columns: 28px 1fr auto;
+      gap: 8px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .legend-mark {
+      height: 24px;
+      display: grid;
+      place-items: center;
+      border-radius: 6px;
+      color: #ffffff;
+      font-weight: 900;
+    }
+
+    .legend-mark.block,
+    .legend-mark.large-blocker {
+      background: var(--block);
+    }
+
+    .legend-mark.jump,
+    .legend-mark.low-jump {
+      background: var(--jump);
+      color: #3b2f16;
+    }
+
+    .legend-mark.slide,
+    .legend-mark.high-slide {
+      background: var(--slide);
+    }
+
+    .legend-mark.precision {
+      background: var(--precision);
+    }
+
+    .legend-mark.dynamic {
+      background: var(--dynamic);
+    }
+
+    .legend-mark.ramp {
+      background: var(--ramp);
+    }
+
+    .rule-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: 8px;
+      color: #405256;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .rule-list li {
+      position: relative;
+      padding-left: 13px;
+    }
+
+    .rule-list li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0.72em;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    .overview {
+      display: grid;
+      gap: 10px;
+    }
+
+    .overview-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .overview-grid {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(120px, 1fr));
+      gap: 10px;
+      overflow-x: auto;
+      padding-bottom: 2px;
+    }
+
+    .overview-card {
+      min-height: 144px;
+      padding: 9px;
+      border: 1px solid rgba(93, 116, 111, 0.22);
+      border-radius: 8px;
+      background: #f8faf9;
+      cursor: pointer;
+      text-align: left;
+      color: var(--ink);
+    }
+
+    .overview-card[aria-selected="true"] {
+      border-color: rgba(31, 46, 50, 0.68);
+      background: color-mix(in srgb, var(--accent) 10%, #ffffff);
+    }
+
+    .overview-mini {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      border-radius: 6px;
+      background: #e5ece8;
+      overflow: hidden;
+    }
+
+    .overview-name {
+      margin-top: 7px;
+      font-size: 13px;
+      font-weight: 800;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .overview-meta {
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .svg-label {
+      fill: #314247;
+      font-size: 3.5px;
+      font-weight: 800;
+      text-anchor: middle;
+      dominant-baseline: middle;
+      pointer-events: none;
+    }
+
+    .svg-small-label {
+      fill: #4d6165;
+      font-size: 2.6px;
+      font-weight: 800;
+      text-anchor: middle;
+      dominant-baseline: middle;
+      pointer-events: none;
+    }
+
+    @media (max-width: 1180px) {
+      .workspace {
+        grid-template-columns: 220px minmax(380px, 1fr);
+      }
+
+      .inspector {
+        grid-column: 1 / -1;
+      }
+
+      .inspector-body {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        overflow: visible;
+      }
+    }
+
+    @media (max-width: 820px) {
+      .app {
+        padding: 12px;
+      }
+
+      .topbar {
+        grid-template-columns: 1fr;
+      }
+
+      .metrics {
+        justify-content: start;
+      }
+
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+
+      .template-list {
+        max-height: none;
+      }
+
+      .template-buttons {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        overflow: visible;
+      }
+
+      .stage-panel {
+        min-height: 0;
+      }
+
+      .stage-footer {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .inspector-body {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 520px) {
+      .template-buttons {
+        grid-template-columns: 1fr;
+      }
+
+      .stage-top {
+        align-items: start;
+      }
+
+      .chips {
+        justify-content: start;
+      }
+
+      .stage-canvas-wrap {
+        min-height: 330px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div class="brand">
+        <h1>方案 C 模板设计板</h1>
+        <div class="subline">道路块拼接、三车道障碍排布、订单风险区域</div>
+      </div>
+      <div class="metrics" aria-label="模板指标">
+        <div class="metric">
+          <div class="value">8</div>
+          <div class="label">模板种类</div>
+        </div>
+        <div class="metric">
+          <div class="value">3</div>
+          <div class="label">车道</div>
+        </div>
+        <div class="metric">
+          <div class="value">15m</div>
+          <div class="label">路口安全区</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="workspace">
+      <aside class="panel template-list">
+        <div class="panel-header">
+          <div class="panel-title">模板库</div>
+          <div class="panel-kicker">V1</div>
+        </div>
+        <div class="template-buttons" id="templateButtons"></div>
+      </aside>
+
+      <section class="panel stage-panel">
+        <div class="stage-top">
+          <div class="stage-title">
+            <h2 id="templateTitle">长直主路</h2>
+            <span id="templateSubtitle">基础跑酷节奏</span>
+          </div>
+          <div class="chips">
+            <span class="chip accent" id="difficultyChip">难度 1</span>
+            <span class="chip" id="weightChip">权重 1.35</span>
+            <span class="chip" id="orderChip">订单 普通</span>
+          </div>
+        </div>
+        <div class="stage-canvas-wrap">
+          <div class="stage-canvas" id="stageCanvas" aria-label="道路模板平面图"></div>
+          <div class="runner-hint">点击画面后按住 W/S 前进后退，A/D 在路口选方向</div>
+        </div>
+        <div class="stage-footer">
+          <div class="footer-stat">
+            <strong id="shapeStat">南北直连</strong>
+            <span>道路形状</span>
+          </div>
+          <div class="footer-stat">
+            <strong id="connectorStat">N / S</strong>
+            <span>可拼接口</span>
+          </div>
+          <div class="footer-stat">
+            <strong id="obstacleStat">单障碍</strong>
+            <span>主节奏</span>
+          </div>
+          <div class="footer-stat">
+            <strong id="rewardStat">标准收益</strong>
+            <span>订单倾向</span>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel inspector">
+        <div class="panel-header">
+          <div class="panel-title">障碍与规则</div>
+          <div class="panel-kicker" id="rowCount">4 组</div>
+        </div>
+        <div class="inspector-body">
+          <section class="section">
+            <div class="section-title">三车道排布</div>
+            <div class="section-content" id="laneRows"></div>
+          </section>
+
+          <section class="section">
+            <div class="section-title">障碍类型</div>
+            <div class="section-content legend-grid">
+              <div class="legend-item">
+                <span class="legend-mark large-blocker">挡</span>
+                <span>大型占道物</span>
+                <strong>变道</strong>
+              </div>
+              <div class="legend-item">
+                <span class="legend-mark low-jump">跳</span>
+                <span>低矮障碍物</span>
+                <strong>跳跃</strong>
+              </div>
+              <div class="legend-item">
+                <span class="legend-mark high-slide">滑</span>
+                <span>高架障碍物</span>
+                <strong>下滑</strong>
+              </div>
+              <div class="legend-item">
+                <span class="legend-mark precision">缝</span>
+                <span>精确变道物</span>
+                <strong>窄缝</strong>
+              </div>
+              <div class="legend-item">
+                <span class="legend-mark dynamic">动</span>
+                <span>动态危险物</span>
+                <strong>预判</strong>
+              </div>
+              <div class="legend-item">
+                <span class="legend-mark ramp">台</span>
+                <span>路线跳台物</span>
+                <strong>高低线</strong>
+              </div>
+            </div>
+          </section>
+
+          <section class="section">
+            <div class="section-title">生成规则</div>
+            <div class="section-content">
+              <ul class="rule-list" id="ruleList"></ul>
+            </div>
+          </section>
+        </div>
+      </aside>
+    </section>
+
+    <section class="overview">
+      <div class="overview-header">
+        <strong>总览</strong>
+        <span>基础 60% · 节奏 25% · 主题 15%</span>
+      </div>
+      <div class="overview-grid" id="overviewGrid"></div>
+    </section>
+  </main>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.165.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.165.0/examples/jsm/"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { MapControls } from "three/addons/controls/MapControls.js";
+
+    const obstacleMechanics = {
+      largeBlocker: { label: "挡", cls: "large-blocker", color: "#d65b4a", action: "变道" },
+      lowJump: { label: "跳", cls: "low-jump", color: "#e5ba41", action: "跳跃" },
+      highSlide: { label: "滑", cls: "high-slide", color: "#8a64c9", action: "下滑" },
+      precision: { label: "缝", cls: "precision", color: "#4b9ac7", action: "窄缝" },
+      dynamic: { label: "动", cls: "dynamic", color: "#e47b45", action: "预判" },
+      ramp: { label: "台", cls: "ramp", color: "#36b882", action: "高低线" },
+    };
+
+    const obstacleCatalog = {
+      constructionFence: {
+        mechanic: "largeBlocker",
+        skin: "施工围挡",
+        label: "围",
+        silhouette: "barricade",
+        warningColor: "#d65b4a",
+        spawnWidth: 1.0,
+        templateBias: ["straight", "construction", "cross"],
+      },
+      parkedTruck: {
+        mechanic: "largeBlocker",
+        skin: "停靠货车",
+        label: "货",
+        silhouette: "truck",
+        warningColor: "#c74f45",
+        spawnWidth: 1.15,
+        templateBias: ["straight", "market", "corner"],
+      },
+      streetCart: {
+        mechanic: "largeBlocker",
+        skin: "路边摊车",
+        label: "摊",
+        silhouette: "stall",
+        warningColor: "#d9783f",
+        spawnWidth: 1.05,
+        templateBias: ["market", "cross", "tJunction"],
+      },
+      deliveryCrates: {
+        mechanic: "largeBlocker",
+        skin: "外卖箱堆",
+        label: "箱",
+        silhouette: "crates",
+        warningColor: "#d65b4a",
+        spawnWidth: 0.9,
+        templateBias: ["market", "straight", "loop"],
+      },
+      speedBump: {
+        mechanic: "lowJump",
+        skin: "减速带",
+        label: "带",
+        silhouette: "speed-bump",
+        warningColor: "#e5ba41",
+        spawnWidth: 1.0,
+        templateBias: ["straight", "cross", "loop"],
+      },
+      fallenSign: {
+        mechanic: "lowJump",
+        skin: "倒路牌",
+        label: "牌",
+        silhouette: "fallen-sign",
+        warningColor: "#e0aa37",
+        spawnWidth: 0.85,
+        templateBias: ["corner", "sBlock", "construction"],
+      },
+      cartonPile: {
+        mechanic: "lowJump",
+        skin: "纸箱堆",
+        label: "盒",
+        silhouette: "box-pile",
+        warningColor: "#d9a33b",
+        spawnWidth: 0.95,
+        templateBias: ["market", "straight", "tJunction"],
+      },
+      pothole: {
+        mechanic: "lowJump",
+        skin: "路面坑",
+        label: "坑",
+        silhouette: "pothole",
+        warningColor: "#e5ba41",
+        spawnWidth: 0.9,
+        templateBias: ["construction", "sBlock", "loop"],
+      },
+      awning: {
+        mechanic: "highSlide",
+        skin: "遮阳棚",
+        label: "棚",
+        silhouette: "awning",
+        warningColor: "#8a64c9",
+        spawnWidth: 1.0,
+        templateBias: ["market", "straight", "corner"],
+      },
+      adBanner: {
+        mechanic: "highSlide",
+        skin: "广告横幅",
+        label: "幅",
+        silhouette: "banner",
+        warningColor: "#7f62c5",
+        spawnWidth: 1.05,
+        templateBias: ["straight", "cross", "loop"],
+      },
+      scaffoldBar: {
+        mechanic: "highSlide",
+        skin: "脚手架横杆",
+        label: "架",
+        silhouette: "scaffold",
+        warningColor: "#7a5bb8",
+        spawnWidth: 1.0,
+        templateBias: ["construction", "sBlock", "corner"],
+      },
+      heightLimit: {
+        mechanic: "highSlide",
+        skin: "限高杆",
+        label: "杆",
+        silhouette: "height-bar",
+        warningColor: "#8a64c9",
+        spawnWidth: 1.0,
+        templateBias: ["cross", "tJunction", "construction"],
+      },
+      coneGate: {
+        mechanic: "precision",
+        skin: "锥桶窄门",
+        label: "锥",
+        silhouette: "cone-gate",
+        warningColor: "#4b9ac7",
+        spawnWidth: 0.75,
+        templateBias: ["construction", "sBlock", "loop"],
+      },
+      bollardGate: {
+        mechanic: "precision",
+        skin: "隔离柱窄缝",
+        label: "柱",
+        silhouette: "bollard-gate",
+        warningColor: "#4b9ac7",
+        spawnWidth: 0.75,
+        templateBias: ["loop", "corner", "cross"],
+      },
+      laneSqueeze: {
+        mechanic: "precision",
+        skin: "临时护栏夹道",
+        label: "夹",
+        silhouette: "squeeze",
+        warningColor: "#4b9ac7",
+        spawnWidth: 0.8,
+        templateBias: ["tJunction", "market", "construction"],
+      },
+      ebikeCrossing: {
+        mechanic: "dynamic",
+        skin: "电动车横穿",
+        label: "电",
+        silhouette: "ebike",
+        warningColor: "#e47b45",
+        spawnWidth: 1.0,
+        templateBias: ["cross", "market", "tJunction"],
+      },
+      taxiDoor: {
+        mechanic: "dynamic",
+        skin: "开门出租车",
+        label: "门",
+        silhouette: "taxi-door",
+        warningColor: "#e47b45",
+        spawnWidth: 1.1,
+        templateBias: ["straight", "market", "corner"],
+      },
+      deliveryRamp: {
+        mechanic: "ramp",
+        skin: "外卖跳台",
+        label: "台",
+        silhouette: "ramp",
+        warningColor: "#36b882",
+        spawnWidth: 1.0,
+        templateBias: ["straight", "sBlock", "loop"],
+      },
+      footbridgeRamp: {
+        mechanic: "ramp",
+        skin: "临时上坡板",
+        label: "坡",
+        silhouette: "footbridge-ramp",
+        warningColor: "#36b882",
+        spawnWidth: 1.05,
+        templateBias: ["market", "loop", "construction"],
+      },
+    };
+
+    const legacyObstacleMap = {
+      B: "constructionFence",
+      J: "speedBump",
+      S: "awning",
+    };
+
+    function resolveObstacle(kind) {
+      const id = legacyObstacleMap[kind] || kind;
+      const item = obstacleCatalog[id] || obstacleCatalog.constructionFence;
+      const mechanic = obstacleMechanics[item.mechanic] || obstacleMechanics.largeBlocker;
+      return {
+        id,
+        ...item,
+        mechanicInfo: mechanic,
+      };
+    }
+
+    const templates = [
+      {
+        id: "straight",
+        name: "长直主路",
+        role: "基础跑酷节奏",
+        accent: "#5a9bb2",
+        difficulty: 1,
+        weight: 1.35,
+        order: "普通",
+        shape: "南北直连",
+        connectors: ["N", "S"],
+        tempo: "连续单体压迫",
+        reward: "标准收益",
+        segments: [
+          [50, 96, 50, 4],
+        ],
+        nodes: [[50, 96, "S"], [50, 50, ""], [50, 4, "N"]],
+        rows: [
+          { dist: "18m", segment: 0, t: 0.18, pattern: ["parkedTruck", "", ""], note: "货车占道" },
+          { dist: "30m", segment: 0, t: 0.31, pattern: ["", "speedBump", ""], note: "黄系跳跃" },
+          { dist: "42m", segment: 0, t: 0.44, pattern: ["", "", "adBanner"], note: "横幅下滑" },
+          { dist: "54m", segment: 0, t: 0.57, pattern: ["", "deliveryCrates", ""], note: "箱堆变道" },
+          { dist: "66m", segment: 0, t: 0.70, pattern: ["taxiDoor", "", ""], note: "预判开门" },
+          { dist: "78m", segment: 0, t: 0.83, pattern: ["", "", "deliveryRamp"], note: "跳台高线" },
+        ],
+        orders: [[50, 28, "取"]],
+        rules: [
+          "作为主干连接模板，前 100m 出现概率最高。",
+          "障碍间距压到 12m 左右，形成商业跑酷的连续读图压力。",
+          "不在路口前后 15m 安全区放障碍。"
+        ],
+      },
+      {
+        id: "cross",
+        name: "十字路口",
+        role: "路线选择核心",
+        accent: "#5f8f74",
+        difficulty: 2,
+        weight: 1.20,
+        order: "均衡",
+        shape: "四向交叉",
+        connectors: ["N", "E", "S", "W"],
+        tempo: "路口决策压力",
+        reward: "标准收益",
+        segments: [
+          [50, 96, 50, 4],
+          [4, 50, 96, 50],
+        ],
+        nodes: [[50, 96, "S"], [50, 50, ""], [50, 4, "N"], [4, 50, "W"], [96, 50, "E"]],
+        safeZones: [[50, 50]],
+        rows: [
+          { dist: "南24m", segment: 0, t: 0.24, pattern: ["", "streetCart", ""], note: "摊车占中" },
+          { dist: "南36m", segment: 0, t: 0.36, pattern: ["speedBump", "", ""], note: "提前跳" },
+          { dist: "北24m", segment: 0, t: 0.74, pattern: ["", "", "heightLimit"], note: "出口下滑" },
+          { dist: "东22m", segment: 1, t: 0.72, pattern: ["", "ebikeCrossing", ""], note: "横穿预判" },
+          { dist: "西22m", segment: 1, t: 0.28, pattern: ["bollardGate", "", "bollardGate"], note: "窄缝通过" },
+        ],
+        orders: [[73, 50, "送"]],
+        rules: [
+          "中心路口保持空场，优先服务转向决策。",
+          "每个出口都有可读剪影，但中心安全区不放障碍。",
+          "适合生成导航分岔和中距离配送目标。"
+        ],
+      },
+      {
+        id: "corner",
+        name: "转角街区",
+        role: "转弯后节奏变化",
+        accent: "#6b92c7",
+        difficulty: 2,
+        weight: 0.95,
+        order: "低密",
+        shape: "直角转向",
+        connectors: ["N", "E"],
+        tempo: "转弯后连压",
+        reward: "标准收益",
+        segments: [
+          [50, 96, 50, 50],
+          [50, 50, 96, 50],
+        ],
+        nodes: [[50, 96, "S"], [50, 50, ""], [96, 50, "E"]],
+        safeZones: [[50, 50]],
+        rows: [
+          { dist: "入12m", segment: 0, t: 0.18, pattern: ["", "", "speedBump"], note: "起步跳" },
+          { dist: "入20m", segment: 0, t: 0.28, pattern: ["", "fallenSign", ""], note: "入弯跳" },
+          { dist: "入34m", segment: 0, t: 0.52, pattern: ["constructionFence", "", ""], note: "左侧封挡" },
+          { dist: "出18m", segment: 1, t: 0.34, pattern: ["", "", "parkedTruck"], note: "出弯占右" },
+          { dist: "出30m", segment: 1, t: 0.56, pattern: ["bollardGate", "", "bollardGate"], note: "窄缝修正" },
+          { dist: "出42m", segment: 1, t: 0.78, pattern: ["", "awning", ""], note: "棚下滑" },
+        ],
+        orders: [[79, 50, "取"]],
+        rules: [
+          "入弯前不用双障碍，转向输入优先。",
+          "出弯后用货车和窄缝快速恢复商业跑酷密度。",
+          "模板可旋转成四个方向，承担街区边缘转接。"
+        ],
+      },
+      {
+        id: "tJunction",
+        name: "T 字路口",
+        role: "安全路与奖励路选择",
+        accent: "#aa7a55",
+        difficulty: 3,
+        weight: 1.15,
+        order: "分支",
+        shape: "三向交叉",
+        connectors: ["E", "S", "W"],
+        tempo: "分支奖惩差异",
+        reward: "右支高收益",
+        segments: [
+          [50, 96, 50, 50],
+          [4, 50, 96, 50],
+        ],
+        nodes: [[50, 96, "S"], [50, 50, ""], [4, 50, "W"], [96, 50, "E"]],
+        safeZones: [[50, 50]],
+        rows: [
+          { dist: "入12m", segment: 0, t: 0.22, pattern: ["speedBump", "", ""], note: "起步跳" },
+          { dist: "入18m", segment: 0, t: 0.34, pattern: ["", "", "heightLimit"], note: "预告下滑" },
+          { dist: "入22m", segment: 0, t: 0.44, pattern: ["", "streetCart", ""], note: "入口读图" },
+          { dist: "左24m", segment: 1, t: 0.27, pattern: ["cartonPile", "", ""], note: "稳线跳" },
+          { dist: "左42m", segment: 1, t: 0.13, pattern: ["", "", "adBanner"], note: "低压下滑" },
+          { dist: "右24m", segment: 1, t: 0.72, pattern: ["laneSqueeze", "", "laneSqueeze"], note: "高奖窄缝" },
+          { dist: "右36m", segment: 1, t: 0.82, pattern: ["", "heightLimit", ""], note: "接下滑" },
+          { dist: "右46m", segment: 1, t: 0.90, pattern: ["ebikeCrossing", "", ""], note: "横穿预判" },
+        ],
+        orders: [[86, 50, "高"], [14, 50, "稳"]],
+        rules: [
+          "一侧分支更安全，另一侧分支障碍更密。",
+          "高奖励订单优先挂在困难分支。",
+          "入口只放单障碍，右支用窄缝、下滑、动态物形成高奖励压力。"
+        ],
+      },
+      {
+        id: "sBlock",
+        name: "S 型街区",
+        role: "连续转向和变道",
+        accent: "#4f9d91",
+        difficulty: 3,
+        weight: 0.85,
+        order: "中密",
+        shape: "蛇形通道",
+        connectors: ["N", "S"],
+        tempo: "左右交替读图",
+        reward: "略高收益",
+        segments: [
+          [36, 96, 36, 75],
+          [36, 75, 70, 75],
+          [70, 75, 70, 48],
+          [70, 48, 34, 48],
+          [34, 48, 34, 4],
+        ],
+        nodes: [[36, 96, "S"], [36, 75, ""], [70, 75, ""], [70, 48, ""], [34, 48, ""], [34, 4, "N"]],
+        rows: [
+          { dist: "段1", segment: 0, t: 0.18, pattern: ["", "fallenSign", ""], note: "起步跳" },
+          { dist: "段1", segment: 0, t: 0.42, pattern: ["constructionFence", "", ""], note: "左压" },
+          { dist: "段1", segment: 0, t: 0.70, pattern: ["", "", "awning"], note: "入弯下滑" },
+          { dist: "段2", segment: 1, t: 0.36, pattern: ["", "", "fallenSign"], note: "右跳" },
+          { dist: "段2", segment: 1, t: 0.68, pattern: ["", "deliveryRamp", ""], note: "中线跳台" },
+          { dist: "段3", segment: 2, t: 0.50, pattern: ["", "", "scaffoldBar"], note: "右侧下滑" },
+          { dist: "段4", segment: 3, t: 0.48, pattern: ["bollardGate", "", "bollardGate"], note: "窄缝回正" },
+          { dist: "段5", segment: 4, t: 0.40, pattern: ["pothole", "", ""], note: "左跳" },
+        ],
+        orders: [[52, 75, "取"]],
+        rules: [
+          "障碍跟随道路摆动左右交替。",
+          "中段用跳台和窄门让视线有高低变化。",
+          "适合中期出现，用来打破直路疲劳。"
+        ],
+      },
+      {
+        id: "loop",
+        name: "环形街区",
+        role: "绕行与复杂导航",
+        accent: "#69a96d",
+        difficulty: 4,
+        weight: 0.80,
+        order: "中高",
+        shape: "环路加四接口",
+        connectors: ["N", "E", "S", "W"],
+        tempo: "环路主题包",
+        reward: "高收益",
+        segments: [
+          [28, 72, 72, 72],
+          [72, 72, 72, 28],
+          [72, 28, 28, 28],
+          [28, 28, 28, 72],
+          [50, 96, 50, 72],
+          [72, 50, 96, 50],
+          [50, 28, 50, 4],
+          [4, 50, 28, 50],
+        ],
+        nodes: [[50, 96, "S"], [96, 50, "E"], [50, 4, "N"], [4, 50, "W"], [28, 72, ""], [72, 72, ""], [72, 28, ""], [28, 28, ""]],
+        safeZones: [[28, 72], [72, 72], [72, 28], [28, 28]],
+        rows: [
+          { dist: "入口", segment: 4, t: 0.20, pattern: ["speedBump", "", ""], note: "起步跳" },
+          { dist: "入口", segment: 4, t: 0.44, pattern: ["", "deliveryCrates", ""], note: "入口箱堆" },
+          { dist: "入口", segment: 4, t: 0.68, pattern: ["", "", "adBanner"], note: "入环下滑" },
+          { dist: "边A", segment: 0, t: 0.35, pattern: ["", "deliveryCrates", ""], note: "箱堆占中" },
+          { dist: "边A", segment: 0, t: 0.68, pattern: ["speedBump", "", ""], note: "左跳" },
+          { dist: "边B", segment: 1, t: 0.48, pattern: ["", "", "footbridgeRamp"], note: "右上坡" },
+          { dist: "边C", segment: 2, t: 0.50, pattern: ["", "", "adBanner"], note: "出口下滑" },
+          { dist: "边D", segment: 3, t: 0.42, pattern: ["bollardGate", "", "bollardGate"], note: "窄缝" },
+          { dist: "边D", segment: 3, t: 0.68, pattern: ["", "pothole", ""], note: "中跳" },
+        ],
+        orders: [[72, 28, "送"], [28, 72, "取"]],
+        rules: [
+          "至少保留一条相对安全边，避免环内死压。",
+          "送达点适合放在环路中后段。",
+          "高压边可提高订单收益或刷新稀有订单，并用跳台制造高低路线感。"
+        ],
+      },
+      {
+        id: "market",
+        name: "商圈模板",
+        role: "高订单密度",
+        accent: "#d5973f",
+        difficulty: 4,
+        weight: 0.75,
+        order: "高密",
+        shape: "三向主路加广场",
+        connectors: ["E", "S", "W"],
+        tempo: "商圈高密穿行",
+        reward: "高收益",
+        segments: [
+          [50, 96, 50, 52],
+          [4, 52, 96, 52],
+          [50, 52, 50, 18],
+        ],
+        nodes: [[50, 96, "S"], [50, 52, ""], [4, 52, "W"], [96, 52, "E"], [50, 18, "广场"]],
+        plaza: [50, 18],
+        safeZones: [[50, 52]],
+        rows: [
+          { dist: "主10m", segment: 0, t: 0.18, pattern: ["speedBump", "", ""], note: "起步跳" },
+          { dist: "主18m", segment: 0, t: 0.30, pattern: ["", "streetCart", ""], note: "摊车占中" },
+          { dist: "主30m", segment: 0, t: 0.52, pattern: ["cartonPile", "", ""], note: "纸箱跳" },
+          { dist: "主44m", segment: 1, t: 0.68, pattern: ["", "", "taxiDoor"], note: "出租开门" },
+          { dist: "主56m", segment: 1, t: 0.82, pattern: ["ebikeCrossing", "", ""], note: "电动车横穿" },
+          { dist: "广18m", segment: 2, t: 0.34, pattern: ["", "awning", ""], note: "棚下滑" },
+          { dist: "广28m", segment: 2, t: 0.56, pattern: ["laneSqueeze", "", "laneSqueeze"], note: "摊位夹道" },
+          { dist: "广38m", segment: 2, t: 0.78, pattern: ["footbridgeRamp", "", "adBanner"], note: "跳台接滑" },
+        ],
+        orders: [[42, 18, "取"], [58, 18, "取"], [76, 52, "送"]],
+        rules: [
+          "取餐点高密刷新，奖励系数最高。",
+          "障碍表现为摊位、临停车、电动车和广告棚。",
+          "广场支路可放跳跃加下滑组合，但必须留一车道。"
+        ],
+      },
+      {
+        id: "construction",
+        name: "工地封路",
+        role: "高风险封闭支路",
+        accent: "#c46b4b",
+        difficulty: 5,
+        weight: 0.70,
+        order: "低密",
+        shape: "主路加死路",
+        connectors: ["N", "S", "W"],
+        tempo: "工地强警示",
+        reward: "风险收益",
+        segments: [
+          [50, 96, 50, 4],
+          [4, 50, 50, 50],
+          [50, 50, 82, 50],
+        ],
+        nodes: [[50, 96, "S"], [50, 50, ""], [50, 4, "N"], [4, 50, "W"], [82, 50, "X"]],
+        deadEnds: [[82, 50]],
+        safeZones: [[50, 50]],
+        rows: [
+          { dist: "主18m", segment: 0, t: 0.20, pattern: ["constructionFence", "", "constructionFence"], note: "强窄缝" },
+          { dist: "主30m", segment: 0, t: 0.34, pattern: ["", "pothole", ""], note: "坑洞跳" },
+          { dist: "主42m", segment: 0, t: 0.49, pattern: ["", "scaffoldBar", ""], note: "横杆下滑" },
+          { dist: "主56m", segment: 0, t: 0.64, pattern: ["coneGate", "", "coneGate"], note: "锥桶窄门" },
+          { dist: "主70m", segment: 0, t: 0.79, pattern: ["fallenSign", "", ""], note: "警示跳" },
+          { dist: "封16m", segment: 2, t: 0.45, pattern: ["constructionFence", "constructionFence", ""], note: "支路封堵" },
+        ],
+        orders: [[18, 50, "稳"]],
+        rules: [
+          "中后期少量出现，降低随机挫败感。",
+          "死路必须有明显封闭标记和小地图提示。",
+          "双障碍只占两车道，始终保留一条通路，并用蓝色窄门提示精确变道。"
+        ],
+      },
+    ];
+
+    const laneNames = ["L", "M", "R"];
+    let activeId = templates[0].id;
+
+    const templateButtons = document.querySelector("#templateButtons");
+    const overviewGrid = document.querySelector("#overviewGrid");
+    const stageCanvas = document.querySelector("#stageCanvas");
+    const templateTitle = document.querySelector("#templateTitle");
+    const templateSubtitle = document.querySelector("#templateSubtitle");
+    const difficultyChip = document.querySelector("#difficultyChip");
+    const weightChip = document.querySelector("#weightChip");
+    const orderChip = document.querySelector("#orderChip");
+    const shapeStat = document.querySelector("#shapeStat");
+    const connectorStat = document.querySelector("#connectorStat");
+    const obstacleStat = document.querySelector("#obstacleStat");
+    const rewardStat = document.querySelector("#rewardStat");
+    const laneRows = document.querySelector("#laneRows");
+    const ruleList = document.querySelector("#ruleList");
+    const rowCount = document.querySelector("#rowCount");
+
+    const worldScale = 1.15;
+    const roadWidth = 8.4;
+    const laneOffsets = [-roadWidth / 3, 0, roadWidth / 3];
+    let threeRenderer = null;
+    let threeScene = null;
+    let threeCamera = null;
+    let threeControls = null;
+    let threeRoot = null;
+    let playerNode = null;
+    let activeTemplate = null;
+    let routeGraph = null;
+    let runnerState = null;
+    let pressedKeys = new Set();
+    let lastFrameMs = 0;
+    let threeResizeObserver = null;
+    let threeAnimationStarted = false;
+    let threeMaterials = null;
+    const standardMaterialCache = new Map();
+    const basicMaterialCache = new Map();
+
+    function makeMaterial(color, roughness = 0.86) {
+      const key = `${color}:${roughness}`;
+      if (!standardMaterialCache.has(key)) {
+        standardMaterialCache.set(key, new THREE.MeshStandardMaterial({ color, roughness, metalness: 0 }));
+      }
+      return standardMaterialCache.get(key);
+    }
+
+    function makeBasicMaterial(color, opacity = 1, transparent = false, side = THREE.FrontSide) {
+      const key = `${color}:${opacity}:${transparent}:${side}`;
+      if (!basicMaterialCache.has(key)) {
+        basicMaterialCache.set(key, new THREE.MeshBasicMaterial({ color, opacity, transparent, side }));
+      }
+      return basicMaterialCache.get(key);
+    }
+
+    function svgEl(name, attrs = {}) {
+      const el = document.createElementNS("http://www.w3.org/2000/svg", name);
+      for (const [key, value] of Object.entries(attrs)) {
+        el.setAttribute(key, value);
+      }
+      return el;
+    }
+
+    function drawSegments(svg, template, compact = false) {
+      for (const segment of template.segments) {
+        const [x1, y1, x2, y2] = segment;
+        svg.appendChild(svgEl("line", {
+          x1, y1, x2, y2,
+          stroke: compact ? "#cfd8d4" : "var(--sidewalk)",
+          "stroke-width": compact ? 14 : 20,
+          "stroke-linecap": "square",
+        }));
+      }
+
+      for (const segment of template.segments) {
+        const [x1, y1, x2, y2] = segment;
+        svg.appendChild(svgEl("line", {
+          x1, y1, x2, y2,
+          stroke: compact ? "#657074" : "var(--road)",
+          "stroke-width": compact ? 8 : 13,
+          "stroke-linecap": "square",
+        }));
+      }
+
+      if (!compact) {
+        for (const segment of template.segments) {
+          const [x1, y1, x2, y2] = segment;
+          const dx = x2 - x1;
+          const dy = y2 - y1;
+          const len = Math.hypot(dx, dy) || 1;
+          const nx = -dy / len;
+          const ny = dx / len;
+          for (const offset of [-2.2, 2.2]) {
+            svg.appendChild(svgEl("line", {
+              x1: x1 + nx * offset,
+              y1: y1 + ny * offset,
+              x2: x2 + nx * offset,
+              y2: y2 + ny * offset,
+              stroke: "var(--lane)",
+              "stroke-width": 0.55,
+              "stroke-dasharray": "2.4 2.2",
+              "stroke-linecap": "round",
+              opacity: 0.92,
+            }));
+          }
+        }
+      }
+    }
+
+    function drawNodes(svg, template, compact = false) {
+      const nodeSize = compact ? 5.2 : 8.4;
+      const labelOffset = compact ? 0 : 7;
+      for (const node of template.nodes || []) {
+        const [x, y, label] = node;
+        svg.appendChild(svgEl("rect", {
+          x: x - nodeSize / 2,
+          y: y - nodeSize / 2,
+          width: nodeSize,
+          height: nodeSize,
+          rx: compact ? 1.5 : 2,
+          fill: compact ? "#eef4f1" : "#eaf0ed",
+          stroke: compact ? "#7c8a8d" : "#445357",
+          "stroke-width": compact ? 0.55 : 0.75,
+        }));
+        if (!compact && label) {
+          const text = svgEl("text", {
+            x,
+            y: y + (label === "N" ? -labelOffset : label === "S" ? labelOffset : 0),
+            class: "svg-small-label",
+          });
+          text.textContent = label;
+          svg.appendChild(text);
+        }
+      }
+
+      for (const point of template.safeZones || []) {
+        const [x, y] = point;
+        svg.appendChild(svgEl("circle", {
+          cx: x,
+          cy: y,
+          r: compact ? 7 : 12,
+          fill: "none",
+          stroke: compact ? "#72a8c5" : "var(--safe)",
+          "stroke-width": compact ? 0.6 : 0.85,
+          "stroke-dasharray": compact ? "1.2 1.2" : "1.8 1.8",
+          opacity: 0.78,
+        }));
+      }
+    }
+
+    function segmentPosition(template, row, laneIndex) {
+      const segment = template.segments[row.segment];
+      const [x1, y1, x2, y2] = segment;
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len;
+      const ny = dx / len;
+      const laneOffset = [-4.1, 0, 4.1][laneIndex];
+      return {
+        x: x1 + dx * row.t + nx * laneOffset,
+        y: y1 + dy * row.t + ny * laneOffset,
+        angle: Math.atan2(dy, dx) * 180 / Math.PI,
+      };
+    }
+
+    function drawObstacles(svg, template, compact = false) {
+      for (const row of template.rows) {
+        row.pattern.forEach((kind, laneIndex) => {
+          if (!kind) return;
+          const info = resolveObstacle(kind);
+          const mechanic = info.mechanicInfo;
+          const pos = segmentPosition(template, row, laneIndex);
+          const group = svgEl("g", {
+            transform: `translate(${pos.x} ${pos.y}) rotate(${pos.angle})`,
+          });
+          const size = compact ? 3.2 : 5.2;
+
+          if (info.mechanic === "highSlide") {
+            group.appendChild(svgEl("rect", {
+              x: -size * 0.9,
+              y: -size * 0.3,
+              width: size * 1.8,
+              height: size * 0.6,
+              rx: 0.7,
+              fill: info.warningColor,
+            }));
+            group.appendChild(svgEl("rect", {
+              x: -size * 0.65,
+              y: -size * 0.95,
+              width: size * 0.28,
+              height: size * 1.9,
+              rx: 0.5,
+              fill: info.warningColor,
+              opacity: 0.85,
+            }));
+            group.appendChild(svgEl("rect", {
+              x: size * 0.37,
+              y: -size * 0.95,
+              width: size * 0.28,
+              height: size * 1.9,
+              rx: 0.5,
+              fill: info.warningColor,
+              opacity: 0.85,
+            }));
+          } else if (info.mechanic === "precision") {
+            group.appendChild(svgEl("rect", {
+              x: -size * 1.02,
+              y: -size * 0.56,
+              width: size * 0.44,
+              height: size * 1.12,
+              rx: 0.5,
+              fill: info.warningColor,
+            }));
+            group.appendChild(svgEl("rect", {
+              x: size * 0.58,
+              y: -size * 0.56,
+              width: size * 0.44,
+              height: size * 1.12,
+              rx: 0.5,
+              fill: info.warningColor,
+            }));
+          } else if (info.mechanic === "dynamic") {
+            group.appendChild(svgEl("path", {
+              d: `M ${-size * 0.9} ${size * 0.35} L ${size * 0.4} ${size * 0.35} L ${size * 0.9} 0 L ${size * 0.4} ${-size * 0.35} L ${-size * 0.9} ${-size * 0.35} Z`,
+              fill: info.warningColor,
+            }));
+          } else if (info.mechanic === "ramp") {
+            group.appendChild(svgEl("polygon", {
+              points: `${-size * 0.8},${size * 0.5} ${size * 0.82},${size * 0.5} ${size * 0.82},${-size * 0.5}`,
+              fill: info.warningColor,
+            }));
+          } else {
+            group.appendChild(svgEl("rect", {
+              x: -size * 0.65,
+              y: -size * 0.45,
+              width: size * 1.3,
+              height: size * 0.9,
+              rx: info.mechanic === "lowJump" ? 1.3 : 0.9,
+              fill: info.warningColor,
+            }));
+          }
+
+          if (!compact) {
+            const text = svgEl("text", {
+              x: 0,
+              y: 0.2,
+              class: "svg-label",
+              fill: info.mechanic === "lowJump" || info.mechanic === "ramp" ? "#243126" : "#ffffff",
+            });
+            text.textContent = info.label || mechanic.label;
+            group.appendChild(text);
+          }
+          svg.appendChild(group);
+        });
+      }
+    }
+
+    function drawOrders(svg, template, compact = false) {
+      for (const order of template.orders || []) {
+        const [x, y, label] = order;
+        svg.appendChild(svgEl("circle", {
+          cx: x,
+          cy: y,
+          r: compact ? 3 : 4.8,
+          fill: "#36b882",
+          stroke: "#ffffff",
+          "stroke-width": compact ? 0.6 : 1,
+        }));
+        if (!compact) {
+          const text = svgEl("text", { x, y: y + 0.2, class: "svg-small-label", fill: "#11382a" });
+          text.textContent = label;
+          svg.appendChild(text);
+        }
+      }
+    }
+
+    function drawSpecials(svg, template, compact = false) {
+      if (template.plaza) {
+        const [x, y] = template.plaza;
+        svg.appendChild(svgEl("circle", {
+          cx: x,
+          cy: y,
+          r: compact ? 9 : 14,
+          fill: "rgba(213, 151, 63, 0.2)",
+          stroke: "#d5973f",
+          "stroke-width": compact ? 0.7 : 0.95,
+        }));
+      }
+
+      for (const dead of template.deadEnds || []) {
+        const [x, y] = dead;
+        svg.appendChild(svgEl("line", {
+          x1: x - 5,
+          y1: y - 5,
+          x2: x + 5,
+          y2: y + 5,
+          stroke: "#c46b4b",
+          "stroke-width": compact ? 1.3 : 2.2,
+          "stroke-linecap": "round",
+        }));
+        svg.appendChild(svgEl("line", {
+          x1: x + 5,
+          y1: y - 5,
+          x2: x - 5,
+          y2: y + 5,
+          stroke: "#c46b4b",
+          "stroke-width": compact ? 1.3 : 2.2,
+          "stroke-linecap": "round",
+        }));
+      }
+    }
+
+    function initThreeStage() {
+      if (threeRenderer) return;
+
+      threeScene = new THREE.Scene();
+      threeScene.background = new THREE.Color(0xd8e1dc);
+      threeScene.fog = new THREE.Fog(0xd8e1dc, 120, 220);
+
+      threeCamera = new THREE.PerspectiveCamera(39, 1, 0.1, 500);
+      threeRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+      threeRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      threeRenderer.shadowMap.enabled = true;
+      threeRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      threeRenderer.outputColorSpace = THREE.SRGBColorSpace;
+      stageCanvas.innerHTML = "";
+      stageCanvas.appendChild(threeRenderer.domElement);
+
+      threeControls = new MapControls(threeCamera, threeRenderer.domElement);
+      threeControls.enableDamping = true;
+      threeControls.dampingFactor = 0.08;
+      threeControls.minDistance = 45;
+      threeControls.maxDistance = 155;
+      threeControls.maxPolarAngle = Math.PI * 0.48;
+      threeControls.screenSpacePanning = false;
+      threeControls.enabled = false;
+
+      threeRenderer.domElement.tabIndex = 0;
+      threeRenderer.domElement.addEventListener("pointerdown", () => {
+        threeRenderer.domElement.focus();
+      });
+      window.addEventListener("keydown", handleRunnerKeyDown);
+      window.addEventListener("keyup", handleRunnerKeyUp);
+
+      const hemi = new THREE.HemisphereLight(0xffffff, 0xa9b8ac, 2.2);
+      threeScene.add(hemi);
+
+      const sun = new THREE.DirectionalLight(0xffffff, 2.9);
+      sun.position.set(-42, 84, -36);
+      sun.castShadow = true;
+      sun.shadow.mapSize.set(2048, 2048);
+      sun.shadow.camera.left = -90;
+      sun.shadow.camera.right = 90;
+      sun.shadow.camera.top = 90;
+      sun.shadow.camera.bottom = -90;
+      sun.shadow.camera.near = 8;
+      sun.shadow.camera.far = 180;
+      threeScene.add(sun);
+
+      threeMaterials = {
+        ground: makeMaterial(0xb8cfc0, 0.92),
+        road: makeMaterial(0x5c686b, 0.88),
+        roadDark: makeMaterial(0x465154, 0.9),
+        sidewalk: makeMaterial(0xcbd5d1, 0.9),
+        curb: makeMaterial(0x738681, 0.8),
+        lane: makeMaterial(0xe8f0ec, 0.72),
+        block: makeMaterial(0xd65b4a, 0.72),
+        jump: makeMaterial(0xe5ba41, 0.78),
+        slide: makeMaterial(0x8a64c9, 0.7),
+        precision: makeMaterial(0x4b9ac7, 0.74),
+        dynamic: makeMaterial(0xe47b45, 0.72),
+        ramp: makeMaterial(0x36b882, 0.78),
+        warningYellow: makeMaterial(0xf0c342, 0.7),
+        warningBlack: makeMaterial(0x253136, 0.82),
+        truck: makeMaterial(0xb84d43, 0.68),
+        truckCab: makeMaterial(0xe9f0ed, 0.65),
+        stallRed: makeMaterial(0xd85543, 0.74),
+        stallCanopy: makeMaterial(0xf0c342, 0.72),
+        carton: makeMaterial(0xc8914d, 0.86),
+        asphaltDark: makeMaterial(0x2e383b, 0.94),
+        bannerText: makeMaterial(0xf5f0dc, 0.66),
+        scaffold: makeMaterial(0x8e8f83, 0.62),
+        taxi: makeMaterial(0xe2b844, 0.7),
+        taxiDoor: makeMaterial(0xf4d76a, 0.72),
+        ebike: makeMaterial(0x27353a, 0.68),
+        rampTop: makeMaterial(0x7acb9e, 0.76),
+        order: makeMaterial(0x36b882, 0.58),
+        orderRing: makeMaterial(0xf5fbf8, 0.65),
+        safe: makeBasicMaterial(0x4b9ac7, 0.22, true, THREE.DoubleSide),
+        plaza: makeMaterial(0xd9b36f, 0.9),
+        cone: makeMaterial(0xd7653f, 0.75),
+        stripe: makeMaterial(0xffffff, 0.65),
+        glass: makeMaterial(0x8fb3bc, 0.68),
+        bollard: makeMaterial(0xf2f6f2, 0.72),
+        bin: makeMaterial(0x4b8f78, 0.82),
+        carBlue: makeMaterial(0x5e8fb6, 0.72),
+        carYellow: makeMaterial(0xd7aa45, 0.78),
+        carDark: makeMaterial(0x46545c, 0.82),
+      };
+
+      threeRoot = new THREE.Group();
+      threeScene.add(threeRoot);
+
+      threeResizeObserver = new ResizeObserver(resizeThreeStage);
+      threeResizeObserver.observe(stageCanvas);
+      resizeThreeStage();
+      animateThreeStage();
+    }
+
+    function resizeThreeStage() {
+      if (!threeRenderer || !threeCamera) return;
+      const rect = stageCanvas.getBoundingClientRect();
+      const width = Math.max(1, Math.floor(rect.width));
+      const height = Math.max(1, Math.floor(rect.height));
+      threeRenderer.setSize(width, height, false);
+      threeCamera.aspect = width / height;
+      threeCamera.updateProjectionMatrix();
+    }
+
+    function animateThreeStage() {
+      if (threeAnimationStarted) return;
+      threeAnimationStarted = true;
+
+      function tick(now) {
+        const dt = lastFrameMs ? Math.min(0.04, (now - lastFrameMs) / 1000) : 0;
+        lastFrameMs = now;
+        updateRunner(dt);
+        if (threeControls && threeControls.enabled) threeControls.update();
+        if (threeRenderer && threeScene && threeCamera) {
+          threeRenderer.render(threeScene, threeCamera);
+        }
+        requestAnimationFrame(tick);
+      }
+
+      requestAnimationFrame(tick);
+    }
+
+    function clearThreeRoot() {
+      if (!threeRoot) return;
+      threeRoot.traverse((object) => {
+        if (object.geometry) object.geometry.dispose();
+      });
+      threeRoot.clear();
+    }
+
+    function worldPoint(x, y) {
+      return new THREE.Vector3((x - 50) * worldScale, 0, (y - 50) * worldScale);
+    }
+
+    function worldToTemplate(value) {
+      return value / worldScale + 50;
+    }
+
+    function segmentInfo(segment) {
+      const a = worldPoint(segment[0], segment[1]);
+      const b = worldPoint(segment[2], segment[3]);
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const len = Math.hypot(dx, dz);
+      const yaw = Math.atan2(dx, dz);
+      return { a, b, dx, dz, len, yaw };
+    }
+
+    function laneWorldPosition(template, row, laneIndex) {
+      const segment = template.segments[row.segment];
+      const info = segmentInfo(segment);
+      const forward = new THREE.Vector3(info.dx / info.len, 0, info.dz / info.len);
+      const right = new THREE.Vector3(Math.cos(info.yaw), 0, -Math.sin(info.yaw));
+      const position = info.a.clone()
+        .add(forward.multiplyScalar(info.len * row.t))
+        .add(right.multiplyScalar(laneOffsets[laneIndex]));
+      return { position, yaw: info.yaw };
+    }
+
+    function makeRouteGraph(template) {
+      const graph = [];
+      const points = new Map();
+
+      function key(x, z) {
+        return `${x.toFixed(4)}:${z.toFixed(4)}`;
+      }
+
+      function addPoint(x, z) {
+        const k = key(x, z);
+        if (!points.has(k)) {
+          points.set(k, { x, z, neighbors: new Set() });
+        }
+        return points.get(k);
+      }
+
+      for (const segment of template.segments) {
+        const a = worldPoint(segment[0], segment[1]);
+        const b = worldPoint(segment[2], segment[3]);
+        const pa = addPoint(a.x, a.z);
+        const pb = addPoint(b.x, b.z);
+        pa.neighbors.add(pb);
+        pb.neighbors.add(pa);
+        graph.push({ a: pa, b: pb, length: a.distanceTo(b) });
+      }
+
+      return { points, edges: graph };
+    }
+
+    function samePoint(a, b) {
+      return Math.abs(a[0] - b[0]) < 0.001 && Math.abs(a[1] - b[1]) < 0.001;
+    }
+
+    function pointOnSegment(point, segment) {
+      const [px, py] = point;
+      const [x1, y1, x2, y2] = segment;
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const cross = Math.abs((px - x1) * dy - (py - y1) * dx);
+      if (cross > 0.001) return false;
+      const dot = (px - x1) * dx + (py - y1) * dy;
+      if (dot < -0.001) return false;
+      const len2 = dx * dx + dy * dy;
+      return dot <= len2 + 0.001;
+    }
+
+    function routeKey(point) {
+      return `${point[0].toFixed(3)}:${point[1].toFixed(3)}`;
+    }
+
+    function buildRouteSegments(template) {
+      const nodes = (template.nodes || []).map((node) => [node[0], node[1]]);
+      const routeSegments = [];
+
+      for (const segment of template.segments) {
+        const points = [
+          [segment[0], segment[1]],
+          [segment[2], segment[3]],
+        ];
+
+        for (const node of nodes) {
+          if (pointOnSegment(node, segment) && !points.some((point) => samePoint(point, node))) {
+            points.push(node);
+          }
+        }
+
+        points.sort((a, b) => {
+          const dx = Math.abs(segment[2] - segment[0]);
+          const dy = Math.abs(segment[3] - segment[1]);
+          return dx >= dy ? a[0] - b[0] : a[1] - b[1];
+        });
+
+        for (let i = 0; i < points.length - 1; i += 1) {
+          const a = points[i];
+          const b = points[i + 1];
+          if (samePoint(a, b)) continue;
+          routeSegments.push([a[0], a[1], b[0], b[1]]);
+        }
+      }
+
+      return routeSegments.length ? routeSegments : template.segments.slice();
+    }
+
+    function createRunnerState(template) {
+      const routeSegments = buildRouteSegments(template);
+      const graph = makeRouteGraph({ ...template, segments: routeSegments });
+      const entryNode = (template.nodes || []).find((node) => node[2] === "S") || template.nodes?.[0];
+      const entryPoint = entryNode ? [entryNode[0], entryNode[1]] : [routeSegments[0][0], routeSegments[0][1]];
+      let startIndex = Math.max(0, routeSegments.findIndex((segment) => {
+        return samePoint(entryPoint, segment.slice(0, 2)) || samePoint(entryPoint, segment.slice(2, 4));
+      }));
+      const startSegment = routeSegments[startIndex];
+      const startsAtA = samePoint(entryPoint, startSegment.slice(0, 2));
+      const forwardSign = startsAtA ? 1 : -1;
+      const start = worldPoint(entryPoint[0], entryPoint[1]);
+      const next = startsAtA
+        ? worldPoint(startSegment[2], startSegment[3])
+        : worldPoint(startSegment[0], startSegment[1]);
+      const dir = next.clone().sub(start).normalize();
+      const yaw = Math.atan2(dir.x, dir.z);
+      return {
+        templateId: template.id,
+        position: start.clone(),
+        yaw,
+        segmentIndex: startIndex,
+        t: 0.06,
+        speed: 0,
+        lateral: 0,
+        targetLateral: 0,
+        forwardSign,
+        path: {
+          segmentIndex: startIndex,
+          t: 0.06,
+        },
+        routeSegments,
+        graph,
+      };
+    }
+
+    function getSegmentForward(segmentIndex, forwardSign = 1) {
+      const segment = runnerState?.routeSegments?.[segmentIndex];
+      if (!segment) return new THREE.Vector3(0, 0, 1);
+      const a = worldPoint(segment[0], segment[1]);
+      const b = worldPoint(segment[2], segment[3]);
+      const vec = forwardSign >= 0 ? b.clone().sub(a) : a.clone().sub(b);
+      return vec.normalize();
+    }
+
+    function getSegmentPosition(segmentIndex, t, forwardSign = 1) {
+      const segment = runnerState?.routeSegments?.[segmentIndex];
+      if (!segment) return new THREE.Vector3();
+      const a = worldPoint(segment[0], segment[1]);
+      const b = worldPoint(segment[2], segment[3]);
+      const start = forwardSign >= 0 ? a : b;
+      const end = forwardSign >= 0 ? b : a;
+      return start.clone().lerp(end, t);
+    }
+
+    function buildRouteChoices(routeSegments) {
+      const choices = new Map();
+      for (let i = 0; i < routeSegments.length; i += 1) {
+        const segment = routeSegments[i];
+        const a = segment.slice(0, 2).join(":");
+        const b = segment.slice(2, 4).join(":");
+        if (!choices.has(a)) choices.set(a, []);
+        if (!choices.has(b)) choices.set(b, []);
+        choices.get(a).push({ index: i, forward: true, other: b });
+        choices.get(b).push({ index: i, forward: false, other: a });
+      }
+      return choices;
+    }
+
+    function chooseNextSegment(template, currentIndex, currentForward, preferSide = 0, atForwardEnd = true) {
+      const routeSegments = runnerState?.routeSegments || template.segments;
+      const choices = buildRouteChoices(routeSegments);
+      const segment = routeSegments[currentIndex];
+      if (!segment) return { index: currentIndex, forward: currentForward };
+      const endKey = atForwardEnd
+        ? (currentForward ? segment.slice(2, 4).join(":") : segment.slice(0, 2).join(":"))
+        : (currentForward ? segment.slice(0, 2).join(":") : segment.slice(2, 4).join(":"));
+      const options = (choices.get(endKey) || []).filter((item) => item.index !== currentIndex);
+      if (!options.length) {
+        const reversed = !currentForward;
+        return { index: currentIndex, forward: reversed };
+      }
+      if (options.length === 1) return options[0];
+
+      const currentDir = getSegmentForward(currentIndex, currentForward ? 1 : -1);
+      const scored = options.map((option) => {
+        const nextDir = getRouteOptionDirection(routeSegments, option);
+        const cross = currentDir.x * nextDir.z - currentDir.z * nextDir.x;
+        const dot = currentDir.dot(nextDir);
+        return { option, cross, dot };
+      });
+
+      if (preferSide < 0) {
+        scored.sort((a, b) => a.cross - b.cross);
+      } else if (preferSide > 0) {
+        scored.sort((a, b) => b.cross - a.cross);
+      } else {
+        scored.sort((a, b) => b.dot - a.dot);
+      }
+
+      return scored[0].option;
+    }
+
+    function getRouteOptionDirection(routeSegments, option) {
+      const segment = routeSegments[option.index];
+      const a = worldPoint(segment[0], segment[1]);
+      const b = worldPoint(segment[2], segment[3]);
+      const vec = option.forward ? b.clone().sub(a) : a.clone().sub(b);
+      return vec.normalize();
+    }
+
+    function handleRunnerKeyDown(event) {
+      if (!threeRenderer) return;
+      const key = event.key.toLowerCase();
+      if (!["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(key)) return;
+      pressedKeys.add(key);
+      event.preventDefault();
+    }
+
+    function handleRunnerKeyUp(event) {
+      const key = event.key.toLowerCase();
+      pressedKeys.delete(key);
+    }
+
+    function buildPlayerNode() {
+      if (playerNode && playerNode.parent) playerNode.parent.remove(playerNode);
+      playerNode = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.38, 0.95, 4, 10), makeMaterial(0xf7fbff, 0.55));
+      body.castShadow = true;
+      body.receiveShadow = true;
+      body.position.y = 0.9;
+      playerNode.add(body);
+
+      const backpack = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.8, 0.38), makeMaterial(0x36b882, 0.62));
+      backpack.position.set(0, 1.15, -0.22);
+      backpack.castShadow = true;
+      playerNode.add(backpack);
+
+      const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.28, 16, 16), makeMaterial(0xd65b4a, 0.4));
+      helmet.position.set(0, 1.9, 0);
+      helmet.castShadow = true;
+      playerNode.add(helmet);
+
+      threeRoot.add(playerNode);
+    }
+
+    function resetRunner(template) {
+      activeTemplate = template;
+      routeGraph = makeRouteGraph(template);
+      runnerState = createRunnerState(template);
+      pressedKeys.clear();
+      buildPlayerNode();
+      const start = getSegmentPosition(runnerState.segmentIndex, runnerState.t, runnerState.forwardSign);
+      playerNode.position.copy(start);
+      playerNode.position.y = 0.02;
+      playerNode.rotation.y = runnerState.yaw;
+      updateRunnerCamera(true);
+    }
+
+    function updateRunner(dt) {
+      if (!runnerState || !activeTemplate || !playerNode) return;
+      const template = activeTemplate;
+      const speedBase = 9.5 + template.difficulty * 0.7;
+      const accel = 8.5;
+      const segment = runnerState.routeSegments[runnerState.segmentIndex];
+      if (!segment) return;
+
+      const forwardPressed = pressedKeys.has("w") || pressedKeys.has("arrowup");
+      const backwardPressed = pressedKeys.has("s") || pressedKeys.has("arrowdown");
+      const leftPressed = pressedKeys.has("a") || pressedKeys.has("arrowleft");
+      const rightPressed = pressedKeys.has("d") || pressedKeys.has("arrowright");
+
+      if (forwardPressed) runnerState.speed = Math.min(speedBase * 1.35, runnerState.speed + accel * dt);
+      else if (backwardPressed) runnerState.speed = Math.max(-speedBase * 0.45, runnerState.speed - accel * dt);
+      else runnerState.speed *= Math.pow(0.88, dt * 60);
+
+      const steer = (rightPressed ? 1 : 0) - (leftPressed ? 1 : 0);
+      runnerState.targetLateral = THREE.MathUtils.clamp(runnerState.targetLateral + steer * dt * 1.8, -1.1, 1.1);
+      runnerState.lateral += (runnerState.targetLateral - runnerState.lateral) * Math.min(1, dt * 10);
+
+      const deltaT = (runnerState.speed * dt) / Math.max(8, segmentDistance(segment));
+      runnerState.t += deltaT;
+
+      while (runnerState.t > 1.0 || runnerState.t < 0.0) {
+        if (runnerState.t > 1.0) {
+          const choice = chooseNextSegment(template, runnerState.segmentIndex, runnerState.forwardSign >= 0, steer, true);
+          if (choice.index === runnerState.segmentIndex && choice.forward === (runnerState.forwardSign >= 0)) {
+            runnerState.t = 1.0;
+            runnerState.speed = 0;
+            break;
+          }
+          runnerState.segmentIndex = choice.index;
+          runnerState.forwardSign = choice.forward ? 1 : -1;
+          runnerState.t -= 1.0;
+        } else if (runnerState.t < 0.0) {
+          const choice = chooseNextSegment(template, runnerState.segmentIndex, runnerState.forwardSign >= 0, steer, false);
+          if (choice.index === runnerState.segmentIndex && choice.forward === (runnerState.forwardSign >= 0)) {
+            runnerState.t = 0.0;
+            runnerState.speed = 0;
+            break;
+          }
+          runnerState.segmentIndex = choice.index;
+          runnerState.forwardSign = choice.forward ? 1 : -1;
+          runnerState.t += 1.0;
+        }
+      }
+
+      const pos = getSegmentPosition(runnerState.segmentIndex, THREE.MathUtils.clamp(runnerState.t, 0, 1), runnerState.forwardSign);
+      const segmentVec = getSegmentForward(runnerState.segmentIndex, runnerState.forwardSign);
+      const rightVec = new THREE.Vector3(segmentVec.z, 0, -segmentVec.x).normalize();
+      playerNode.position.copy(pos).add(rightVec.multiplyScalar(runnerState.lateral * 1.8));
+      playerNode.position.y = 0.02;
+      const desiredYaw = Math.atan2(segmentVec.x, segmentVec.z);
+      const yawDelta = THREE.MathUtils.euclideanModulo(desiredYaw - playerNode.rotation.y + Math.PI, Math.PI * 2) - Math.PI;
+      playerNode.rotation.y += yawDelta * Math.min(1, dt * 9);
+
+      updateRunnerCamera(false);
+      window.__runnerDebug = {
+        templateId: template.id,
+        segmentIndex: runnerState.segmentIndex,
+        t: runnerState.t,
+        speed: runnerState.speed,
+        x: playerNode.position.x,
+        z: playerNode.position.z,
+      };
+    }
+
+    function segmentDistance(segment) {
+      const a = worldPoint(segment[0], segment[1]);
+      const b = worldPoint(segment[2], segment[3]);
+      return a.distanceTo(b);
+    }
+
+    function updateRunnerCamera(forceReset = false) {
+      if (!runnerState || !playerNode || !threeCamera) return;
+      const forward = getSegmentForward(runnerState.segmentIndex, runnerState.forwardSign);
+      const right = new THREE.Vector3(forward.z, 0, -forward.x).normalize();
+      const up = new THREE.Vector3(0, 1, 0);
+      const camBack = forward.clone().multiplyScalar(-12.2);
+      const camUp = up.clone().multiplyScalar(5.8);
+      const camSide = right.clone().multiplyScalar(runnerState.lateral * 3.2);
+      const target = playerNode.position.clone().add(up.clone().multiplyScalar(1.4)).add(forward.clone().multiplyScalar(12.5));
+      const desired = playerNode.position.clone().add(camBack).add(camUp).add(camSide);
+
+      if (forceReset) {
+        threeCamera.position.copy(desired);
+      } else {
+        threeCamera.position.lerp(desired, 0.08);
+      }
+      threeCamera.lookAt(target);
+    }
+
+    function addBox(parent, name, position, scale, yaw, material, castShadow = true, receiveShadow = true) {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), material);
+      mesh.name = name;
+      mesh.position.copy(position);
+      mesh.scale.set(scale.x, scale.y, scale.z);
+      mesh.rotation.y = yaw || 0;
+      mesh.castShadow = castShadow;
+      mesh.receiveShadow = receiveShadow;
+      parent.add(mesh);
+      return mesh;
+    }
+
+    function addCylinder(parent, name, position, radius, height, material, segments = 24) {
+      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, height, segments), material);
+      mesh.name = name;
+      mesh.position.copy(position);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      parent.add(mesh);
+      return mesh;
+    }
+
+    function addRoad3D(template) {
+      for (const segment of template.segments) {
+        const info = segmentInfo(segment);
+        const mid = new THREE.Vector3((info.a.x + info.b.x) * 0.5, 0, (info.a.z + info.b.z) * 0.5);
+        const roadLen = info.len + 4.8;
+
+        addBox(threeRoot, "Sidewalk", new THREE.Vector3(mid.x, 0.035, mid.z), {
+          x: roadWidth + 12.5,
+          y: 0.18,
+          z: roadLen + 2.6,
+        }, info.yaw, threeMaterials.sidewalk, false, true);
+
+        addBox(threeRoot, "Road", new THREE.Vector3(mid.x, 0.13, mid.z), {
+          x: roadWidth,
+          y: 0.22,
+          z: roadLen,
+        }, info.yaw, threeMaterials.road, false, true);
+
+        const right = new THREE.Vector3(Math.cos(info.yaw), 0, -Math.sin(info.yaw));
+        for (const side of [-1, 1]) {
+          const curbPos = mid.clone().add(right.clone().multiplyScalar(side * (roadWidth * 0.5 + 0.35)));
+          addBox(threeRoot, "Curb", new THREE.Vector3(curbPos.x, 0.32, curbPos.z), {
+            x: 0.35,
+            y: 0.26,
+            z: roadLen,
+          }, info.yaw, threeMaterials.curb, true, true);
+        }
+
+        const forward = new THREE.Vector3(info.dx / info.len, 0, info.dz / info.len);
+        const markCount = Math.max(3, Math.floor(info.len / 6));
+        for (let i = 1; i < markCount; i += 1) {
+          const base = info.a.clone().add(forward.clone().multiplyScalar(info.len * i / markCount));
+          for (const offset of [-roadWidth / 6, roadWidth / 6]) {
+            const mark = base.clone().add(right.clone().multiplyScalar(offset));
+            addBox(threeRoot, "LaneMark", new THREE.Vector3(mark.x, 0.255, mark.z), {
+              x: 0.18,
+              y: 0.035,
+              z: 2.7,
+            }, info.yaw, threeMaterials.lane, false, false);
+          }
+        }
+
+      }
+    }
+
+    function addIntersections3D(template) {
+      for (const node of template.nodes || []) {
+        const [x, y, label] = node;
+        const p = worldPoint(x, y);
+        const size = label === "X" ? 7.2 : 9.8;
+        addBox(threeRoot, "Intersection", new THREE.Vector3(p.x, 0.17, p.z), {
+          x: size,
+          y: 0.24,
+          z: size,
+        }, 0, label === "X" ? threeMaterials.roadDark : threeMaterials.road, false, true);
+      }
+
+      for (const point of template.safeZones || []) {
+        const p = worldPoint(point[0], point[1]);
+        const ring = new THREE.Mesh(new THREE.RingGeometry(7.8, 8.25, 48), threeMaterials.safe);
+        ring.name = "SafeZone";
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.set(p.x, 0.34, p.z);
+        threeRoot.add(ring);
+      }
+
+      if (template.plaza) {
+        const p = worldPoint(template.plaza[0], template.plaza[1]);
+        addBox(threeRoot, "Plaza", new THREE.Vector3(p.x, 0.22, p.z), {
+          x: 23,
+          y: 0.24,
+          z: 16,
+        }, 0, threeMaterials.plaza, false, true);
+      }
+    }
+
+    function addWarningHalo(parent, info, width = 3.2, depth = 3.0) {
+      const material = makeBasicMaterial(
+        info.warningColor || info.mechanicInfo.color,
+        info.mechanic === "dynamic" ? 0.28 : 0.18,
+        true,
+        THREE.DoubleSide,
+      );
+      const halo = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), material);
+      halo.name = "ObstacleWarning";
+      halo.rotation.x = -Math.PI / 2;
+      halo.position.y = 0.035;
+      parent.add(halo);
+    }
+
+    function addLocalWheel(parent, x, z, scale = 1) {
+      const wheel = addCylinder(parent, "Wheel", new THREE.Vector3(x, 0.42 * scale, z), 0.24 * scale, 0.18 * scale, threeMaterials.warningBlack, 16);
+      wheel.scale.x = 1.1;
+      wheel.rotation.z = Math.PI * 0.5;
+      return wheel;
+    }
+
+    function addWarningStripes(parent, z, width = 2.4, y = 1.2, count = 3) {
+      for (let i = 0; i < count; i += 1) {
+        const x = -width * 0.34 + i * (width * 0.34);
+        const stripe = addBox(parent, "WarningStripe", new THREE.Vector3(x, y, z), {
+          x: width * 0.22,
+          y: 0.12,
+          z: 0.08,
+        }, Math.PI * 0.18, threeMaterials.stripe, false, false);
+        stripe.rotation.z = -0.35;
+      }
+    }
+
+    function addBarricade3D(parent) {
+      addBox(parent, "FencePanel", new THREE.Vector3(0, 1.12, 0), { x: 3.05, y: 1.75, z: 0.34 }, 0, threeMaterials.block);
+      addBox(parent, "FenceTop", new THREE.Vector3(0, 2.08, 0), { x: 3.3, y: 0.22, z: 0.45 }, 0, threeMaterials.warningYellow);
+      addBox(parent, "FencePostL", new THREE.Vector3(-1.62, 1.12, 0), { x: 0.22, y: 2.2, z: 0.55 }, 0, threeMaterials.warningBlack);
+      addBox(parent, "FencePostR", new THREE.Vector3(1.62, 1.12, 0), { x: 0.22, y: 2.2, z: 0.55 }, 0, threeMaterials.warningBlack);
+      addWarningStripes(parent, -0.2, 2.75, 1.2, 4);
+      addCylinder(parent, "FenceBeacon", new THREE.Vector3(0, 2.48, 0), 0.18, 0.36, threeMaterials.order, 12);
+    }
+
+    function addTruck3D(parent) {
+      addBox(parent, "TruckBox", new THREE.Vector3(0, 0.98, 0.38), { x: 2.8, y: 1.55, z: 2.75 }, 0, threeMaterials.truck);
+      addBox(parent, "TruckCab", new THREE.Vector3(0, 0.86, -1.45), { x: 2.35, y: 1.28, z: 1.15 }, 0, threeMaterials.truckCab);
+      addBox(parent, "TruckWindshield", new THREE.Vector3(0, 1.36, -2.04), { x: 1.65, y: 0.42, z: 0.08 }, 0, threeMaterials.glass, false, false);
+      addBox(parent, "TruckStripe", new THREE.Vector3(0, 1.05, -0.96), { x: 2.55, y: 0.13, z: 0.1 }, 0, threeMaterials.warningYellow, false, false);
+      for (const x of [-1.25, 1.25]) {
+        addLocalWheel(parent, x, -1.42, 1);
+        addLocalWheel(parent, x, 1.35, 1);
+      }
+    }
+
+    function addStall3D(parent) {
+      addBox(parent, "StallBody", new THREE.Vector3(0, 0.78, 0.15), { x: 2.65, y: 1.1, z: 1.6 }, 0, threeMaterials.stallRed);
+      addBox(parent, "StallCounter", new THREE.Vector3(0, 1.35, -0.76), { x: 2.85, y: 0.22, z: 0.28 }, 0, threeMaterials.carton);
+      addBox(parent, "Canopy", new THREE.Vector3(0, 2.05, 0), { x: 3.25, y: 0.28, z: 2.05 }, 0, threeMaterials.stallCanopy);
+      addBox(parent, "CanopyStripeA", new THREE.Vector3(-0.65, 2.23, -0.02), { x: 0.28, y: 0.08, z: 2.12 }, 0, threeMaterials.stripe, false, false);
+      addBox(parent, "CanopyStripeB", new THREE.Vector3(0.65, 2.23, -0.02), { x: 0.28, y: 0.08, z: 2.12 }, 0, threeMaterials.stripe, false, false);
+      for (const x of [-1.1, 1.1]) addLocalWheel(parent, x, 0.96, 0.85);
+    }
+
+    function addCrates3D(parent, low = false) {
+      const boxes = [
+        [-0.72, 0.42, 0.05, 1.0, 0.72, 0.82],
+        [0.32, 0.45, -0.18, 1.05, 0.78, 0.86],
+        [0.88, 0.98, 0.38, 0.82, 0.72, 0.74],
+        [-0.16, 1.02, 0.42, 0.92, 0.76, 0.78],
+      ];
+      for (const [x, y, z, sx, sy, sz] of boxes) {
+        addBox(parent, "Crate", new THREE.Vector3(x, y, z), {
+          x: sx,
+          y: low ? sy * 0.72 : sy,
+          z: sz,
+        }, 0, threeMaterials.carton);
+      }
+      addBox(parent, "CrateBand", new THREE.Vector3(0.06, low ? 0.92 : 1.18, -0.08), {
+        x: 2.45,
+        y: 0.1,
+        z: 0.1,
+      }, 0, threeMaterials.stripe, false, false);
+    }
+
+    function addSpeedBump3D(parent) {
+      addBox(parent, "SpeedBumpBase", new THREE.Vector3(0, 0.28, 0), { x: 3.25, y: 0.36, z: 1.12 }, 0, threeMaterials.warningYellow);
+      for (let i = 0; i < 4; i += 1) {
+        addBox(parent, "SpeedBumpStripe", new THREE.Vector3(-1.2 + i * 0.8, 0.5, -0.08), {
+          x: 0.28,
+          y: 0.06,
+          z: 1.22,
+        }, Math.PI * 0.12, threeMaterials.warningBlack, false, false);
+      }
+    }
+
+    function addFallenSign3D(parent) {
+      const pole = addBox(parent, "FallenPole", new THREE.Vector3(0, 0.38, 0.08), { x: 0.16, y: 0.16, z: 2.75 }, 0, threeMaterials.scaffold);
+      pole.rotation.z = Math.PI * 0.16;
+      const sign = addBox(parent, "FallenSign", new THREE.Vector3(0.45, 0.58, -0.32), { x: 1.18, y: 0.12, z: 0.86 }, 0, threeMaterials.warningYellow);
+      sign.rotation.z = Math.PI * 0.16;
+      addBox(parent, "FallenSignMark", new THREE.Vector3(0.45, 0.66, -0.32), { x: 0.82, y: 0.05, z: 0.12 }, 0, threeMaterials.warningBlack, false, false);
+    }
+
+    function addPothole3D(parent) {
+      const hole = addCylinder(parent, "Pothole", new THREE.Vector3(0, 0.19, 0), 1.2, 0.06, threeMaterials.asphaltDark, 32);
+      hole.scale.x = 1.35;
+      addBox(parent, "PotholeWarnA", new THREE.Vector3(-0.9, 0.25, -0.9), { x: 0.72, y: 0.06, z: 0.16 }, Math.PI * 0.25, threeMaterials.warningYellow, false, false);
+      addBox(parent, "PotholeWarnB", new THREE.Vector3(0.9, 0.25, 0.9), { x: 0.72, y: 0.06, z: 0.16 }, Math.PI * 0.25, threeMaterials.warningYellow, false, false);
+    }
+
+    function addSlideFrame3D(parent, variant) {
+      const postMat = variant === "scaffold" ? threeMaterials.scaffold : threeMaterials.slide;
+      for (const x of [-1.35, 1.35]) {
+        addBox(parent, "SlidePost", new THREE.Vector3(x, 1.26, 0), { x: 0.24, y: 2.38, z: 0.34 }, 0, postMat);
+      }
+      if (variant === "awning") {
+        addBox(parent, "AwningTop", new THREE.Vector3(0, 2.36, 0.1), { x: 3.45, y: 0.28, z: 1.72 }, 0, threeMaterials.slide);
+        addBox(parent, "AwningLip", new THREE.Vector3(0, 1.66, -0.7), { x: 3.1, y: 0.18, z: 0.16 }, 0, threeMaterials.stallCanopy, false, false);
+      } else if (variant === "scaffold") {
+        addBox(parent, "ScaffoldTop", new THREE.Vector3(0, 2.28, 0), { x: 3.2, y: 0.18, z: 0.34 }, 0, threeMaterials.scaffold);
+        addBox(parent, "ScaffoldMid", new THREE.Vector3(0, 1.68, 0), { x: 3.0, y: 0.16, z: 0.26 }, 0, threeMaterials.scaffold);
+        addBox(parent, "ScaffoldDiagonalA", new THREE.Vector3(-0.52, 1.68, 0.02), { x: 0.16, y: 1.45, z: 0.22 }, Math.PI * 0.18, threeMaterials.scaffold);
+        addBox(parent, "ScaffoldDiagonalB", new THREE.Vector3(0.52, 1.68, 0.02), { x: 0.16, y: 1.45, z: 0.22 }, -Math.PI * 0.18, threeMaterials.scaffold);
+      } else if (variant === "height") {
+        addBox(parent, "HeightLimitBar", new THREE.Vector3(0, 2.22, 0), { x: 3.45, y: 0.24, z: 0.34 }, 0, threeMaterials.warningYellow);
+        for (let i = 0; i < 4; i += 1) {
+          addBox(parent, "HeightLimitStripe", new THREE.Vector3(-1.18 + i * 0.78, 2.38, 0), {
+            x: 0.28,
+            y: 0.08,
+            z: 0.38,
+          }, Math.PI * 0.16, threeMaterials.warningBlack, false, false);
+        }
+      } else {
+        addBox(parent, "SlideTop", new THREE.Vector3(0, 2.24, 0), { x: 3.35, y: 0.28, z: 0.42 }, 0, threeMaterials.slide);
+        addBox(parent, "SlideBanner", new THREE.Vector3(0, 1.62, 0), { x: 2.5, y: 0.88, z: 0.18 }, 0, threeMaterials.bannerText, false, false);
+      }
+    }
+
+    function addPrecisionGate3D(parent, variant) {
+      if (variant === "cone") {
+        for (const x of [-1.15, 1.15]) {
+          const cone = new THREE.Mesh(new THREE.ConeGeometry(0.4, 1.25, 16), threeMaterials.cone);
+          cone.name = "GateCone";
+          cone.position.set(x, 0.76, 0);
+          cone.castShadow = true;
+          cone.receiveShadow = true;
+          parent.add(cone);
+          addBox(parent, "GateConeStripe", new THREE.Vector3(x, 0.98, 0), { x: 0.52, y: 0.07, z: 0.07 }, 0, threeMaterials.stripe, false, false);
+        }
+      } else if (variant === "squeeze") {
+        for (const x of [-1.25, 1.25]) {
+          addBox(parent, "SqueezeRail", new THREE.Vector3(x, 0.82, 0), { x: 0.28, y: 1.25, z: 2.6 }, 0, threeMaterials.precision);
+          addBox(parent, "SqueezeFoot", new THREE.Vector3(x, 0.2, 0), { x: 0.72, y: 0.18, z: 2.85 }, 0, threeMaterials.warningBlack, false, true);
+        }
+      } else {
+        for (const x of [-1.18, 1.18]) {
+          addCylinder(parent, "GateBollard", new THREE.Vector3(x, 0.72, 0), 0.22, 1.35, threeMaterials.precision, 16);
+          addBox(parent, "GateBollardBand", new THREE.Vector3(x, 0.96, 0), { x: 0.5, y: 0.08, z: 0.5 }, 0, threeMaterials.stripe, false, false);
+        }
+      }
+      addBox(parent, "GateGuide", new THREE.Vector3(0, 0.08, 0), { x: 0.42, y: 0.05, z: 2.4 }, 0, threeMaterials.precision, false, false);
+    }
+
+    function addEbike3D(parent) {
+      addBox(parent, "EbikeBody", new THREE.Vector3(0, 0.78, 0), { x: 2.45, y: 0.28, z: 0.34 }, Math.PI * 0.5, threeMaterials.ebike);
+      addBox(parent, "EbikeRider", new THREE.Vector3(0.05, 1.25, 0), { x: 0.46, y: 0.82, z: 0.38 }, Math.PI * 0.5, threeMaterials.dynamic);
+      const wheelA = addCylinder(parent, "EbikeWheelA", new THREE.Vector3(-0.88, 0.48, 0), 0.34, 0.18, threeMaterials.warningBlack, 18);
+      const wheelB = addCylinder(parent, "EbikeWheelB", new THREE.Vector3(0.88, 0.48, 0), 0.34, 0.18, threeMaterials.warningBlack, 18);
+      wheelA.rotation.z = Math.PI * 0.5;
+      wheelB.rotation.z = Math.PI * 0.5;
+      addBox(parent, "EbikeMotionA", new THREE.Vector3(-1.72, 0.22, -0.72), { x: 0.9, y: 0.06, z: 0.12 }, 0, threeMaterials.dynamic, false, false);
+      addBox(parent, "EbikeMotionB", new THREE.Vector3(-1.45, 0.22, 0.72), { x: 0.72, y: 0.06, z: 0.12 }, 0, threeMaterials.dynamic, false, false);
+    }
+
+    function addTaxiDoor3D(parent) {
+      addBox(parent, "TaxiBody", new THREE.Vector3(0, 0.72, 0.18), { x: 2.65, y: 0.88, z: 2.75 }, 0, threeMaterials.taxi);
+      addBox(parent, "TaxiCabin", new THREE.Vector3(0, 1.32, -0.12), { x: 1.7, y: 0.58, z: 1.08 }, 0, threeMaterials.glass);
+      const door = addBox(parent, "TaxiOpenDoor", new THREE.Vector3(-1.62, 0.93, -0.2), { x: 0.16, y: 0.82, z: 1.25 }, -Math.PI * 0.23, threeMaterials.taxiDoor);
+      door.rotation.z = -0.08;
+      addBox(parent, "TaxiWarning", new THREE.Vector3(-1.95, 0.24, -0.2), { x: 0.18, y: 0.08, z: 1.5 }, 0, threeMaterials.dynamic, false, false);
+      for (const x of [-1.1, 1.1]) {
+        addLocalWheel(parent, x, -1.0, 0.9);
+        addLocalWheel(parent, x, 1.1, 0.9);
+      }
+    }
+
+    function addRamp3D(parent, variant) {
+      addBox(parent, "RampBase", new THREE.Vector3(0, 0.22, 0.25), { x: 2.85, y: 0.28, z: 2.1 }, 0, threeMaterials.ramp);
+      const panel = addBox(parent, "RampPanel", new THREE.Vector3(0, 0.66, -0.18), { x: 2.85, y: 0.12, z: 2.45 }, 0, threeMaterials.rampTop);
+      panel.rotation.x = -0.32;
+      addBox(parent, "RampStripeA", new THREE.Vector3(-0.72, 0.88, -0.74), { x: 0.28, y: 0.07, z: 1.2 }, 0, threeMaterials.stripe, false, false);
+      addBox(parent, "RampStripeB", new THREE.Vector3(0.72, 0.88, -0.74), { x: 0.28, y: 0.07, z: 1.2 }, 0, threeMaterials.stripe, false, false);
+      if (variant === "footbridge") {
+        addBox(parent, "RampRailL", new THREE.Vector3(-1.58, 0.92, 0), { x: 0.16, y: 0.92, z: 2.55 }, 0, threeMaterials.precision);
+        addBox(parent, "RampRailR", new THREE.Vector3(1.58, 0.92, 0), { x: 0.16, y: 0.92, z: 2.55 }, 0, threeMaterials.precision);
+      }
+    }
+
+    function addObstacle3D(kind, position, yaw) {
+      const info = resolveObstacle(kind);
+      const group = new THREE.Group();
+      group.position.copy(position);
+      group.rotation.y = yaw;
+      group.name = `Obstacle_${info.id}`;
+      threeRoot.add(group);
+      addWarningHalo(group, info, info.mechanic === "largeBlocker" ? 3.7 : 3.2, info.mechanic === "dynamic" ? 4.2 : 3.0);
+
+      if (info.silhouette === "truck") {
+        addTruck3D(group);
+      } else if (info.silhouette === "stall") {
+        addStall3D(group);
+      } else if (info.silhouette === "crates") {
+        addCrates3D(group, false);
+      } else if (info.silhouette === "speed-bump") {
+        addSpeedBump3D(group);
+      } else if (info.silhouette === "fallen-sign") {
+        addFallenSign3D(group);
+      } else if (info.silhouette === "box-pile") {
+        addCrates3D(group, true);
+      } else if (info.silhouette === "pothole") {
+        addPothole3D(group);
+      } else if (info.silhouette === "awning") {
+        addSlideFrame3D(group, "awning");
+      } else if (info.silhouette === "scaffold") {
+        addSlideFrame3D(group, "scaffold");
+      } else if (info.silhouette === "banner") {
+        addSlideFrame3D(group, "banner");
+      } else if (info.silhouette === "height-bar") {
+        addSlideFrame3D(group, "height");
+      } else if (info.silhouette === "cone-gate") {
+        addPrecisionGate3D(group, "cone");
+      } else if (info.silhouette === "squeeze") {
+        addPrecisionGate3D(group, "squeeze");
+      } else if (info.silhouette === "bollard-gate") {
+        addPrecisionGate3D(group, "bollard");
+      } else if (info.silhouette === "ebike") {
+        addEbike3D(group);
+      } else if (info.silhouette === "taxi-door") {
+        addTaxiDoor3D(group);
+      } else if (info.silhouette === "ramp") {
+        addRamp3D(group, "delivery");
+      } else if (info.silhouette === "footbridge-ramp") {
+        addRamp3D(group, "footbridge");
+      } else {
+        addBarricade3D(group);
+      }
+    }
+
+    function addObstacles3D(template) {
+      for (const row of template.rows) {
+        row.pattern.forEach((kind, laneIndex) => {
+          if (!kind) return;
+          const lane = laneWorldPosition(template, row, laneIndex);
+          addObstacle3D(kind, new THREE.Vector3(lane.position.x, 0.28, lane.position.z), lane.yaw);
+        });
+      }
+
+      addPreviewFillers3D(template);
+    }
+
+    function addCone3D(position, yaw, scale = 1) {
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(0.42 * scale, 1.22 * scale, 16), threeMaterials.cone);
+      cone.position.copy(position);
+      cone.position.y = 0.82 * scale;
+      cone.rotation.y = yaw;
+      cone.castShadow = true;
+      cone.receiveShadow = true;
+      threeRoot.add(cone);
+      addBox(threeRoot, "ConeStripe", new THREE.Vector3(position.x, 1.0 * scale, position.z), {
+        x: 0.58 * scale,
+        y: 0.08 * scale,
+        z: 0.08 * scale,
+      }, yaw, threeMaterials.stripe, false, false);
+    }
+
+    function addBollard3D(position, yaw, scale = 1) {
+      const bollard = addCylinder(threeRoot, "Bollard", new THREE.Vector3(position.x, 0.7 * scale, position.z), 0.2 * scale, 1.25 * scale, threeMaterials.bollard, 14);
+      bollard.rotation.y = yaw;
+      addBox(threeRoot, "BollardBand", new THREE.Vector3(position.x, 0.88 * scale, position.z), {
+        x: 0.5 * scale,
+        y: 0.08 * scale,
+        z: 0.5 * scale,
+      }, yaw, threeMaterials.block, false, false);
+    }
+
+    function addBin3D(position, yaw) {
+      addBox(threeRoot, "StreetBin", new THREE.Vector3(position.x, 0.68, position.z), {
+        x: 0.95,
+        y: 1.25,
+        z: 0.86,
+      }, yaw, threeMaterials.bin, true, true);
+      addBox(threeRoot, "StreetBinTop", new THREE.Vector3(position.x, 1.36, position.z), {
+        x: 1.08,
+        y: 0.18,
+        z: 0.98,
+      }, yaw, threeMaterials.roadDark, true, true);
+    }
+
+    function addParkedCar3D(position, yaw, material) {
+      addBox(threeRoot, "ParkedCarBody", new THREE.Vector3(position.x, 0.72, position.z), {
+        x: 2.15,
+        y: 0.88,
+        z: 3.25,
+      }, yaw, material, true, true);
+      addBox(threeRoot, "ParkedCarCabin", new THREE.Vector3(position.x, 1.35, position.z - Math.cos(yaw) * 0.18), {
+        x: 1.55,
+        y: 0.62,
+        z: 1.45,
+      }, yaw, threeMaterials.glass, true, true);
+    }
+
+    function addRoadsideCluster3D(info, t, side, variant) {
+      const forward = new THREE.Vector3(info.dx / info.len, 0, info.dz / info.len);
+      const right = new THREE.Vector3(Math.cos(info.yaw), 0, -Math.sin(info.yaw));
+      const base = info.a.clone()
+        .add(forward.clone().multiplyScalar(info.len * t))
+        .add(right.clone().multiplyScalar(side * (roadWidth * 0.5 + 1.15)));
+
+      if (variant % 3 === 0) {
+        addCone3D(base.clone().add(forward.clone().multiplyScalar(-0.9)), info.yaw, 1.08);
+        addCone3D(base.clone().add(forward.clone().multiplyScalar(0.9)), info.yaw, 1.08);
+      } else if (variant % 3 === 1) {
+        addBollard3D(base.clone().add(forward.clone().multiplyScalar(-0.85)), info.yaw, 1);
+        addBollard3D(base.clone().add(forward.clone().multiplyScalar(0.85)), info.yaw, 1);
+      } else {
+        addBin3D(base, info.yaw);
+      }
+    }
+
+    function addPreviewRoadObstacle3D(template, segmentIndex, t, laneIndex, kind) {
+      const row = { segment: segmentIndex, t };
+      const lane = laneWorldPosition(template, row, laneIndex);
+      addObstacle3D(kind, new THREE.Vector3(lane.position.x, 0.28, lane.position.z), lane.yaw);
+    }
+
+    function chooseFillerObstacle(template, segmentIndex, itemIndex) {
+      const pools = {
+        straight: ["constructionFence", "cartonPile", "adBanner", "taxiDoor", "deliveryRamp"],
+        cross: ["streetCart", "speedBump", "heightLimit", "ebikeCrossing", "bollardGate"],
+        corner: ["fallenSign", "parkedTruck", "bollardGate", "awning"],
+        tJunction: ["cartonPile", "laneSqueeze", "heightLimit", "ebikeCrossing"],
+        sBlock: ["constructionFence", "fallenSign", "deliveryRamp", "scaffoldBar", "pothole"],
+        loop: ["deliveryCrates", "speedBump", "footbridgeRamp", "adBanner", "bollardGate"],
+        market: ["streetCart", "cartonPile", "taxiDoor", "ebikeCrossing", "awning", "laneSqueeze"],
+        construction: ["constructionFence", "pothole", "scaffoldBar", "coneGate", "fallenSign"],
+      };
+      const pool = pools[template.id] || ["constructionFence", "speedBump", "awning"];
+      return pool[(segmentIndex * 2 + itemIndex + template.difficulty) % pool.length];
+    }
+
+    function addPreviewFillers3D(template) {
+      const placedKeys = new Set();
+      for (const row of template.rows) {
+        row.pattern.forEach((kind, laneIndex) => {
+          if (kind) placedKeys.add(`${row.segment}:${laneIndex}:${Math.round(row.t * 100)}`);
+        });
+      }
+
+      template.segments.forEach((segment, segmentIndex) => {
+        const info = segmentInfo(segment);
+        if (info.len < 12) return;
+
+        const density = template.id === "market" || template.id === "construction" ? 4 : 3;
+        for (let i = 1; i <= density; i += 1) {
+          const t = (i + 0.35) / (density + 1.2);
+          if (t < 0.16 || t > 0.86) continue;
+          addRoadsideCluster3D(info, t, i % 2 === 0 ? 1 : -1, segmentIndex + i);
+        }
+
+        const fillerCount = template.id === "straight" ? 3 : template.id === "market" || template.id === "construction" ? 2 : 1;
+        for (let i = 0; i < fillerCount; i += 1) {
+          const t = 0.22 + i * (0.56 / Math.max(1, fillerCount - 1 || 1));
+          const laneIndex = (segmentIndex + i + template.difficulty) % 3;
+          const key = `${segmentIndex}:${laneIndex}:${Math.round(t * 100)}`;
+          if (placedKeys.has(key)) continue;
+          const kind = chooseFillerObstacle(template, segmentIndex, i);
+          addPreviewRoadObstacle3D(template, segmentIndex, t, laneIndex, kind);
+        }
+
+        if (info.len > 34 && (segmentIndex + template.difficulty) % 2 === 0) {
+          const forward = new THREE.Vector3(info.dx / info.len, 0, info.dz / info.len);
+          const right = new THREE.Vector3(Math.cos(info.yaw), 0, -Math.sin(info.yaw));
+          const side = segmentIndex % 2 === 0 ? -1 : 1;
+          const carPos = info.a.clone()
+            .add(forward.multiplyScalar(info.len * 0.62))
+            .add(right.multiplyScalar(side * (roadWidth * 0.5 - 1.05)));
+          const carMat = segmentIndex % 3 === 0 ? threeMaterials.carBlue : segmentIndex % 3 === 1 ? threeMaterials.carYellow : threeMaterials.carDark;
+          addParkedCar3D(carPos, info.yaw, carMat);
+        }
+      });
+    }
+
+    function addOrders3D(template) {
+      for (const order of template.orders || []) {
+        const [x, y] = order;
+        const p = worldPoint(x, y);
+        addCylinder(threeRoot, "OrderRing", new THREE.Vector3(p.x, 0.42, p.z), 2.25, 0.22, threeMaterials.orderRing, 32);
+        addCylinder(threeRoot, "OrderPoint", new THREE.Vector3(p.x, 0.72, p.z), 1.55, 0.55, threeMaterials.order, 32);
+        const stem = addCylinder(threeRoot, "OrderStem", new THREE.Vector3(p.x, 2.1, p.z), 0.12, 2.35, threeMaterials.order, 12);
+        stem.castShadow = false;
+        const sign = addBox(threeRoot, "OrderSign", new THREE.Vector3(p.x, 3.45, p.z), {
+          x: 2.1,
+          y: 1.0,
+          z: 0.18,
+        }, 0, threeMaterials.order, true, true);
+        sign.rotation.y = Math.PI * 0.18;
+      }
+    }
+
+    function addDeadEnds3D(template) {
+      for (const dead of template.deadEnds || []) {
+        const p = worldPoint(dead[0], dead[1]);
+        for (let i = -1; i <= 1; i += 1) {
+          const cone = new THREE.Mesh(new THREE.ConeGeometry(0.88, 2.2, 18), threeMaterials.cone);
+          cone.position.set(p.x, 1.22, p.z + i * 2.2);
+          cone.castShadow = true;
+          cone.receiveShadow = true;
+          threeRoot.add(cone);
+        }
+        addBox(threeRoot, "RoadClosed", new THREE.Vector3(p.x, 1.2, p.z), {
+          x: 0.46,
+          y: 1.55,
+          z: 7.4,
+        }, Math.PI * 0.5, threeMaterials.block);
+      }
+    }
+
+    function isNearRoadWorld(x, z, template, radius) {
+      const r2 = radius * radius;
+      for (const segment of template.segments) {
+        const info = segmentInfo(segment);
+        const vx = info.b.x - info.a.x;
+        const vz = info.b.z - info.a.z;
+        const len2 = vx * vx + vz * vz;
+        const t = len2 > 0 ? Math.max(0, Math.min(1, ((x - info.a.x) * vx + (z - info.a.z) * vz) / len2)) : 0;
+        const px = info.a.x + vx * t;
+        const pz = info.a.z + vz * t;
+        const dx = x - px;
+        const dz = z - pz;
+        if (dx * dx + dz * dz <= r2) return true;
+      }
+      return false;
+    }
+
+    function makeBuildingColor(template, index) {
+      const palettes = {
+        market: [0xe7b75f, 0xce8fbd, 0xf0cf73, 0xd98b63],
+        construction: [0xb56a52, 0x998d80, 0xd09b5c, 0xa96d58],
+        loop: [0x8fb99e, 0xa7b98c, 0x8aaeb1, 0x91b6a2],
+        default: [0x9fb2b5, 0xb8ae9d, 0xa7b8ae, 0xb5c1bd],
+      };
+      const key = template.id === "market" ? "market" : template.id === "construction" ? "construction" : template.id === "loop" ? "loop" : "default";
+      const palette = palettes[key];
+      return palette[index % palette.length];
+    }
+
+    function addBuildings3D(template) {
+      const candidates = [
+        [-42, -42], [-26, -42], [-10, -42], [16, -42], [34, -42],
+        [-42, -20], [42, -20], [-42, 4], [42, 4],
+        [-42, 28], [-24, 28], [20, 30], [40, 30],
+        [-32, 46], [-8, 46], [22, 46], [42, 46],
+      ];
+
+      candidates.forEach(([x, z], index) => {
+        if (isNearRoadWorld(x, z, template, template.id === "market" ? 11 : 9)) return;
+        const width = 5.8 + (index % 3) * 1.4;
+        const depth = 5.4 + ((index + 1) % 3) * 1.2;
+        const height = template.id === "market"
+          ? 8 + (index % 4) * 2.2
+          : template.id === "construction"
+            ? 6 + (index % 3) * 1.8
+            : 9 + (index % 5) * 2.7;
+        const mat = makeMaterial(makeBuildingColor(template, index), 0.88);
+        const building = addBox(threeRoot, "Building", new THREE.Vector3(x, height * 0.5, z), {
+          x: width,
+          y: height,
+          z: depth,
+        }, ((index % 3) - 1) * 0.08, mat, true, true);
+
+        const rows = Math.max(1, Math.floor(height / 3.2));
+        for (let r = 0; r < rows; r += 1) {
+          addBox(building, "Window", new THREE.Vector3(0, -height * 0.32 + r * 2.4, -depth * 0.51), {
+            x: width * 0.62,
+            y: 0.42,
+            z: 0.06,
+          }, 0, threeMaterials.glass, false, false);
+        }
+      });
+    }
+
+    function frameThreeCamera(template) {
+      const points = [];
+      for (const segment of template.segments) {
+        points.push(worldPoint(segment[0], segment[1]));
+        points.push(worldPoint(segment[2], segment[3]));
+      }
+      const box = new THREE.Box3().setFromPoints(points);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.z, 54);
+      threeControls.target.set(center.x, 0, center.z);
+      threeCamera.position.set(center.x - maxDim * 0.36, maxDim * 0.58, center.z + maxDim * 0.48);
+      threeCamera.lookAt(center.x, 0, center.z);
+      threeControls.update();
+    }
+
+    function renderTemplate3D(template) {
+      initThreeStage();
+      clearThreeRoot();
+
+      const ground = new THREE.Mesh(new THREE.PlaneGeometry(150, 150), threeMaterials.ground);
+      ground.rotation.x = -Math.PI / 2;
+      ground.position.y = -0.02;
+      ground.receiveShadow = true;
+      threeRoot.add(ground);
+
+      addRoad3D(template);
+      addIntersections3D(template);
+      addOrders3D(template);
+      addObstacles3D(template);
+      addDeadEnds3D(template);
+      addBuildings3D(template);
+      resetRunner(template);
+      resizeThreeStage();
+    }
+
+    function buildMapSvg(template, compact = false) {
+      const svg = svgEl("svg", {
+        viewBox: "0 0 100 100",
+        role: "img",
+        "aria-label": template.name,
+      });
+
+      svg.appendChild(svgEl("rect", { x: 0, y: 0, width: 100, height: 100, fill: compact ? "#e5ece8" : "#d8e1dc" }));
+      svg.appendChild(svgEl("rect", { x: 2, y: 2, width: 96, height: 96, rx: 2, fill: template.accent, opacity: compact ? 0.08 : 0.11 }));
+      drawSegments(svg, template, compact);
+      drawSpecials(svg, template, compact);
+      drawNodes(svg, template, compact);
+      drawOrders(svg, template, compact);
+      drawObstacles(svg, template, compact);
+
+      if (!compact) {
+        const start = template.nodes.find((node) => node[2] === "S") || template.nodes[0];
+        if (start) {
+          const [x, y] = start;
+          const arrow = svgEl("polygon", {
+            points: `${x},${y - 7} ${x - 3.4},${y - 1.2} ${x + 3.4},${y - 1.2}`,
+            fill: "#26383d",
+            opacity: 0.86,
+          });
+          svg.appendChild(arrow);
+        }
+      }
+
+      return svg;
+    }
+
+    function renderSelectors() {
+      templateButtons.innerHTML = "";
+      overviewGrid.innerHTML = "";
+
+      for (const template of templates) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "template-button";
+        button.style.setProperty("--accent", template.accent);
+        button.setAttribute("aria-selected", String(template.id === activeId));
+        button.dataset.id = template.id;
+
+        const mini = document.createElement("div");
+        mini.className = "template-mini";
+        mini.appendChild(buildMapSvg(template, true));
+
+        const copy = document.createElement("div");
+        copy.className = "template-copy";
+        copy.innerHTML = `
+          <div class="template-name">${template.name}</div>
+          <div class="template-meta">难度 ${template.difficulty} · ${template.shape}</div>
+          <div class="template-meta">${template.tempo} · 权重 ${template.weight.toFixed(2)}</div>
+        `;
+
+        button.appendChild(mini);
+        button.appendChild(copy);
+        button.addEventListener("click", () => setActive(template.id));
+        templateButtons.appendChild(button);
+
+        const overview = document.createElement("button");
+        overview.type = "button";
+        overview.className = "overview-card";
+        overview.style.setProperty("--accent", template.accent);
+        overview.setAttribute("aria-selected", String(template.id === activeId));
+        overview.dataset.id = template.id;
+        overview.innerHTML = `
+          <div class="overview-mini"></div>
+          <div class="overview-name">${template.name}</div>
+          <div class="overview-meta">${template.connectors.join(" / ")} · 难度 ${template.difficulty}</div>
+        `;
+        overview.querySelector(".overview-mini").appendChild(buildMapSvg(template, true));
+        overview.addEventListener("click", () => setActive(template.id));
+        overviewGrid.appendChild(overview);
+      }
+    }
+
+    function renderLaneRows(template) {
+      laneRows.innerHTML = "";
+      for (const row of template.rows) {
+        const line = document.createElement("div");
+        line.className = "lane-row";
+
+        const dist = document.createElement("div");
+        dist.className = "lane-distance";
+        dist.textContent = row.dist;
+
+        const grid = document.createElement("div");
+        grid.className = "lane-grid";
+        row.pattern.forEach((kind, index) => {
+          const cell = document.createElement("div");
+          const info = kind ? resolveObstacle(kind) : null;
+          cell.className = `lane-cell${info ? ` ${info.mechanicInfo.cls}` : ""}`;
+          cell.textContent = info ? info.label : laneNames[index];
+          if (info) cell.title = `${info.skin} · ${info.mechanicInfo.action}`;
+          grid.appendChild(cell);
+        });
+
+        const action = document.createElement("div");
+        action.className = "lane-action";
+        action.textContent = row.note;
+
+        line.appendChild(dist);
+        line.appendChild(grid);
+        line.appendChild(action);
+        laneRows.appendChild(line);
+      }
+    }
+
+    function renderRules(template) {
+      ruleList.innerHTML = "";
+      for (const rule of template.rules) {
+        const li = document.createElement("li");
+        li.textContent = rule;
+        ruleList.appendChild(li);
+      }
+    }
+
+    function renderStage(template) {
+      document.documentElement.style.setProperty("--accent", template.accent);
+      templateTitle.textContent = template.name;
+      templateSubtitle.textContent = template.role;
+      difficultyChip.textContent = `难度 ${template.difficulty}`;
+      weightChip.textContent = `权重 ${template.weight.toFixed(2)}`;
+      orderChip.textContent = `订单 ${template.order}`;
+      shapeStat.textContent = template.shape;
+      connectorStat.textContent = template.connectors.join(" / ");
+      obstacleStat.textContent = template.tempo;
+      rewardStat.textContent = template.reward;
+      rowCount.textContent = `${template.rows.length} 组`;
+
+      renderTemplate3D(template);
+      renderLaneRows(template);
+      renderRules(template);
+    }
+
+    function setActive(id) {
+      activeId = id;
+      const template = templates.find((item) => item.id === id) || templates[0];
+      renderStage(template);
+      renderSelectors();
+    }
+
+    renderStage(templates[0]);
+    renderSelectors();
+  </script>
+</body>
+</html>

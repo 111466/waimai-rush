@@ -1,0 +1,1618 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RoadGen C Template Prototype</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Inter, "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+      background: #dfe5e3;
+      color: #f7fbff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+    }
+
+    body {
+      background: #d9e0df;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas.webgl {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    .hud {
+      position: fixed;
+      z-index: 10;
+      pointer-events: none;
+      text-shadow: 0 1px 8px rgba(35, 54, 57, 0.18);
+    }
+
+    .stats {
+      top: 22px;
+      left: 24px;
+      display: grid;
+      gap: 6px;
+      min-width: 300px;
+      color: rgba(255, 255, 255, 0.92);
+    }
+
+    .stats .title {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    .stats .line {
+      font-size: 14px;
+      color: rgba(255, 255, 255, 0.8);
+    }
+
+    .legend {
+      top: 116px;
+      left: 24px;
+      display: grid;
+      gap: 7px;
+      padding: 12px 14px;
+      border-radius: 8px;
+      background: rgba(21, 34, 38, 0.68);
+      color: rgba(255, 255, 255, 0.86);
+      font-size: 12px;
+      backdrop-filter: blur(5px);
+    }
+
+    .legend-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .swatch {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25) inset;
+    }
+
+    .minimap-wrap {
+      top: 90px;
+      right: 22px;
+      width: 218px;
+      border-radius: 10px;
+      background: rgba(20, 35, 38, 0.78);
+      box-shadow: 0 16px 34px rgba(23, 40, 44, 0.22);
+      backdrop-filter: blur(5px);
+      overflow: hidden;
+      pointer-events: none;
+    }
+
+    #minimap {
+      display: block;
+      width: 218px;
+      height: 218px;
+    }
+
+    .minimap-label {
+      padding: 0 12px 13px;
+      color: rgba(255, 255, 255, 0.9);
+      font-size: 17px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+
+    .controls {
+      position: fixed;
+      z-index: 12;
+      left: 50%;
+      bottom: 18px;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: end;
+      gap: 12px;
+      max-width: calc(100vw - 32px);
+      padding: 12px;
+      border-radius: 12px;
+      background: rgba(18, 29, 33, 0.76);
+      color: rgba(255, 255, 255, 0.9);
+      box-shadow: 0 18px 46px rgba(19, 36, 40, 0.25);
+      backdrop-filter: blur(6px);
+    }
+
+    .control {
+      display: grid;
+      gap: 6px;
+      min-width: 132px;
+    }
+
+    .control.seed {
+      min-width: 170px;
+    }
+
+    label {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.72);
+    }
+
+    input[type="text"] {
+      width: 100%;
+      height: 34px;
+      border: 0;
+      border-radius: 7px;
+      padding: 0 10px;
+      background: rgba(255, 255, 255, 0.9);
+      color: #1d2a2d;
+      font: inherit;
+      font-size: 14px;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: #4fe0ad;
+    }
+
+    button {
+      height: 34px;
+      border: 0;
+      border-radius: 7px;
+      padding: 0 14px;
+      color: #14312b;
+      background: #4fe0ad;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    button.secondary {
+      color: rgba(255, 255, 255, 0.9);
+      background: rgba(255, 255, 255, 0.16);
+    }
+
+    .hint {
+      position: fixed;
+      right: 24px;
+      bottom: 94px;
+      z-index: 10;
+      color: rgba(28, 44, 48, 0.62);
+      font-size: 12px;
+      pointer-events: none;
+    }
+
+    @media (max-width: 820px) {
+      .stats {
+        top: 14px;
+        left: 14px;
+        min-width: 0;
+      }
+
+      .stats .title {
+        font-size: 22px;
+      }
+
+      .legend {
+        display: none;
+      }
+
+      .minimap-wrap {
+        top: 86px;
+        right: 12px;
+        width: 156px;
+      }
+
+      #minimap {
+        width: 156px;
+        height: 156px;
+      }
+
+      .minimap-label {
+        font-size: 13px;
+      }
+
+      .controls {
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+        transform: none;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .control,
+      .control.seed {
+        min-width: calc(50% - 5px);
+      }
+
+      button {
+        flex: 1 1 128px;
+      }
+
+      .hint {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <section class="hud stats" aria-live="polite">
+    <div class="title">RoadGen C 模板拼接</div>
+    <div class="line" id="statsLineA">Template Grid 4 x 4 · Seed template-2606</div>
+    <div class="line" id="statsLineB">Reachable 100% · Roads 0 · 0.0ms</div>
+    <div class="line" id="statsLineC">Templates 0 · Market 0 · Construction 0</div>
+  </section>
+
+  <section class="hud legend" aria-label="District legend">
+    <div class="legend-row"><span class="swatch" style="background:#d8ddd9"></span>普通街区</div>
+    <div class="legend-row"><span class="swatch" style="background:#ffd56c"></span>高订单商圈</div>
+    <div class="legend-row"><span class="swatch" style="background:#d88963"></span>工地封路段</div>
+    <div class="legend-row"><span class="swatch" style="background:#88c4d4"></span>环形 / S 型街区</div>
+    <div class="legend-row"><span class="swatch" style="background:#55e0ad"></span>订单权重点</div>
+  </section>
+
+  <section class="hud minimap-wrap">
+    <canvas id="minimap" width="218" height="218" aria-label="Template road network minimap"></canvas>
+    <div class="minimap-label" id="minimapLabel">Seed template-2606</div>
+  </section>
+
+  <form class="controls" id="controls">
+    <div class="control seed">
+      <label for="seedInput">Seed</label>
+      <input id="seedInput" type="text" value="template-2606" spellcheck="false" autocomplete="off">
+    </div>
+    <div class="control">
+      <label for="gridInput">Template Grid <output id="gridOutput">4 x 4</output></label>
+      <input id="gridInput" type="range" min="3" max="6" step="1" value="4">
+    </div>
+    <div class="control">
+      <label for="densityInput">Density <output id="densityOutput">65%</output></label>
+      <input id="densityInput" type="range" min="35" max="95" step="5" value="65">
+    </div>
+    <div class="control">
+      <label for="themeInput">Theme Bias <output id="themeOutput">45%</output></label>
+      <input id="themeInput" type="range" min="0" max="100" step="5" value="45">
+    </div>
+    <button type="submit">Regenerate</button>
+    <button type="button" class="secondary" id="randomSeedButton">Random Seed</button>
+  </form>
+
+  <div class="hint">鼠标左键拖动旋转 · 右键拖动平移 · 滚轮缩放</div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.165.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.165.0/examples/jsm/"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { MapControls } from "three/addons/controls/MapControls.js";
+
+    const app = document.querySelector("#app");
+    const seedInput = document.querySelector("#seedInput");
+    const gridInput = document.querySelector("#gridInput");
+    const densityInput = document.querySelector("#densityInput");
+    const themeInput = document.querySelector("#themeInput");
+    const gridOutput = document.querySelector("#gridOutput");
+    const densityOutput = document.querySelector("#densityOutput");
+    const themeOutput = document.querySelector("#themeOutput");
+    const statsLineA = document.querySelector("#statsLineA");
+    const statsLineB = document.querySelector("#statsLineB");
+    const statsLineC = document.querySelector("#statsLineC");
+    const minimap = document.querySelector("#minimap");
+    const minimapLabel = document.querySelector("#minimapLabel");
+    const controlsForm = document.querySelector("#controls");
+    const randomSeedButton = document.querySelector("#randomSeedButton");
+
+    const SLOT_SIZE = 172;
+    const LOCAL_STEP = SLOT_SIZE * 0.5;
+    const ROAD_WIDTH = 7.2;
+    const SIDEWALK_WIDTH = 4.7;
+    const CURB_WIDTH = 0.34;
+    const LANE_MARK_WIDTH = 0.18;
+    const LANE_MARK_LEN = 2.6;
+    const INTERSECTION_SIZE = 9.2;
+    const ROAD_VISUAL_OVERLAP = 3.8;
+    const MIN_REACHABLE = 0.92;
+    const MAX_ATTEMPTS = 12;
+    const districtColors = {
+      civic: 0xd8ddd9,
+      market: 0xffd56c,
+      construction: 0xd88963,
+      flow: 0x88c4d4,
+      loop: 0x95d1bd,
+      connector: 0xcfd7d3,
+    };
+
+    const buildingPalettes = {
+      civic: [0xaeb8bd, 0xb7ad99, 0x99aaa5, 0xb9c4c5],
+      market: [0xf1c85b, 0xe9a65f, 0xce8fbd, 0xf3d98d],
+      construction: [0xc77755, 0x9c8a78, 0xd7a060, 0xb7634f],
+      flow: [0x88b9c8, 0x8fb9ad, 0xa9bfc4, 0x99a7c0],
+      loop: [0x8fc7ad, 0xa9c4a6, 0x91b8b3, 0xb7c2a4],
+      connector: [0xb9c1be, 0xaeb8b1, 0xc5c9bf],
+    };
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xd9e0df);
+    scene.fog = new THREE.FogExp2(0xd9e0df, 0.0034);
+
+    const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 2600);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.domElement.className = "webgl";
+    app.appendChild(renderer.domElement);
+
+    const controls = new MapControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.maxPolarAngle = Math.PI * 0.47;
+    controls.minDistance = 38;
+    controls.maxDistance = 980;
+    controls.enableRotate = true;
+    controls.enablePan = true;
+    controls.enableZoom = true;
+    controls.screenSpacePanning = false;
+
+    const hemi = new THREE.HemisphereLight(0xffffff, 0xb9c3b7, 2.5);
+    scene.add(hemi);
+
+    const sun = new THREE.DirectionalLight(0xffffff, 2.4);
+    sun.position.set(-100, 180, -80);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.near = 20;
+    sun.shadow.camera.far = 560;
+    sun.shadow.camera.left = -360;
+    sun.shadow.camera.right = 360;
+    sun.shadow.camera.top = 360;
+    sun.shadow.camera.bottom = -360;
+    scene.add(sun);
+    const sunTarget = new THREE.Object3D();
+    scene.add(sunTarget);
+    sun.target = sunTarget;
+
+    const materials = {
+      road: matte(0xc8cfcc, 0.92),
+      sidewalk: matte(0xd7ddda, 0.92),
+      curb: matte(0x80938f, 0.86),
+      lane: matte(0x9ec0cf, 0.92),
+      grass: matte(0x92b692, 0.94),
+      start: matte(0x8d6cff, 0.78),
+      order: matte(0x55e0ad, 0.68),
+      obstacle: matte(0xdf6d55, 0.78),
+      templateFill: {},
+    };
+
+    for (const [key, color] of Object.entries(districtColors)) {
+      materials.templateFill[key] = new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.18,
+        depthWrite: false,
+      });
+    }
+
+    let currentRoot = new THREE.Group();
+    scene.add(currentRoot);
+    let currentGraph = null;
+
+    const templates = [
+      {
+        id: "straight",
+        label: "长直主路",
+        weight: 1.35,
+        connectors: ["n", "s"],
+        tags: { district: "connector", orderWeight: 0.75, obstacleProfile: "steady", buildingStyle: "civic" },
+        nodes: [
+          { id: "s", x: 0.5, z: 0 },
+          { id: "c", x: 0.5, z: 0.5 },
+          { id: "n", x: 0.5, z: 1 },
+        ],
+        edges: [["s", "c"], ["c", "n"]],
+      },
+      {
+        id: "cross",
+        label: "十字路口",
+        weight: 1.2,
+        connectors: ["n", "e", "s", "w"],
+        tags: { district: "civic", orderWeight: 0.9, obstacleProfile: "balanced", buildingStyle: "civic" },
+        nodes: [
+          { id: "w", x: 0, z: 0.5 },
+          { id: "c", x: 0.5, z: 0.5 },
+          { id: "e", x: 1, z: 0.5 },
+          { id: "s", x: 0.5, z: 0 },
+          { id: "n", x: 0.5, z: 1 },
+        ],
+        edges: [["w", "c"], ["c", "e"], ["s", "c"], ["c", "n"]],
+      },
+      {
+        id: "cornerBlock",
+        label: "转角街区",
+        weight: 0.95,
+        variants: true,
+        connectors: ["n", "e"],
+        tags: { district: "flow", orderWeight: 0.75, obstacleProfile: "corner", buildingStyle: "flow" },
+        nodes: [
+          { id: "c", x: 0.5, z: 0.5 },
+          { id: "e", x: 1, z: 0.5 },
+          { id: "n", x: 0.5, z: 1 },
+        ],
+        edges: [["c", "e"], ["c", "n"]],
+      },
+      {
+        id: "tJunction",
+        label: "T 字路口",
+        weight: 1.15,
+        variants: true,
+        connectors: ["n", "e", "w"],
+        tags: { district: "civic", orderWeight: 0.85, obstacleProfile: "choice", buildingStyle: "civic" },
+        nodes: [
+          { id: "w", x: 0, z: 0.5 },
+          { id: "c", x: 0.5, z: 0.5 },
+          { id: "e", x: 1, z: 0.5 },
+          { id: "n", x: 0.5, z: 1 },
+        ],
+        edges: [["w", "c"], ["c", "e"], ["c", "n"]],
+      },
+      {
+        id: "sBlock",
+        label: "连续 S 型街区",
+        weight: 0.85,
+        connectors: ["s", "n"],
+        tags: { district: "flow", orderWeight: 0.8, obstacleProfile: "slalom", buildingStyle: "flow" },
+        nodes: [
+          { id: "s", x: 0.3, z: 0 },
+          { id: "a", x: 0.3, z: 0.28 },
+          { id: "b", x: 0.72, z: 0.28 },
+          { id: "c", x: 0.72, z: 0.72 },
+          { id: "d", x: 0.3, z: 0.72 },
+          { id: "n", x: 0.3, z: 1 },
+        ],
+        edges: [["s", "a"], ["a", "b"], ["b", "c"], ["c", "d"], ["d", "n"]],
+      },
+      {
+        id: "loopBlock",
+        label: "环形街区",
+        weight: 0.8,
+        connectors: ["n", "e", "s", "w"],
+        tags: { district: "loop", orderWeight: 0.95, obstacleProfile: "loop", buildingStyle: "loop" },
+        nodes: [
+          { id: "sw", x: 0.24, z: 0.24 },
+          { id: "se", x: 0.76, z: 0.24 },
+          { id: "ne", x: 0.76, z: 0.76 },
+          { id: "nw", x: 0.24, z: 0.76 },
+          { id: "s", x: 0.5, z: 0 },
+          { id: "e", x: 1, z: 0.5 },
+          { id: "n", x: 0.5, z: 1 },
+          { id: "w", x: 0, z: 0.5 },
+        ],
+        edges: [["sw", "se"], ["se", "ne"], ["ne", "nw"], ["nw", "sw"], ["s", "sw"], ["e", "ne"], ["n", "nw"], ["w", "sw"]],
+      },
+      {
+        id: "marketBlock",
+        label: "单入口商圈",
+        weight: 0.75,
+        connectors: ["s", "e", "w"],
+        tags: { district: "market", orderWeight: 1.9, obstacleProfile: "crowded", buildingStyle: "market" },
+        nodes: [
+          { id: "s", x: 0.5, z: 0 },
+          { id: "c", x: 0.5, z: 0.45 },
+          { id: "w", x: 0, z: 0.45 },
+          { id: "e", x: 1, z: 0.45 },
+          { id: "plaza", x: 0.5, z: 0.82 },
+        ],
+        edges: [["s", "c"], ["w", "c"], ["c", "e"], ["c", "plaza"]],
+      },
+      {
+        id: "constructionBlock",
+        label: "工地封路段",
+        weight: 0.7,
+        connectors: ["n", "s", "w"],
+        tags: { district: "construction", orderWeight: 0.55, obstacleProfile: "blocked", buildingStyle: "construction" },
+        nodes: [
+          { id: "s", x: 0.5, z: 0 },
+          { id: "c", x: 0.5, z: 0.5 },
+          { id: "n", x: 0.5, z: 1 },
+          { id: "w", x: 0, z: 0.5 },
+          { id: "dead", x: 0.82, z: 0.5 },
+        ],
+        edges: [["s", "c"], ["c", "n"], ["w", "c"], ["c", "dead"]],
+      },
+    ];
+
+    const templateById = new Map(templates.map((template) => [template.id, template]));
+
+    function matte(color, roughness) {
+      return new THREE.MeshStandardMaterial({ color, roughness, metalness: 0 });
+    }
+
+    function hashString(value) {
+      let h = 2166136261;
+      for (let i = 0; i < value.length; i += 1) {
+        h ^= value.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+      }
+      return h >>> 0;
+    }
+
+    function mulberry32(seed) {
+      let t = seed >>> 0;
+      return function rng() {
+        t += 0x6d2b79f5;
+        let r = Math.imul(t ^ (t >>> 15), 1 | t);
+        r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
+        return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+
+    function randomFrom(rng, min, max) {
+      return min + rng() * (max - min);
+    }
+
+    function clamp(value, min, max) {
+      if (!Number.isFinite(value)) return min;
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function makeConfig() {
+      return {
+        seed: seedInput.value.trim() || "template-2606",
+        grid: Number(gridInput.value),
+        density: Number(densityInput.value) / 100,
+        themeBias: Number(themeInput.value) / 100,
+      };
+    }
+
+    function buildRoadGraph(config) {
+      const startedAt = performance.now();
+      const baseSeed = hashString(config.seed);
+      let best = null;
+
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+        const rng = mulberry32(baseSeed + attempt * 1013904223);
+        const candidate = generateTemplateCandidate(config, rng, attempt, false);
+        if (!best || candidate.reachableRatio > best.reachableRatio) best = candidate;
+        if (candidate.valid) {
+          candidate.generationMs = performance.now() - startedAt;
+          return candidate;
+        }
+      }
+
+      const rng = mulberry32(baseSeed + 0x9e3779b9);
+      const fallback = generateTemplateCandidate(config, rng, MAX_ATTEMPTS, true);
+      fallback.generationMs = performance.now() - startedAt;
+      return fallback.valid ? fallback : { ...best, fallback: true, generationMs: performance.now() - startedAt };
+    }
+
+    function generateTemplateCandidate(config, rng, attempt, forceFallback) {
+      const rows = config.grid;
+      const cols = config.grid;
+      const placements = [];
+      const slotTemplates = [];
+      const connectorPlan = makeConnectorPlan(config, rng, cols, rows);
+
+      for (let z = 0; z < rows; z += 1) {
+        slotTemplates[z] = [];
+        for (let x = 0; x < cols; x += 1) {
+          const template = forceFallback
+            ? fallbackTemplateForSlot(x, z, cols, rows)
+            : chooseTemplateForSlot(config, rng, x, z, cols, rows, connectorPlan);
+          const rotation = chooseRotation(template, rng, x, z, cols, rows, forceFallback, connectorPlan);
+          const placed = instantiateTemplate(template, rotation, x, z, cols, rows);
+          placements.push(placed);
+          slotTemplates[z][x] = placed;
+        }
+      }
+
+      const nodeMap = new Map();
+      const nodes = [];
+      nodeMap.__nodes = nodes;
+      const edgesByKey = new Map();
+      const templateCounts = {};
+      const districtCounts = {};
+
+      for (const placed of placements) {
+        templateCounts[placed.templateId] = (templateCounts[placed.templateId] || 0) + 1;
+        districtCounts[placed.tags.district] = (districtCounts[placed.tags.district] || 0) + 1;
+        for (const node of placed.nodes) {
+          getOrCreateNode(nodeMap, nodes, node.wx, node.wz, node.templateSlot, node.connector);
+        }
+        for (const edge of placed.edges) {
+          addEdge(edgesByKey, nodeMap, edge.a, edge.b, placed.tags, placed.templateId, placed.slot);
+        }
+      }
+
+      addConnectorEdges(edgesByKey, nodeMap, slotTemplates, cols, rows);
+      addPlannedConnectorStitches(edgesByKey, nodeMap, slotTemplates, connectorPlan, cols, rows);
+
+      const edges = Array.from(edgesByKey.values());
+      const startSlotX = Math.floor(cols / 2);
+      const startNodeKey = coordKey(startSlotX * SLOT_SIZE + LOCAL_STEP, 0);
+      const startId = nodeMap.get(startNodeKey)?.id ?? 0;
+      const adjacency = makeAdjacency(nodes.length, edges);
+      const reachable = findReachable(startId, adjacency);
+      const reachableRatio = reachable.size / Math.max(1, nodes.length);
+      const valid = reachableRatio >= MIN_REACHABLE && adjacency[startId]?.length > 0;
+      const bounds = computeBounds(nodes);
+
+      return {
+        rows,
+        cols,
+        nodes,
+        edges,
+        startId,
+        reachable,
+        reachableRatio,
+        valid,
+        fallback: forceFallback,
+        attempt,
+        config,
+        placements,
+        connectorPlan,
+        templateCounts,
+        districtCounts,
+        width: bounds.maxX - bounds.minX,
+        depth: bounds.maxZ - bounds.minZ,
+        bounds,
+      };
+    }
+
+    function makeConnectorPlan(config, rng, cols, rows) {
+      const plan = Array.from({ length: rows }, () => Array.from({ length: cols }, () => new Set()));
+      const addPair = (x1, z1, x2, z2, dirA, dirB) => {
+        if (x1 < 0 || z1 < 0 || x2 < 0 || z2 < 0 || x1 >= cols || x2 >= cols || z1 >= rows || z2 >= rows) return;
+        plan[z1][x1].add(dirA);
+        plan[z2][x2].add(dirB);
+      };
+
+      const spineX = Math.floor(cols / 2);
+      for (let z = 0; z < rows; z += 1) {
+        for (let x = 0; x < cols - 1; x += 1) {
+          addPair(x, z, x + 1, z, "e", "w");
+        }
+      }
+
+      for (let z = 0; z < rows - 1; z += 1) {
+        addPair(0, z, 0, z + 1, "n", "s");
+        addPair(cols - 1, z, cols - 1, z + 1, "n", "s");
+        if (spineX !== 0 && spineX !== cols - 1) {
+          addPair(spineX, z, spineX, z + 1, "n", "s");
+        }
+      }
+
+      for (let z = 0; z < rows - 1; z += 1) {
+        for (let x = 0; x < cols; x += 1) {
+          if (x !== 0 && x !== cols - 1 && x !== spineX && rng() < 0.14 + config.density * 0.36) {
+            addPair(x, z, x, z + 1, "n", "s");
+          }
+        }
+      }
+
+      plan[0][spineX].add("s");
+
+      return plan;
+    }
+
+    function chooseTemplateForSlot(config, rng, x, z, cols, rows, connectorPlan) {
+      const centerX = (cols - 1) * 0.5;
+      const centerZ = (rows - 1) * 0.5;
+      const distToCenter = Math.hypot(x - centerX, z - centerZ) / Math.max(1, Math.hypot(centerX, centerZ));
+      const isMainSpine = x === Math.floor(cols / 2);
+      const isEdge = x === 0 || z === 0 || x === cols - 1 || z === rows - 1;
+      const themeRoll = rng();
+      const density = config.density;
+      const themeBias = config.themeBias;
+      const targetConnectors = connectorPlan[z][x];
+      const candidates = templates.filter((template) => canTemplateMatchTarget(template, targetConnectors));
+      const pool = candidates.length ? candidates : templates;
+
+      const weighted = [];
+      for (const template of pool) {
+        let weight = template.weight;
+        if (template.id === "straight" && isMainSpine) weight *= 2.2;
+        if (template.id === "cross" && density > 0.6) weight *= 1.0 + density;
+        if (template.id === "tJunction" && isEdge) weight *= 1.4;
+        if (template.id === "marketBlock") weight *= 0.35 + themeBias * 2.2 + (1 - distToCenter) * 0.8;
+        if (template.id === "constructionBlock") weight *= 0.45 + themeBias * 1.35 + distToCenter * 0.55;
+        if (template.id === "loopBlock" || template.id === "sBlock") weight *= 0.55 + density * 1.25;
+        if (density < 0.5 && (template.id === "cross" || template.id === "loopBlock")) weight *= 0.65;
+        if (themeRoll > density && template.id !== "straight" && template.id !== "tJunction") weight *= 0.45;
+        weighted.push({ template, weight });
+      }
+      return pickWeighted(weighted, rng);
+    }
+
+    function canTemplateMatchTarget(template, targetConnectors) {
+      for (let turns = 0; turns < 4; turns += 1) {
+        if (rotationMatchesTarget(template, turns, targetConnectors)) return true;
+      }
+      return false;
+    }
+
+    function fallbackTemplateForSlot(x, z, cols, rows) {
+      if (x === Math.floor(cols / 2)) return templateById.get("straight");
+      if (z % 2 === 0 && Math.abs(x - Math.floor(cols / 2)) <= 1) return templateById.get("cross");
+      return templateById.get("tJunction");
+    }
+
+    function pickWeighted(weighted, rng) {
+      const total = weighted.reduce((sum, item) => sum + item.weight, 0);
+      let cursor = rng() * total;
+      for (const item of weighted) {
+        cursor -= item.weight;
+        if (cursor <= 0) return item.template;
+      }
+      return weighted[weighted.length - 1].template;
+    }
+
+    function chooseRotation(template, rng, x, z, cols, rows, forceFallback, connectorPlan) {
+      if (forceFallback) {
+        if (template.id === "straight") return 0;
+        if (x < Math.floor(cols / 2)) return 1;
+        return 3;
+      }
+
+      const targetConnectors = connectorPlan[z][x];
+      let bestRotation = 0;
+      let bestScore = -Infinity;
+
+      const legalTurns = [];
+      for (let turns = 0; turns < 4; turns += 1) {
+        if (rotationMatchesTarget(template, turns, targetConnectors)) {
+          legalTurns.push(turns);
+        }
+      }
+      const turnsToScore = legalTurns.length ? legalTurns : [0, 1, 2, 3];
+
+      for (const turns of turnsToScore) {
+        const connectors = rotatedConnectorSet(template, turns);
+        let score = -connectorSetDistance(connectors, targetConnectors) * 5;
+
+        if (template.id === "straight") {
+          if (turns === 0 || turns === 2) score += 1.1;
+          else score -= 0.35;
+        }
+
+        if (template.id === "sBlock" || template.id === "loopBlock") {
+          score += turns % 2 === 0 ? 0.25 : 0;
+        }
+
+        score += rng() * 0.2;
+        if (score > bestScore) {
+          bestScore = score;
+          bestRotation = turns;
+        }
+      }
+
+      if (template.variants || template.connectors.length < 4 || template.id === "sBlock") {
+        return bestRotation;
+      }
+      return bestRotation;
+    }
+
+    function rotationMatchesTarget(template, turns, targetConnectors) {
+      const connectors = rotatedConnectorSet(template, turns);
+      if (connectors.size !== targetConnectors.size) {
+        return false;
+      }
+      for (const connector of connectors) {
+        if (!targetConnectors.has(connector)) return false;
+      }
+      return true;
+    }
+
+    function connectorSetDistance(connectors, targetConnectors) {
+      let misses = 0;
+      for (const connector of connectors) {
+        if (!targetConnectors.has(connector)) misses += 1;
+      }
+      for (const connector of targetConnectors) {
+        if (!connectors.has(connector)) misses += 1;
+      }
+      return misses;
+    }
+
+    function rotatedConnectorSet(template, turns) {
+      const connectors = new Set();
+      for (const connector of template.connectors) {
+        connectors.add(rotateConnector(connector, turns));
+      }
+      return connectors;
+    }
+
+    function instantiateTemplate(template, rotation, slotX, slotZ, cols, rows) {
+      const baseX = slotX * SLOT_SIZE;
+      const baseZ = slotZ * SLOT_SIZE;
+      const slot = { x: slotX, z: slotZ };
+      const rotatedNodes = new Map();
+      const nodes = template.nodes.map((node) => {
+        const rotated = rotateLocal(node.x, node.z, rotation);
+        const wx = baseX + rotated.x * SLOT_SIZE;
+        const wz = baseZ + rotated.z * SLOT_SIZE;
+        const out = {
+          localId: node.id,
+          wx,
+          wz,
+          templateSlot: `${slotX}:${slotZ}`,
+          connector: connectorFromLocal(rotated.x, rotated.z),
+        };
+        rotatedNodes.set(node.id, out);
+        return out;
+      });
+
+      const connectors = new Set();
+      for (const connector of template.connectors) {
+        connectors.add(rotateConnector(connector, rotation));
+      }
+
+      const edges = template.edges.map(([a, b]) => ({
+        a: coordKey(rotatedNodes.get(a).wx, rotatedNodes.get(a).wz),
+        b: coordKey(rotatedNodes.get(b).wx, rotatedNodes.get(b).wz),
+      }));
+
+      return {
+        templateId: template.id,
+        label: template.label,
+        rotation,
+        slot,
+        nodes,
+        edges,
+        connectors,
+        tags: { ...template.tags },
+      };
+    }
+
+    function rotateLocal(x, z, turns) {
+      let px = x - 0.5;
+      let pz = z - 0.5;
+      for (let i = 0; i < turns; i += 1) {
+        const nextX = pz;
+        const nextZ = -px;
+        px = nextX;
+        pz = nextZ;
+      }
+      return { x: roundCoord(px + 0.5), z: roundCoord(pz + 0.5) };
+    }
+
+    function rotateConnector(connector, turns) {
+      const dirs = ["n", "e", "s", "w"];
+      const index = dirs.indexOf(connector);
+      return dirs[(index + turns + 4) % 4];
+    }
+
+    function connectorFromLocal(x, z) {
+      if (Math.abs(x - 0.5) < 0.001 && Math.abs(z - 1) < 0.001) return "n";
+      if (Math.abs(x - 1) < 0.001 && Math.abs(z - 0.5) < 0.001) return "e";
+      if (Math.abs(x - 0.5) < 0.001 && Math.abs(z) < 0.001) return "s";
+      if (Math.abs(x) < 0.001 && Math.abs(z - 0.5) < 0.001) return "w";
+      return "";
+    }
+
+    function addConnectorEdges(edgesByKey, nodeMap, slotTemplates, cols, rows) {
+      for (let z = 0; z < rows; z += 1) {
+        for (let x = 0; x < cols; x += 1) {
+          const placed = slotTemplates[z][x];
+          if (x < cols - 1) {
+            const right = slotTemplates[z][x + 1];
+            if (placed.connectors.has("e") && right.connectors.has("w")) {
+              addConnectorEdge(
+                edgesByKey,
+                nodeMap,
+                coordKey(x * SLOT_SIZE + SLOT_SIZE, z * SLOT_SIZE + LOCAL_STEP),
+                coordKey((x + 1) * SLOT_SIZE, z * SLOT_SIZE + LOCAL_STEP),
+                connectorTags(placed, right)
+              );
+            }
+          }
+          if (z < rows - 1) {
+            const up = slotTemplates[z + 1][x];
+            if (placed.connectors.has("n") && up.connectors.has("s")) {
+              addConnectorEdge(
+                edgesByKey,
+                nodeMap,
+                coordKey(x * SLOT_SIZE + LOCAL_STEP, z * SLOT_SIZE + SLOT_SIZE),
+                coordKey(x * SLOT_SIZE + LOCAL_STEP, (z + 1) * SLOT_SIZE),
+                connectorTags(placed, up)
+              );
+            }
+          }
+        }
+      }
+    }
+
+    function addPlannedConnectorStitches(edgesByKey, nodeMap, slotTemplates, connectorPlan, cols, rows) {
+      for (let z = 0; z < rows; z += 1) {
+        for (let x = 0; x < cols; x += 1) {
+          const target = connectorPlan[z][x];
+          if (x > 0 && target.has("w")) {
+            stitchSlots(edgesByKey, nodeMap, slotTemplates[z][x - 1], slotTemplates[z][x], x - 1, z, x, z, "eastWest");
+          }
+          if (z > 0 && target.has("s")) {
+            stitchSlots(edgesByKey, nodeMap, slotTemplates[z - 1][x], slotTemplates[z][x], x, z - 1, x, z, "northSouth");
+          }
+        }
+      }
+    }
+
+    function stitchSlots(edgesByKey, nodeMap, placedA, placedB, ax, az, bx, bz, axis) {
+      const slotA = `${ax}:${az}`;
+      const slotB = `${bx}:${bz}`;
+      const targetA = axis === "eastWest"
+        ? { x: ax * SLOT_SIZE + SLOT_SIZE, z: az * SLOT_SIZE + LOCAL_STEP }
+        : { x: ax * SLOT_SIZE + LOCAL_STEP, z: az * SLOT_SIZE + SLOT_SIZE };
+      const targetB = axis === "eastWest"
+        ? { x: bx * SLOT_SIZE, z: bz * SLOT_SIZE + LOCAL_STEP }
+        : { x: bx * SLOT_SIZE + LOCAL_STEP, z: bz * SLOT_SIZE };
+      const preferredA = axis === "eastWest" ? "e" : "n";
+      const preferredB = axis === "eastWest" ? "w" : "s";
+      const nodeA = findSlotGateway(nodeMap, slotA, targetA.x, targetA.z, preferredA);
+      const nodeB = findSlotGateway(nodeMap, slotB, targetB.x, targetB.z, preferredB);
+      if (!nodeA || !nodeB || nodeA.id === nodeB.id) return;
+
+      const seamX = roundCoord((targetA.x + targetB.x) * 0.5);
+      const seamZ = roundCoord((targetA.z + targetB.z) * 0.5);
+      const bridgeTags = connectorTags(placedA, placedB);
+
+      const points = axis === "eastWest"
+        ? [
+            { wx: nodeA.wx, wz: nodeA.wz },
+            { wx: seamX, wz: nodeA.wz },
+            { wx: seamX, wz: seamZ },
+            { wx: seamX, wz: nodeB.wz },
+            { wx: nodeB.wx, wz: nodeB.wz },
+          ]
+        : [
+            { wx: nodeA.wx, wz: nodeA.wz },
+            { wx: nodeA.wx, wz: seamZ },
+            { wx: seamX, wz: seamZ },
+            { wx: nodeB.wx, wz: seamZ },
+            { wx: nodeB.wx, wz: nodeB.wz },
+          ];
+
+      addStitchPath(edgesByKey, nodeMap, points, `${slotA}|${slotB}`, bridgeTags);
+    }
+
+    function addStitchPath(edgesByKey, nodeMap, points, slotKey, tags) {
+      const nodes = nodeMap.__nodes || [];
+      const cleaned = [];
+      for (const point of points) {
+        const wx = roundCoord(point.wx);
+        const wz = roundCoord(point.wz);
+        const previous = cleaned[cleaned.length - 1];
+        if (!previous || previous.wx !== wx || previous.wz !== wz) {
+          cleaned.push({ wx, wz });
+        }
+      }
+
+      for (const point of cleaned) {
+        getOrCreateNode(nodeMap, nodes, point.wx, point.wz, slotKey, "bridge");
+      }
+
+      for (let i = 1; i < cleaned.length; i += 1) {
+        addConnectorEdge(
+          edgesByKey,
+          nodeMap,
+          coordKey(cleaned[i - 1].wx, cleaned[i - 1].wz),
+          coordKey(cleaned[i].wx, cleaned[i].wz),
+          tags
+        );
+      }
+    }
+
+    function findSlotGateway(nodeMap, slotKey, targetX, targetZ, preferredSide) {
+      const nodes = nodeMap.__nodes || [];
+      let best = null;
+      let bestPriority = -1;
+      let bestDist = Infinity;
+      for (const node of nodes) {
+        if (!node.slots || !node.slots.has(slotKey)) continue;
+        const dx = node.wx - targetX;
+        const dz = node.wz - targetZ;
+        const d = dx * dx + dz * dz;
+        const hasConnectors = node.connectors && node.connectors.size > 0;
+        const sideMatch = Boolean(preferredSide && node.connectors && node.connectors.has(preferredSide));
+        const priority = sideMatch ? 2 : hasConnectors ? 1 : 0;
+        if (priority > bestPriority || (priority === bestPriority && d < bestDist)) {
+          best = node;
+          bestPriority = priority;
+          bestDist = d;
+        }
+      }
+      return best;
+    }
+
+    function connectorTags(a, b) {
+      const district = a.tags.district === b.tags.district ? a.tags.district : "connector";
+      return {
+        district,
+        orderWeight: Math.max(a.tags.orderWeight, b.tags.orderWeight) * 0.78,
+        obstacleProfile: a.tags.obstacleProfile === "blocked" || b.tags.obstacleProfile === "blocked" ? "blocked" : "connector",
+        buildingStyle: district,
+      };
+    }
+
+    function getOrCreateNode(nodeMap, nodes, wx, wz, templateSlot, connector) {
+      const key = coordKey(wx, wz);
+      let node = nodeMap.get(key);
+      if (!node) {
+        node = {
+          id: nodes.length,
+          wx: roundCoord(wx),
+          wz: roundCoord(wz),
+          x: roundCoord(wx / LOCAL_STEP),
+          z: roundCoord(wz / LOCAL_STEP),
+          slots: new Set(),
+          connectors: new Set(),
+        };
+        nodeMap.set(key, node);
+        nodes.push(node);
+      }
+      node.slots.add(templateSlot);
+      if (connector) node.connectors.add(connector);
+      return node;
+    }
+
+    function addEdge(edgesByKey, nodeMap, aKey, bKey, tags, templateId, slot) {
+      const a = nodeMap.get(aKey);
+      const b = nodeMap.get(bKey);
+      if (!a || !b || a.id === b.id) return;
+      const key = edgeKey(a.id, b.id);
+      if (!edgesByKey.has(key)) {
+        edgesByKey.set(key, {
+          a: a.id,
+          b: b.id,
+          key,
+          tags: { ...tags },
+          templateId,
+          slot,
+        });
+      }
+    }
+
+    function addConnectorEdge(edgesByKey, nodeMap, aKey, bKey, tags) {
+      const a = nodeMap.get(aKey);
+      const b = nodeMap.get(bKey);
+      if (!a || !b) return;
+      const key = edgeKey(a.id, b.id);
+      if (!edgesByKey.has(key) && a.id !== b.id) {
+        edgesByKey.set(key, { a: a.id, b: b.id, key, tags, templateId: "connector", slot: null });
+      }
+    }
+
+    function makeAdjacency(count, edges) {
+      const adjacency = Array.from({ length: count }, () => []);
+      for (const edge of edges) {
+        adjacency[edge.a].push(edge.b);
+        adjacency[edge.b].push(edge.a);
+      }
+      return adjacency;
+    }
+
+    function findReachable(start, adjacency) {
+      const seen = new Set([start]);
+      const queue = [start];
+      for (let head = 0; head < queue.length; head += 1) {
+        const id = queue[head];
+        for (const next of adjacency[id] || []) {
+          if (!seen.has(next)) {
+            seen.add(next);
+            queue.push(next);
+          }
+        }
+      }
+      return seen;
+    }
+
+    function computeBounds(nodes) {
+      const xs = nodes.map((node) => node.wx);
+      const zs = nodes.map((node) => node.wz);
+      return {
+        minX: Math.min(...xs),
+        maxX: Math.max(...xs),
+        minZ: Math.min(...zs),
+        maxZ: Math.max(...zs),
+      };
+    }
+
+    function coordKey(wx, wz) {
+      return `${roundCoord(wx).toFixed(3)}:${roundCoord(wz).toFixed(3)}`;
+    }
+
+    function edgeKey(a, b) {
+      return a < b ? `${a}:${b}` : `${b}:${a}`;
+    }
+
+    function roundCoord(value) {
+      return Math.round(value * 1000) / 1000;
+    }
+
+    function regenerate(randomizeSeed = false) {
+      if (randomizeSeed) {
+        seedInput.value = `template-${Math.floor(1000 + Math.random() * 9000)}`;
+      }
+      updateControlLabels();
+      const config = makeConfig();
+      currentGraph = buildRoadGraph(config);
+      renderGraph(currentGraph);
+      drawMinimap(currentGraph);
+      updateStats(currentGraph);
+      syncUrl(config);
+    }
+
+    function updateControlLabels() {
+      const grid = Number(gridInput.value);
+      gridOutput.value = `${grid} x ${grid}`;
+      densityOutput.value = `${densityInput.value}%`;
+      themeOutput.value = `${themeInput.value}%`;
+    }
+
+    function syncUrl(config) {
+      const params = new URLSearchParams({
+        seed: config.seed,
+        grid: String(config.grid),
+        density: String(Math.round(config.density * 100)),
+        theme: String(Math.round(config.themeBias * 100)),
+      });
+      history.replaceState(null, "", `${location.pathname}?${params.toString()}`);
+    }
+
+    function loadUrlParams() {
+      const params = new URLSearchParams(location.search);
+      if (params.has("seed")) seedInput.value = params.get("seed");
+      if (params.has("grid")) gridInput.value = clamp(Number(params.get("grid")), 3, 6);
+      if (params.has("density")) densityInput.value = clamp(Number(params.get("density")), 35, 95);
+      if (params.has("theme")) themeInput.value = clamp(Number(params.get("theme")), 0, 100);
+    }
+
+    function clearCurrentRoot() {
+      scene.remove(currentRoot);
+      currentRoot.traverse((object) => {
+        if (object.geometry) object.geometry.dispose();
+      });
+      currentRoot = new THREE.Group();
+      scene.add(currentRoot);
+    }
+
+    function renderGraph(graph) {
+      clearCurrentRoot();
+      const width = graph.width + 220;
+      const depth = graph.depth + 220;
+      const centerX = (graph.bounds.minX + graph.bounds.maxX) * 0.5;
+      const centerZ = (graph.bounds.minZ + graph.bounds.maxZ) * 0.5;
+
+      const ground = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), materials.grass);
+      ground.rotation.x = -Math.PI / 2;
+      ground.position.set(centerX, -0.035, centerZ);
+      ground.receiveShadow = true;
+      currentRoot.add(ground);
+
+      for (const placed of graph.placements) {
+        addTemplatePad(placed);
+      }
+
+      for (const edge of graph.edges) {
+        addRoad(edge, graph.nodes);
+      }
+
+      for (const node of graph.nodes) {
+        if (graph.reachable.has(node.id)) {
+          addIntersection(node, node.id === graph.startId);
+        } else {
+          addUnreachableMarker(node);
+        }
+      }
+
+      addOrderMarkers(graph);
+      addObstacleMarkers(graph);
+      addBuildings(graph);
+      resetCamera(graph);
+    }
+
+    function addTemplatePad(placed) {
+      const district = placed.tags.district;
+      const material = materials.templateFill[district] || materials.templateFill.civic;
+      const x = placed.slot.x * SLOT_SIZE + LOCAL_STEP;
+      const z = placed.slot.z * SLOT_SIZE + LOCAL_STEP;
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(SLOT_SIZE * 0.96, SLOT_SIZE * 0.96), material);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.set(x, 0.006, z);
+      currentRoot.add(mesh);
+    }
+
+    function addRoad(edge, nodes) {
+      const a = nodes[edge.a];
+      const b = nodes[edge.b];
+      const dx = b.wx - a.wx;
+      const dz = b.wz - a.wz;
+      const len = Math.hypot(dx, dz);
+      if (len < 1) return;
+      const midX = (a.wx + b.wx) * 0.5;
+      const midZ = (a.wz + b.wz) * 0.5;
+      const yaw = Math.atan2(dx, dz);
+      const visualLen = len + ROAD_VISUAL_OVERLAP;
+
+      addBox({
+        name: "Road",
+        position: [midX, 0.035, midZ],
+        scale: [ROAD_WIDTH, 0.07, visualLen],
+        yaw,
+        material: materials.road,
+        receiveShadow: true,
+      });
+
+      const sidewalkOffset = ROAD_WIDTH * 0.5 + SIDEWALK_WIDTH * 0.5 + CURB_WIDTH;
+      addBox({
+        name: "SidewalkL",
+        position: lateralPosition(midX, midZ, yaw, sidewalkOffset, 0.06),
+        scale: [SIDEWALK_WIDTH, 0.12, visualLen],
+        yaw,
+        material: materials.sidewalk,
+        receiveShadow: true,
+      });
+      addBox({
+        name: "SidewalkR",
+        position: lateralPosition(midX, midZ, yaw, -sidewalkOffset, 0.06),
+        scale: [SIDEWALK_WIDTH, 0.12, visualLen],
+        yaw,
+        material: materials.sidewalk,
+        receiveShadow: true,
+      });
+
+      const curbOffset = ROAD_WIDTH * 0.5 + CURB_WIDTH * 0.5;
+      addBox({
+        name: "CurbL",
+        position: lateralPosition(midX, midZ, yaw, curbOffset, 0.16),
+        scale: [CURB_WIDTH, 0.32, visualLen],
+        yaw,
+        material: materials.curb,
+        receiveShadow: true,
+      });
+      addBox({
+        name: "CurbR",
+        position: lateralPosition(midX, midZ, yaw, -curbOffset, 0.16),
+        scale: [CURB_WIDTH, 0.32, visualLen],
+        yaw,
+        material: materials.curb,
+        receiveShadow: true,
+      });
+
+      const marks = Math.max(2, Math.floor(len / 11));
+      for (let i = 1; i < marks; i += 1) {
+        const t = i / marks;
+        const x = a.wx + dx * t;
+        const z = a.wz + dz * t;
+        addLaneMark(x, z, yaw, -1.1);
+        addLaneMark(x, z, yaw, 1.1);
+      }
+    }
+
+    function addLaneMark(x, z, yaw, offset) {
+      addBox({
+        name: "LaneMark",
+        position: lateralPosition(x, z, yaw, offset, 0.115),
+        scale: [LANE_MARK_WIDTH, 0.035, LANE_MARK_LEN],
+        yaw,
+        material: materials.lane,
+        receiveShadow: true,
+      });
+    }
+
+    function addIntersection(node, isStart) {
+      addBox({
+        name: isStart ? "StartIntersection" : "Intersection",
+        position: [node.wx, 0.045, node.wz],
+        scale: [INTERSECTION_SIZE + ROAD_VISUAL_OVERLAP, 0.09, INTERSECTION_SIZE + ROAD_VISUAL_OVERLAP],
+        yaw: 0,
+        material: isStart ? materials.start : materials.road,
+        receiveShadow: true,
+      });
+    }
+
+    function addUnreachableMarker(node) {
+      const geometry = new THREE.CylinderGeometry(1.2, 1.2, 0.12, 12);
+      const material = matte(0x9a6262, 0.9);
+      const marker = new THREE.Mesh(geometry, material);
+      marker.position.set(node.wx, 0.18, node.wz);
+      currentRoot.add(marker);
+    }
+
+    function addOrderMarkers(graph) {
+      for (const edge of graph.edges) {
+        if ((edge.tags.orderWeight || 0) < 1.25) continue;
+        const a = graph.nodes[edge.a];
+        const b = graph.nodes[edge.b];
+        const x = (a.wx + b.wx) * 0.5;
+        const z = (a.wz + b.wz) * 0.5;
+        const marker = new THREE.Mesh(new THREE.CylinderGeometry(2.8, 2.8, 0.24, 18), materials.order);
+        marker.position.set(x, 0.32, z);
+        currentRoot.add(marker);
+      }
+    }
+
+    function addObstacleMarkers(graph) {
+      for (const edge of graph.edges) {
+        if (edge.tags.obstacleProfile !== "blocked" && edge.tags.obstacleProfile !== "slalom") continue;
+        const a = graph.nodes[edge.a];
+        const b = graph.nodes[edge.b];
+        const dx = b.wx - a.wx;
+        const dz = b.wz - a.wz;
+        const len = Math.hypot(dx, dz);
+        if (len < 34) continue;
+        const yaw = Math.atan2(dx, dz);
+        const x = a.wx + dx * 0.58;
+        const z = a.wz + dz * 0.58;
+        addBox({
+          name: "ObstacleProfile",
+          position: [x, 0.34, z],
+          scale: [2.2, 0.58, edge.tags.obstacleProfile === "blocked" ? 5.4 : 3.4],
+          yaw,
+          material: materials.obstacle,
+          castShadow: true,
+          receiveShadow: true,
+        });
+      }
+    }
+
+    function addBuildings(graph) {
+      const rng = mulberry32(hashString(`${graph.config.seed}:buildings:${graph.attempt}:${graph.fallback ? "fallback" : "normal"}`));
+      const occupied = new Set();
+      const degree = new Map(graph.nodes.map((node) => [node.id, 0]));
+      for (const edge of graph.edges) {
+        degree.set(edge.a, (degree.get(edge.a) || 0) + 1);
+        degree.set(edge.b, (degree.get(edge.b) || 0) + 1);
+      }
+      const junctions = graph.nodes.filter((node) => (degree.get(node.id) || 0) >= 3);
+      for (const edge of graph.edges) {
+        const style = edge.tags.buildingStyle || edge.tags.district || "civic";
+        const district = edge.tags.district || "civic";
+        const palette = buildingPalettes[style] || buildingPalettes.civic;
+        const skipChance = district === "market" ? 0.04 : district === "construction" ? 0.22 : 0.12;
+        if (rng() < skipChance) continue;
+
+        const a = graph.nodes[edge.a];
+        const b = graph.nodes[edge.b];
+        const dx = b.wx - a.wx;
+        const dz = b.wz - a.wz;
+        const len = Math.hypot(dx, dz);
+        const yaw = Math.atan2(dx, dz);
+        const density = district === "market" ? 24 : district === "construction" ? 42 : 34;
+        const slots = Math.max(1, Math.floor(len / density));
+        for (let i = 0; i < slots; i += 1) {
+          const t = (i + 0.5) / slots;
+          const baseX = a.wx + dx * t;
+          const baseZ = a.wz + dz * t;
+          for (const side of [-1, 1]) {
+            if (rng() < (district === "market" ? 0.22 : 0.4)) continue;
+            const key = `${Math.round(baseX / 12)}:${Math.round(baseZ / 12)}:${side}`;
+            if (occupied.has(key)) continue;
+            const w = randomFrom(rng, 6.5, district === "market" ? 14.5 : 12.2);
+            const d = randomFrom(rng, 6.5, district === "construction" ? 17.5 : 14.0);
+            const h = randomFrom(rng, district === "market" ? 16 : 10, district === "construction" ? 34 : 54);
+            const setback = randomFrom(rng, district === "market" ? 24 : district === "construction" ? 30 : 27, district === "market" ? 38 : district === "construction" ? 48 : 42);
+            const [x, y, z] = lateralPosition(baseX, baseZ, yaw, side * setback, h * 0.5);
+            if (isNearRoad(x, z, graph.edges, graph.nodes, district === "construction" ? 36 : 28)) continue;
+            if (isNearJunction(x, z, junctions, district === "construction" ? 46 : 38)) continue;
+            occupied.add(key);
+            const mat = matte(palette[Math.floor(rng() * palette.length)], 0.88);
+            addBox({
+              name: "Building",
+              position: [x, y, z],
+              scale: [w, h, d],
+              yaw: yaw + randomFrom(rng, -0.08, 0.08),
+              material: mat,
+              castShadow: true,
+              receiveShadow: true,
+            });
+          }
+        }
+      }
+    }
+
+    function isNearJunction(x, z, junctions, radius) {
+      const r2 = radius * radius;
+      for (const node of junctions) {
+        const dx = x - node.wx;
+        const dz = z - node.wz;
+        if (dx * dx + dz * dz <= r2) return true;
+      }
+      return false;
+    }
+
+    function isNearRoad(x, z, edges, nodes, radius) {
+      const r2 = radius * radius;
+      for (const edge of edges) {
+        const a = nodes[edge.a];
+        const b = nodes[edge.b];
+        const ax = a.wx;
+        const az = a.wz;
+        const bx = b.wx;
+        const bz = b.wz;
+        const vx = bx - ax;
+        const vz = bz - az;
+        const len2 = vx * vx + vz * vz;
+        const t = len2 > 0 ? clamp(((x - ax) * vx + (z - az) * vz) / len2, 0, 1) : 0;
+        const px = ax + vx * t;
+        const pz = az + vz * t;
+        const dx = x - px;
+        const dz = z - pz;
+        if (dx * dx + dz * dz <= r2) return true;
+      }
+      return false;
+    }
+
+    function addBox(options) {
+      const geometry = new THREE.BoxGeometry(1, 1, 1);
+      const mesh = new THREE.Mesh(geometry, options.material);
+      mesh.name = options.name;
+      mesh.position.set(options.position[0], options.position[1], options.position[2]);
+      mesh.scale.set(options.scale[0], options.scale[1], options.scale[2]);
+      mesh.rotation.y = options.yaw || 0;
+      mesh.castShadow = Boolean(options.castShadow);
+      mesh.receiveShadow = Boolean(options.receiveShadow);
+      currentRoot.add(mesh);
+      return mesh;
+    }
+
+    function lateralPosition(x, z, yaw, offset, y) {
+      const rightX = Math.cos(yaw);
+      const rightZ = -Math.sin(yaw);
+      return [x + rightX * offset, y, z + rightZ * offset];
+    }
+
+    function resetCamera(graph) {
+      const start = graph.nodes[graph.startId];
+      const target = new THREE.Vector3((graph.bounds.minX + graph.bounds.maxX) * 0.5, 0, (graph.bounds.minZ + graph.bounds.maxZ) * 0.52);
+      controls.target.copy(target);
+      camera.position.set(start.wx - graph.width * 0.22, 82 + graph.cols * 8, start.wz - 145);
+      camera.lookAt(target);
+      controls.update();
+    }
+
+    function drawMinimap(graph) {
+      const ctx = minimap.getContext("2d");
+      const size = minimap.width;
+      ctx.clearRect(0, 0, size, size);
+      ctx.fillStyle = "rgba(20, 35, 38, 0.82)";
+      ctx.fillRect(0, 0, size, size);
+
+      const pad = 28;
+      const { minX, maxX, minZ, maxZ } = graph.bounds;
+      const scale = Math.min((size - pad * 2) / Math.max(1, maxX - minX), (size - pad * 2) / Math.max(1, maxZ - minZ));
+      const project = (node) => ({
+        x: size * 0.5 + (node.wx - (minX + maxX) * 0.5) * scale,
+        y: size * 0.5 - (node.wz - (minZ + maxZ) * 0.5) * scale,
+      });
+
+      for (const placed of graph.placements) {
+        const x = placed.slot.x * SLOT_SIZE + LOCAL_STEP;
+        const z = placed.slot.z * SLOT_SIZE + LOCAL_STEP;
+        const p = project({ wx: x, wz: z });
+        const s = SLOT_SIZE * scale * 0.92;
+        ctx.fillStyle = hexToRgba(districtColors[placed.tags.district] || districtColors.civic, 0.24);
+        ctx.fillRect(p.x - s * 0.5, p.y - s * 0.5, s, s);
+      }
+
+      ctx.lineCap = "round";
+      ctx.lineWidth = 3;
+      for (const edge of graph.edges) {
+        const a = project(graph.nodes[edge.a]);
+        const b = project(graph.nodes[edge.b]);
+        ctx.strokeStyle = graph.reachable.has(edge.a) && graph.reachable.has(edge.b)
+          ? hexToRgba(districtColors[edge.tags.district] || districtColors.connector, 0.92)
+          : "rgba(150, 112, 112, 0.42)";
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+
+      for (const edge of graph.edges) {
+        if ((edge.tags.orderWeight || 0) < 1.25) continue;
+        const a = project(graph.nodes[edge.a]);
+        const b = project(graph.nodes[edge.b]);
+        ctx.fillStyle = "#55e0ad";
+        ctx.beginPath();
+        ctx.arc((a.x + b.x) * 0.5, (a.y + b.y) * 0.5, 3.8, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      for (const node of graph.nodes) {
+        const p = project(node);
+        ctx.fillStyle = graph.reachable.has(node.id) ? "rgba(222, 232, 233, 0.88)" : "rgba(170, 104, 104, 0.7)";
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 2.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      const start = project(graph.nodes[graph.startId]);
+      ctx.fillStyle = "#8d6cff";
+      ctx.beginPath();
+      ctx.arc(start.x, start.y, 6.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function hexToRgba(hex, alpha) {
+      const r = (hex >> 16) & 255;
+      const g = (hex >> 8) & 255;
+      const b = hex & 255;
+      return `rgba(${r},${g},${b},${alpha})`;
+    }
+
+    function updateStats(graph) {
+      const pct = Math.round(graph.reachableRatio * 100);
+      const market = graph.districtCounts.market || 0;
+      const construction = graph.districtCounts.construction || 0;
+      const templateTotal = graph.placements.length;
+      statsLineA.textContent = `Template Grid ${graph.cols} x ${graph.rows} · Seed ${graph.config.seed}`;
+      statsLineB.textContent = `Reachable ${pct}% · Roads ${graph.edges.length} · ${graph.generationMs.toFixed(1)}ms${graph.fallback ? " · fallback" : ""}`;
+      statsLineC.textContent = `Templates ${templateTotal} · Market ${market} · Construction ${construction}`;
+      minimapLabel.textContent = `Seed ${graph.config.seed}`;
+    }
+
+    controlsForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      regenerate(false);
+    });
+
+    randomSeedButton.addEventListener("click", () => regenerate(true));
+
+    for (const input of [gridInput, densityInput, themeInput]) {
+      input.addEventListener("input", updateControlLabels);
+      input.addEventListener("change", () => regenerate(false));
+    }
+
+    seedInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        regenerate(false);
+      }
+    });
+
+    window.addEventListener("resize", () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      if (currentGraph) drawMinimap(currentGraph);
+    });
+
+    function animate() {
+      controls.update();
+      renderer.render(scene, camera);
+      requestAnimationFrame(animate);
+    }
+
+    loadUrlParams();
+    regenerate(false);
+    animate();
+  </script>
+</body>
+</html>

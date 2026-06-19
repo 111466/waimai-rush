@@ -20,6 +20,13 @@ M.lblIncome = nil
 M.lblCombo = nil
 M.lblSpeed = nil
 M.lblHint = nil
+M.hudPanel = nil
+M.mainMenuPanel = nil
+M.pauseOverlayPanel = nil
+M.staticPagePanel = nil
+M.lblStaticPageTitle = nil
+M.staticRows = {}
+M.staticBackMode = "menu"
 M.gameOverPanel = nil
 M.lblFinalIncome = nil
 M.lblFinalDist = nil
@@ -49,6 +56,8 @@ M.preciseRouteNodes = {}
 M.precisePickupNodes = {}
 M.onRestart = nil
 M.onTogglePause = nil
+M.onStartGame = nil
+M.onReturnMenu = nil
 M.minimapVersion = -1
 M.rootPanel = nil
 M.activePickupSlot = nil
@@ -108,6 +117,108 @@ local function MakeStepButton(text, onClick)
         onClick = onClick,
     }
 end
+
+local function MakeNavButton(text, onClick)
+    return UI.Button {
+        text = text,
+        width = 58,
+        height = 50,
+        marginLeft = 3,
+        marginRight = 3,
+        onClick = onClick,
+    }
+end
+
+local function MakeMenuStat(text)
+    return UI.Label {
+        text = text,
+        fontSize = 13,
+        fontWeight = "bold",
+        fontColor = {255,255,255,255},
+    }
+end
+
+local function MakePanelTitle(text)
+    return UI.Label {
+        text = text,
+        fontSize = 24,
+        fontWeight = "bold",
+        fontColor = {30,38,46,255},
+    }
+end
+
+local function MakeStaticRow(index)
+    return UI.Panel {
+        id = "staticRow" .. tostring(index),
+        width = "100%",
+        height = 42,
+        marginTop = 8,
+        padding = 10,
+        backgroundColor = "#F6F8FA",
+        borderRadius = 8,
+        children = {
+            UI.Label {
+                id = "staticRowText" .. tostring(index),
+                text = "",
+                fontSize = 13,
+                fontWeight = "bold",
+                fontColor = {33,45,56,255},
+            },
+        },
+    }
+end
+
+local STATIC_PAGE_DATA = {
+    rider = {
+        title = "骑手成长",
+        rows = {
+            "Lv.3 城市快骑  XP 120/220",
+            "同时订单: 3 个取餐点",
+            "已解锁: 普通 / 顺路 / 急送",
+            "高价订单概率: +5%",
+            "下一等级: Lv.4 解锁护盾",
+        },
+    },
+    upgrades = {
+        title = "局外升级",
+        rows = {
+            "起步速度 Lv.2  开局速度 +0.6m/s",
+            "最高速度 Lv.1  最大速度 +0.4m/s",
+            "操控能力 Lv.3  变道更灵敏",
+            "时间管理 Lv.1  订单时限增加",
+            "幸运派单 Lv.0  高价订单概率提升",
+        },
+    },
+    tasks = {
+        title = "任务",
+        rows = {
+            "本局完成 3 单  1/3",
+            "准时送达 2 单  1/2",
+            "完成 1 个急送单  0/1",
+            "连续送达 3 单  0/3",
+        },
+    },
+    achievements = {
+        title = "成就",
+        rows = {
+            "完成首单  已完成",
+            "累计完成 50 单  12/50",
+            "累计准时送达 30 单  8/30",
+            "完成 20 个急送单  4/20",
+            "单局收入达到 ¥300  未完成",
+        },
+    },
+    settings = {
+        title = "设置",
+        rows = {
+            "音效: 开",
+            "音乐: 开",
+            "震动: 开",
+            "操作方式: 滑动 / 键盘",
+            "调试面板: 开发入口保留",
+        },
+    },
+}
 
 local function MiniWorldPoint(worldX, worldZ)
     local usable = MINI_MAP_SIZE - MINI_MARGIN * 2
@@ -912,10 +1023,293 @@ local function BuildDebugPanel()
     return panel
 end
 
-function M.Create(onRestart, onTogglePause)
+local function BuildMainMenu()
+    return UI.Panel {
+        id = "mainMenuPanel",
+        width = "100%",
+        height = "100%",
+        position = "absolute",
+        backgroundColor = "#EAF7FF",
+        padding = 18,
+        children = {
+            UI.Panel {
+                width = "100%",
+                height = 52,
+                flexDirection = "row",
+                justifyContent = "space-between",
+                alignItems = "center",
+                children = {
+                    UI.Panel {
+                        width = 116,
+                        height = 32,
+                        backgroundColor = "rgba(18,28,36,0.78)",
+                        borderRadius = 16,
+                        justifyContent = "center",
+                        alignItems = "center",
+                        children = { MakeMenuStat("Lv.3 城市快骑") },
+                    },
+                    UI.Panel {
+                        width = 82,
+                        height = 32,
+                        backgroundColor = "rgba(18,28,36,0.78)",
+                        borderRadius = 16,
+                        justifyContent = "center",
+                        alignItems = "center",
+                        children = { MakeMenuStat("¥320") },
+                    },
+                },
+            },
+            UI.Panel {
+                width = "100%",
+                height = 430,
+                justifyContent = "center",
+                alignItems = "center",
+                children = {
+                    UI.Label {
+                        text = "外卖\n冲冲冲",
+                        fontSize = 44,
+                        fontWeight = "bold",
+                        fontColor = {255,138,31,255},
+                        textAlign = "center",
+                    },
+                    UI.Label {
+                        text = "接单、转向、冲刺，把城市跑成你的路线",
+                        fontSize = 14,
+                        fontColor = {60,72,82,255},
+                        marginTop = 12,
+                        textAlign = "center",
+                    },
+                    UI.Button {
+                        text = "开始配送",
+                        variant = "primary",
+                        width = 260,
+                        height = 54,
+                        marginTop = 28,
+                        onClick = function()
+                            if M.onStartGame then
+                                M.onStartGame()
+                            end
+                        end,
+                    },
+                },
+            },
+            UI.Panel {
+                width = "100%",
+                height = 72,
+                flexDirection = "row",
+                justifyContent = "center",
+                children = {
+                    MakeNavButton("骑手", function() M.ShowStaticPage("rider", "menu") end),
+                    MakeNavButton("升级", function() M.ShowStaticPage("upgrades", "menu") end),
+                    MakeNavButton("任务", function() M.ShowStaticPage("tasks", "menu") end),
+                    MakeNavButton("成就", function() M.ShowStaticPage("achievements", "menu") end),
+                    MakeNavButton("设置", function() M.ShowStaticPage("settings", "menu") end),
+                },
+            },
+        },
+    }
+end
+
+local function BuildPauseOverlay()
+    return UI.Panel {
+        id = "pauseOverlayPanel",
+        width = "100%",
+        height = "100%",
+        position = "absolute",
+        justifyContent = "center",
+        alignItems = "center",
+        backgroundColor = "rgba(0,0,0,0.58)",
+        children = {
+            UI.Panel {
+                width = 286,
+                height = 286,
+                backgroundColor = "#FFFFFF",
+                borderRadius = 14,
+                padding = 18,
+                alignItems = "center",
+                children = {
+                    MakePanelTitle("已暂停"),
+                    UI.Label {
+                        text = "配送节奏已冻结",
+                        fontSize = 13,
+                        fontColor = {92,104,114,255},
+                        marginTop = 6,
+                    },
+                    UI.Button {
+                        text = "继续",
+                        variant = "primary",
+                        width = 210,
+                        height = 40,
+                        marginTop = 22,
+                        onClick = function()
+                            if M.onTogglePause then
+                                M.onTogglePause()
+                            end
+                        end,
+                    },
+                    UI.Button {
+                        text = "重新开始",
+                        width = 210,
+                        height = 36,
+                        marginTop = 10,
+                        onClick = function()
+                            if M.onRestart then
+                                M.onRestart()
+                            end
+                        end,
+                    },
+                    UI.Button {
+                        text = "设置",
+                        width = 210,
+                        height = 36,
+                        marginTop = 10,
+                        onClick = function()
+                            M.ShowStaticPage("settings", "pause")
+                        end,
+                    },
+                    UI.Button {
+                        text = "返回主菜单",
+                        width = 210,
+                        height = 36,
+                        marginTop = 10,
+                        onClick = function()
+                            if M.onReturnMenu then
+                                M.onReturnMenu()
+                            end
+                        end,
+                    },
+                },
+            },
+        },
+    }
+end
+
+local function BuildGameOverPanel(onRestart)
+    return UI.Panel {
+        id = "gameOverPanel",
+        width = "100%",
+        height = "100%",
+        position = "absolute",
+        justifyContent = "center",
+        alignItems = "center",
+        backgroundColor = "rgba(0,0,0,0.7)",
+        children = {
+            UI.Panel {
+                width = 300,
+                height = 292,
+                backgroundColor = "#FFFFFF",
+                borderRadius = 14,
+                padding = 18,
+                alignItems = "center",
+                children = {
+                    MakePanelTitle("配送结束"),
+                    UI.Label { id = "finalIncome", text = "收入: ¥0", fontSize = 20, fontWeight = "bold", fontColor = {255,138,31,255}, marginTop = 14 },
+                    UI.Label { id = "finalDist", text = "距离: 0m", fontSize = 16, fontColor = {70,82,92,255}, marginTop = 8 },
+                    UI.Label { text = "完成订单、经验和任务奖励后续接入", fontSize = 12, fontColor = {92,104,114,255}, marginTop = 8 },
+                    UI.Button {
+                        text = "再来一局",
+                        variant = "primary",
+                        width = 220,
+                        height = 40,
+                        marginTop = 18,
+                        onClick = function()
+                            onRestart()
+                        end,
+                    },
+                    UI.Panel {
+                        width = 220,
+                        height = 40,
+                        flexDirection = "row",
+                        justifyContent = "space-between",
+                        marginTop = 10,
+                        children = {
+                            UI.Button {
+                                text = "升级",
+                                width = 104,
+                                height = 36,
+                                onClick = function() M.ShowStaticPage("upgrades", "result") end,
+                            },
+                            UI.Button {
+                                text = "主菜单",
+                                width = 104,
+                                height = 36,
+                                onClick = function()
+                                    if M.onReturnMenu then
+                                        M.onReturnMenu()
+                                    end
+                                end,
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    }
+end
+
+local function BuildStaticPage()
+    local rows = {}
+    for i = 1, 6 do
+        rows[#rows + 1] = MakeStaticRow(i)
+    end
+
+    return UI.Panel {
+        id = "staticPagePanel",
+        width = "100%",
+        height = "100%",
+        position = "absolute",
+        backgroundColor = "#EEF6FA",
+        padding = 18,
+        children = {
+            UI.Panel {
+                width = "100%",
+                height = 44,
+                flexDirection = "row",
+                alignItems = "center",
+                children = {
+                    UI.Button {
+                        text = "‹",
+                        width = 40,
+                        height = 40,
+                        onClick = function()
+                            if M.staticBackMode == "pause" then
+                                M.ShowPauseOverlay(true)
+                            elseif M.staticBackMode == "result" then
+                                if M.staticPagePanel then M.staticPagePanel:SetVisible(false) end
+                                if M.gameOverPanel then M.gameOverPanel:SetVisible(true) end
+                            else
+                                M.ShowMainMenu()
+                            end
+                        end,
+                    },
+                    UI.Label {
+                        id = "staticPageTitle",
+                        text = "页面",
+                        fontSize = 24,
+                        fontWeight = "bold",
+                        fontColor = {30,38,46,255},
+                        marginLeft = 12,
+                    },
+                },
+            },
+            UI.Panel {
+                width = "100%",
+                marginTop = 16,
+                padding = 14,
+                backgroundColor = "#FFFFFF",
+                borderRadius = 12,
+                children = rows,
+            },
+        },
+    }
+end
+
+function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu)
     local wasDebugVisible = M.debugPanelVisible
     M.onRestart = onRestart
     M.onTogglePause = onTogglePause
+    M.onStartGame = onStartGame
+    M.onReturnMenu = onReturnMenu
 
     UI.Init({
         theme = "default-dark",
@@ -923,6 +1317,7 @@ function M.Create(onRestart, onTogglePause)
     })
 
     local hud = UI.Panel {
+        id = "hudPanel",
         width = "100%", height = "100%",
         children = {
             UI.Panel {
@@ -986,36 +1381,7 @@ function M.Create(onRestart, onTogglePause)
             },
         },
     }
-    M.gameOverPanel = UI.Panel {
-        id = "gameOverPanel",
-        width = "100%", height = "100%",
-        position = "absolute",
-        justifyContent = "center",
-        alignItems = "center",
-        backgroundColor = "rgba(0,0,0,0.7)",
-        children = {
-            UI.Panel {
-                width = 280, height = 220,
-                backgroundColor = "#222222",
-                borderRadius = 12,
-                justifyContent = "center",
-                alignItems = "center",
-                children = {
-                    UI.Label { text = "配送结束", fontSize = 22, fontColor = {255,255,255,255} },
-                    UI.Label { id = "finalIncome", text = "收入: ¥0", fontSize = 18, fontColor = {255,215,0,255}, marginTop = 12 },
-                    UI.Label { id = "finalDist", text = "距离: 0m", fontSize = 16, fontColor = {170,170,170,255}, marginTop = 8 },
-                    UI.Button {
-                        text = "再来一单",
-                        variant = "primary",
-                        marginTop = 20,
-                        onClick = function()
-                            onRestart()
-                        end,
-                    },
-                },
-            },
-        },
-    }
+    M.gameOverPanel = BuildGameOverPanel(onRestart)
     M.gameOverPanel:SetVisible(false)
     M.minimapPanel = BuildMinimap()
     M.minimapOrderListPanel = BuildMiniOrderList()
@@ -1051,6 +1417,11 @@ function M.Create(onRestart, onTogglePause)
             end
         end,
     }
+    M.mainMenuPanel = BuildMainMenu()
+    M.pauseOverlayPanel = BuildPauseOverlay()
+    M.pauseOverlayPanel:SetVisible(false)
+    M.staticPagePanel = BuildStaticPage()
+    M.staticPagePanel:SetVisible(false)
 
     -- 将 HUD 和 gameOverPanel 合并到同一个根面板
     local root = UI.Panel {
@@ -1062,12 +1433,16 @@ function M.Create(onRestart, onTogglePause)
             M.minimapPanel,
             M.minimapOrderListPanel,
             M.debugPanel,
+            M.mainMenuPanel,
+            M.pauseOverlayPanel,
             M.gameOverPanel,
+            M.staticPagePanel,
         },
     }
     M.rootPanel = root
     UI.SetRoot(root)
 
+    M.hudPanel = root:FindById("hudPanel")
     M.lblTimerNormal = root:FindById("timerNormal")
     M.lblTimerWarning = root:FindById("timerWarning")
     M.lblTimerLate = root:FindById("timerLate")
@@ -1089,6 +1464,14 @@ function M.Create(onRestart, onTogglePause)
     M.lblDebugFovMax = root:FindById("dbgFovMax")
     M.lblDebugFovCurrent = root:FindById("dbgFovCurrent")
     M.btnPause = root:FindById("pauseButton")
+    M.lblStaticPageTitle = root:FindById("staticPageTitle")
+    M.staticRows = {}
+    for i = 1, 6 do
+        M.staticRows[i] = {
+            panel = root:FindById("staticRow" .. tostring(i)),
+            text = root:FindById("staticRowText" .. tostring(i)),
+        }
+    end
 
     M.minimapOrderRows = {}
     M.minimapOrderDots = {}
@@ -1115,6 +1498,7 @@ function M.Create(onRestart, onTogglePause)
     end
     M.SetOrderTimerDisplay(nil)
     RefreshDebugPanel()
+    M.ShowMainMenu()
 end
 
 function M.RebuildMinimap()
@@ -1131,6 +1515,74 @@ function M.RebuildMinimap()
     BindMinimapRefs(M.rootPanel)
     M.lblMiniStatus = M.rootPanel:FindById("miniStatus")
     M.minimapVersion = rn.visibleVersion
+end
+
+local function SetGameplayUIVisible(visible)
+    if M.hudPanel then M.hudPanel:SetVisible(visible) end
+    if M.minimapPanel then M.minimapPanel:SetVisible(visible) end
+    if M.minimapOrderListPanel and not visible then M.minimapOrderListPanel:SetVisible(false) end
+    if M.btnDebugToggle then M.btnDebugToggle:SetVisible(visible) end
+    if M.btnPause then M.btnPause:SetVisible(visible) end
+    if M.debugPanel then
+        M.debugPanel:SetVisible(visible and M.debugPanelVisible)
+    end
+end
+
+local function HideTopLevelPanels()
+    if M.mainMenuPanel then M.mainMenuPanel:SetVisible(false) end
+    if M.pauseOverlayPanel then M.pauseOverlayPanel:SetVisible(false) end
+    if M.staticPagePanel then M.staticPagePanel:SetVisible(false) end
+    if M.gameOverPanel then M.gameOverPanel:SetVisible(false) end
+end
+
+function M.ShowMainMenu()
+    SetGameplayUIVisible(false)
+    HideTopLevelPanels()
+    if M.mainMenuPanel then M.mainMenuPanel:SetVisible(true) end
+end
+
+function M.ShowGameplay()
+    HideTopLevelPanels()
+    SetGameplayUIVisible(true)
+end
+
+function M.ShowPauseOverlay(show)
+    if show then
+        SetGameplayUIVisible(true)
+        if M.staticPagePanel then M.staticPagePanel:SetVisible(false) end
+        if M.pauseOverlayPanel then M.pauseOverlayPanel:SetVisible(true) end
+    else
+        if M.pauseOverlayPanel then M.pauseOverlayPanel:SetVisible(false) end
+        SetGameplayUIVisible(true)
+    end
+end
+
+function M.ShowStaticPage(key, backMode)
+    local data = STATIC_PAGE_DATA[key]
+    if not data then return end
+
+    M.staticBackMode = backMode or "menu"
+    if M.mainMenuPanel then M.mainMenuPanel:SetVisible(false) end
+    if M.pauseOverlayPanel then M.pauseOverlayPanel:SetVisible(false) end
+    if M.gameOverPanel then M.gameOverPanel:SetVisible(false) end
+    SetGameplayUIVisible(false)
+
+    if M.lblStaticPageTitle then
+        M.lblStaticPageTitle:SetText(data.title)
+    end
+    for i = 1, 6 do
+        local row = M.staticRows[i]
+        local text = data.rows[i]
+        if row and row.panel then
+            row.panel:SetVisible(text ~= nil)
+        end
+        if row and row.text then
+            row.text:SetText(text or "")
+        end
+    end
+    if M.staticPagePanel then
+        M.staticPagePanel:SetVisible(true)
+    end
 end
 
 local function BuildAvailableTurnsText(availableTurns)
@@ -1238,6 +1690,10 @@ function M.UpdateHUD(orderTimerData, totalIncome, comboCount, currentSpeed, inte
 end
 
 function M.ShowGameOver(totalIncome, distanceTraveled)
+    SetGameplayUIVisible(false)
+    if M.mainMenuPanel then M.mainMenuPanel:SetVisible(false) end
+    if M.pauseOverlayPanel then M.pauseOverlayPanel:SetVisible(false) end
+    if M.staticPagePanel then M.staticPagePanel:SetVisible(false) end
     if M.gameOverPanel then
         M.gameOverPanel:SetVisible(true)
         if M.lblFinalIncome then
@@ -1424,6 +1880,7 @@ function M.SetPaused(paused)
     if M.lblHint then
         M.lblHint:SetText(paused and "已暂停" or "")
     end
+    M.ShowPauseOverlay(paused)
 end
 
 return M

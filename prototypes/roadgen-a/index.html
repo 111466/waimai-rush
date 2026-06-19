@@ -297,9 +297,6 @@
     <div class="line" id="statsLineB">Reachable 100% · Roads 112</div>
   </section>
 
-  <div class="hud money">¥0</div>
-  <div class="hud speed">8m/s</div>
-
   <section class="hud minimap-wrap">
     <canvas id="minimap" width="206" height="206" aria-label="Road network minimap"></canvas>
     <div class="minimap-label" id="minimapLabel">Seed metro-1842</div>
@@ -326,15 +323,7 @@
     <button type="button" class="secondary" id="randomSeedButton">Random Seed</button>
   </form>
 
-  <div class="hint">鼠标左键旋转 · 右键平移 · 滚轮缩放</div>
-
-  <section class="gameover hidden" id="gameOverPanel" aria-live="polite">
-    <div class="gameover-box">
-      <h2>配送中断</h2>
-      <p id="gameOverText">撞上障碍了，按 R 或点击按钮重试当前地图。</p>
-      <button type="button" id="restartRunButton">Retry Run</button>
-    </div>
-  </section>
+  <div class="hint">鼠标左键拖动旋转 · 右键拖动平移 · 滚轮缩放</div>
 
   <script type="importmap">
     {
@@ -346,7 +335,7 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+    import { MapControls } from "three/addons/controls/MapControls.js";
 
     const app = document.querySelector("#app");
     const seedInput = document.querySelector("#seedInput");
@@ -362,12 +351,6 @@
     const minimapLabel = document.querySelector("#minimapLabel");
     const controlsForm = document.querySelector("#controls");
     const randomSeedButton = document.querySelector("#randomSeedButton");
-    const gameOverPanel = document.querySelector("#gameOverPanel");
-    const gameOverText = document.querySelector("#gameOverText");
-    const restartRunButton = document.querySelector("#restartRunButton");
-    const distanceHud = document.querySelector(".money");
-    const speedHud = document.querySelector(".speed");
-
     const ROAD_WIDTH = 7.2;
     const SIDEWALK_WIDTH = 4.7;
     const CURB_WIDTH = 0.34;
@@ -377,22 +360,6 @@
     const BASE_BLOCK = 86;
     const MIN_REACHABLE = 0.8;
     const MAX_ATTEMPTS = 30;
-    const LANE_OFFSETS = [-2.2, 0, 2.2];
-    const RUNNER_GROUND_Y = 0.2;
-    const RUN_SPEED_BASE = 24;
-    const RUN_SPEED_MAX = 42;
-    const RUN_ACCEL = 1.5;
-    const LANE_CHANGE_TIME = 0.18;
-    const JUMP_DURATION = 0.62;
-    const JUMP_HEIGHT = 8.5;
-    const SLIDE_DURATION = 0.52;
-    const SAFE_EDGE_BUFFER = 16;
-    const OBSTACLE_CLEARANCE = 4.2;
-    const COLLISION_Z = 3.6;
-    const COLLISION_X = 1.35;
-    const FOLLOW_DISTANCE = 42;
-    const FOLLOW_HEIGHT = 26;
-    const FOLLOW_LOOK_AHEAD = 22;
 
     const colorSets = {
       road: 0xc7cecc,
@@ -403,7 +370,6 @@
       curb: 0x80938f,
       start: 0x8d6cff,
       building: [0xaaa4b7, 0xaebba6, 0xb7ad99, 0x93aaa4, 0xb5a2aa, 0xb9c4c5, 0x9e9caa],
-      obstacle: 0xb6826d,
     };
 
     const scene = new THREE.Scene();
@@ -419,14 +385,17 @@
     renderer.domElement.className = "webgl";
     app.appendChild(renderer.domElement);
 
-    const controls = new OrbitControls(camera, renderer.domElement);
+    const controls = new MapControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
     controls.maxPolarAngle = Math.PI * 0.47;
     controls.minDistance = 32;
     controls.maxDistance = 760;
+    controls.enableRotate = true;
+    controls.enablePan = true;
+    controls.enableZoom = true;
     controls.screenSpacePanning = false;
-    controls.enabled = false;
+    controls.enabled = true;
 
     const hemi = new THREE.HemisphereLight(0xffffff, 0xb9c3b7, 2.6);
     scene.add(hemi);
@@ -453,51 +422,11 @@
       lane: matte(colorSets.lane, 0.92),
       grass: matte(colorSets.grass, 0.94),
       start: matte(colorSets.start, 0.78),
-      obstacle: matte(colorSets.obstacle, 0.75),
-      obstacleLow: matte(0xc7a05a, 0.78),
-      obstacleHigh: matte(0x9d6fb0, 0.76),
-      head: matte(0xd8cec0, 0.78),
-      shirt: matte(0x72a9c2, 0.72),
-      helmet: matte(0xd0c63e, 0.72),
-      pants: matte(0x3e5969, 0.86),
-      shoe: matte(0x283134, 0.8),
     };
 
     let currentRoot = new THREE.Group();
     scene.add(currentRoot);
     let currentGraph = null;
-    let runner = null;
-    let obstacles = [];
-    let lastFrameTime = performance.now();
-    const pressedKeys = new Set();
-    const cameraTarget = new THREE.Vector3();
-    const cameraDesired = new THREE.Vector3();
-    const lookDesired = new THREE.Vector3();
-
-    const runState = {
-      graph: null,
-      adjacency: [],
-      edge: null,
-      edgeDistance: 0,
-      insideIntersection: false,
-      intersectionNodeId: null,
-      intersectionProgress: 0,
-      arrivalHeading: 0,
-      exitHeading: 0,
-      routeBlocked: false,
-      lane: 1,
-      laneOffset: 0,
-      laneFrom: 0,
-      laneTo: 0,
-      laneT: 1,
-      jumpTime: 0,
-      slideTime: 0,
-      speed: RUN_SPEED_BASE,
-      distance: 0,
-      alive: true,
-      pendingChoice: null,
-      nextEdge: null,
-    };
 
     function matte(color, roughness) {
       return new THREE.MeshStandardMaterial({
@@ -696,154 +625,6 @@
       return seen;
     }
 
-    function prepareRunGraph(graph) {
-      graph.runEdges = graph.edges.map((edge, index) => {
-        const a = graph.nodes[edge.a];
-        const b = graph.nodes[edge.b];
-        const dx = b.wx - a.wx;
-        const dz = b.wz - a.wz;
-        const length = Math.hypot(dx, dz);
-        return {
-          ...edge,
-          index,
-          length,
-          yawAB: Math.atan2(dx, dz),
-          yawBA: Math.atan2(-dx, -dz),
-        };
-      });
-
-      graph.runAdjacency = Array.from({ length: graph.nodes.length }, () => []);
-      for (const edge of graph.runEdges) {
-        graph.runAdjacency[edge.a].push(edge);
-        graph.runAdjacency[edge.b].push(edge);
-      }
-    }
-
-    function headingForEdge(edge, fromNodeId) {
-      const from = currentGraph.nodes[fromNodeId];
-      const to = currentGraph.nodes[otherNode(edge, fromNodeId)];
-      return Math.atan2(to.wx - from.wx, to.wz - from.wz);
-    }
-
-    function otherNode(edge, nodeIdValue) {
-      return edge.a === nodeIdValue ? edge.b : edge.a;
-    }
-
-    function angleDelta(a, b) {
-      let d = a - b;
-      while (d > Math.PI) d -= Math.PI * 2;
-      while (d < -Math.PI) d += Math.PI * 2;
-      return d;
-    }
-
-    function directionVector(yaw) {
-      return new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
-    }
-
-    function rightVector(yaw) {
-      return new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
-    }
-
-    function classifyTurn(currentYaw, nextYaw) {
-      const d = angleDelta(nextYaw, currentYaw);
-      if (Math.abs(d) < Math.PI * 0.25) return "straight";
-      return d > 0 ? "right" : "left";
-    }
-
-    function chooseEdgeFromNode(nodeIdValue, currentYaw, choice) {
-      const candidates = (currentGraph.runAdjacency[nodeIdValue] || [])
-        .filter((edge) => currentGraph.reachable.has(otherNode(edge, nodeIdValue)));
-      if (candidates.length === 0) return null;
-
-      let best = null;
-      let bestScore = Infinity;
-      for (const edge of candidates) {
-        const yaw = headingForEdge(edge, nodeIdValue);
-        const turn = classifyTurn(currentYaw, yaw);
-        let score = Math.abs(angleDelta(yaw, currentYaw));
-        if (choice === "left") {
-          score = turn === "left" ? score : score + 10;
-        } else if (choice === "right") {
-          score = turn === "right" ? score : score + 10;
-        } else {
-          score = turn === "straight" ? score : score + 2;
-        }
-        if (score < bestScore) {
-          best = edge;
-          bestScore = score;
-        }
-      }
-      return best;
-    }
-
-    function edgeEndpointsForTravel(edge, fromNodeId) {
-      const toNodeId = otherNode(edge, fromNodeId);
-      return {
-        from: currentGraph.nodes[fromNodeId],
-        to: currentGraph.nodes[toNodeId],
-        toNodeId,
-        yaw: headingForEdge(edge, fromNodeId),
-      };
-    }
-
-    function currentTravel() {
-      if (!runState.edge) return null;
-      const toNodeId = runState.edge.a === runState.lastNodeId ? runState.edge.b : runState.edge.a;
-      return edgeEndpointsForTravel(runState.edge, runState.lastNodeId);
-    }
-
-    function getPathPositionAt(distance, laneOffset) {
-      if (runState.insideIntersection) {
-        const node = currentGraph.nodes[runState.intersectionNodeId];
-        const entry = directionVector(runState.arrivalHeading);
-        const exit = directionVector(runState.exitHeading);
-        const start = new THREE.Vector3(
-          node.wx - entry.x * INTERSECTION_SIZE * 0.5,
-          0,
-          node.wz - entry.z * INTERSECTION_SIZE * 0.5
-        );
-        const center = new THREE.Vector3(node.wx, 0, node.wz);
-        const end = new THREE.Vector3(
-          node.wx + exit.x * INTERSECTION_SIZE * 0.5,
-          0,
-          node.wz + exit.z * INTERSECTION_SIZE * 0.5
-        );
-        const t = clamp(runState.intersectionProgress, 0, 1);
-        const omt = 1 - t;
-        const x = omt * omt * start.x + 2 * omt * t * center.x + t * t * end.x;
-        const z = omt * omt * start.z + 2 * omt * t * center.z + t * t * end.z;
-        const tangent = new THREE.Vector3(
-          2 * omt * (center.x - start.x) + 2 * t * (end.x - center.x),
-          0,
-          2 * omt * (center.z - start.z) + 2 * t * (end.z - center.z)
-        ).normalize();
-        const yaw = Math.atan2(tangent.x, tangent.z);
-        const right = rightVector(yaw);
-        return {
-          position: new THREE.Vector3(x + right.x * laneOffset, 0, z + right.z * laneOffset),
-          yaw,
-        };
-      }
-
-      const travel = currentTravel();
-      if (!travel) {
-        return {
-          position: new THREE.Vector3(0, 0, 0),
-          yaw: 0,
-        };
-      }
-      const t = clamp(distance / Math.max(1, runState.edge.length), 0, 1);
-      const right = rightVector(travel.yaw);
-      return {
-        position: new THREE.Vector3(
-          travel.from.wx + (travel.to.wx - travel.from.wx) * t + right.x * laneOffset,
-          0,
-          travel.from.wz + (travel.to.wz - travel.from.wz) * t + right.z * laneOffset
-        ),
-        yaw: travel.yaw,
-      };
-    }
-
     function regenerate(randomizeSeed = false) {
       if (randomizeSeed) {
         seedInput.value = `metro-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -852,12 +633,10 @@
       updateControlLabels();
       const config = makeConfig();
       currentGraph = buildRoadGraph(config);
-      prepareRunGraph(currentGraph);
       renderGraph(currentGraph);
       drawMinimap(currentGraph);
       updateStats(currentGraph);
       syncUrl(config);
-      startRun();
     }
 
     function updateControlLabels() {
@@ -923,8 +702,6 @@
       }
 
       addBuildings(graph);
-      addRunner(graph.nodes[graph.startId]);
-      addRunObstacles(graph);
       resetCamera(graph);
     }
 
@@ -1062,447 +839,6 @@
           }
         }
       }
-    }
-
-    function addRunner(startNode) {
-      const group = new THREE.Group();
-      group.name = "Runner";
-      currentRoot.add(group);
-
-      const body = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.35, 3.8, 18), materials.shirt);
-      body.position.y = 2.55;
-      body.castShadow = true;
-      group.add(body);
-
-      const chest = new THREE.Mesh(new THREE.BoxGeometry(1.25, 1.6, 1.0), materials.pants);
-      chest.position.y = 1.65;
-      chest.castShadow = true;
-      group.add(chest);
-
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.95, 20, 16), materials.head);
-      head.position.y = 4.85;
-      head.castShadow = true;
-      group.add(head);
-
-      const helmet = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.0, 0.35, 20), materials.helmet);
-      helmet.position.y = 5.5;
-      helmet.castShadow = true;
-      group.add(helmet);
-
-      const leftLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.42, 1.8, 12), materials.pants);
-      leftLeg.position.set(-0.34, 0.7, 0);
-      leftLeg.castShadow = true;
-      group.add(leftLeg);
-
-      const rightLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.42, 1.8, 12), materials.pants);
-      rightLeg.position.set(0.34, 0.7, 0);
-      rightLeg.castShadow = true;
-      group.add(rightLeg);
-
-      const leftShoe = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.22, 0.86), materials.shoe);
-      leftShoe.position.set(-0.34, -0.2, 0.18);
-      leftShoe.castShadow = true;
-      group.add(leftShoe);
-
-      const rightShoe = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.22, 0.86), materials.shoe);
-      rightShoe.position.set(0.34, -0.2, 0.18);
-      rightShoe.castShadow = true;
-      group.add(rightShoe);
-
-      runner = {
-        root: group,
-        body,
-        chest,
-        head,
-        helmet,
-        leftLeg,
-        rightLeg,
-        leftShoe,
-        rightShoe,
-      };
-
-      placeRunnerOnRoad(startNode, 0, 0);
-    }
-
-    function addRunObstacles(graph) {
-      obstacles = [];
-      const rng = mulberry32(hashString(`${graph.config.seed}:run-obstacles:${graph.attempt}`));
-      for (const edge of graph.runEdges) {
-        const from = graph.nodes[edge.a];
-        const to = graph.nodes[edge.b];
-        const dx = to.wx - from.wx;
-        const dz = to.wz - from.wz;
-        const len = Math.hypot(dx, dz);
-        if (len < 1) continue;
-        const yaw = Math.atan2(dx, dz);
-        const count = Math.max(0, Math.floor(len / 110));
-        for (let i = 0; i < count; i += 1) {
-          if (rng() < 0.15) continue;
-          const t = randomFrom(rng, 0.28, 0.82);
-          const lane = 1 + Math.floor(rng() * 3);
-          const laneOffset = LANE_OFFSETS[lane - 1];
-          const typeRoll = rng();
-          const kind = typeRoll < 0.4 ? "block" : typeRoll < 0.72 ? "low" : "high";
-          const obstacle = createObstacle(kind, {
-            edgeId: edge.index,
-            distance: len * t,
-            lane,
-            laneOffset,
-            yaw,
-          });
-          obstacle.position.copy(
-            getPointOnGraphEdge(from, to, t, laneOffset, 0)
-          );
-          obstacle.position.y = kind === "block" ? RUNNER_GROUND_Y + 0.72 : kind === "low" ? RUNNER_GROUND_Y + 0.38 : RUNNER_GROUND_Y + 1.02;
-          obstacle.userData.distance = len * t;
-          obstacle.userData.edge = edge;
-          obstacle.userData.edgeId = edge.index;
-          obstacle.userData.lane = lane;
-          obstacle.userData.kind = kind;
-          obstacle.userData.yaw = yaw;
-          currentRoot.add(obstacle);
-          obstacles.push(obstacle);
-        }
-      }
-    }
-
-    function createObstacle(kind, meta) {
-      const group = new THREE.Group();
-      group.userData = { ...meta, kind };
-
-      if (kind === "block") {
-        const bar = new THREE.Mesh(new THREE.BoxGeometry(1.9, 2.2, 1.2), materials.obstacle);
-        bar.position.y = 1.1;
-        bar.castShadow = true;
-        bar.receiveShadow = true;
-        group.add(bar);
-      } else if (kind === "low") {
-        const bump = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.7, 1.3), materials.obstacleLow);
-        bump.position.y = 0.35;
-        bump.castShadow = true;
-        bump.receiveShadow = true;
-        group.add(bump);
-      } else {
-        const postL = new THREE.Mesh(new THREE.BoxGeometry(0.32, 3.0, 0.32), materials.obstacleHigh);
-        postL.position.set(-0.62, 1.5, 0);
-        postL.castShadow = true;
-        postL.receiveShadow = true;
-        group.add(postL);
-
-        const postR = new THREE.Mesh(new THREE.BoxGeometry(0.32, 3.0, 0.32), materials.obstacleHigh);
-        postR.position.set(0.62, 1.5, 0);
-        postR.castShadow = true;
-        postR.receiveShadow = true;
-        group.add(postR);
-
-        const bar = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.34, 0.46), materials.obstacleHigh);
-        bar.position.y = 2.55;
-        bar.castShadow = true;
-        bar.receiveShadow = true;
-        group.add(bar);
-      }
-
-      group.rotation.y = meta.yaw;
-      group.receiveShadow = true;
-      return group;
-    }
-
-    function getPointOnGraphEdge(from, to, t, laneOffset, y) {
-      const dx = to.wx - from.wx;
-      const dz = to.wz - from.wz;
-      const yaw = Math.atan2(dx, dz);
-      const right = rightVector(yaw);
-      return new THREE.Vector3(
-        from.wx + dx * t + right.x * laneOffset,
-        y,
-        from.wz + dz * t + right.z * laneOffset
-      );
-    }
-
-    function placeRunnerOnRoad(node, laneIndex, yOffset) {
-      const laneOffset = LANE_OFFSETS[laneIndex] || 0;
-      const pos = new THREE.Vector3(node.wx + laneOffset, RUNNER_GROUND_Y + yOffset, node.wz - 8);
-      if (runner) {
-        runner.root.position.copy(pos);
-        runner.root.rotation.y = Math.PI;
-      }
-      runState.lane = laneIndex;
-      runState.laneOffset = laneOffset;
-    }
-
-    function startRun() {
-      if (!currentGraph || !currentGraph.runAdjacency) return;
-      const startNodeId = currentGraph.startId;
-      const startEdge = chooseEdgeFromNode(startNodeId, 0, "straight")
-        || currentGraph.runAdjacency[startNodeId]?.[0];
-      const startYaw = startEdge ? headingForEdge(startEdge, startNodeId) : 0;
-
-      Object.assign(runState, {
-        graph: currentGraph,
-        edge: startEdge,
-        lastNodeId: startNodeId,
-        edgeDistance: Math.min(10, Math.max(1, (startEdge?.length || 30) * 0.12)),
-        insideIntersection: false,
-        intersectionNodeId: null,
-        intersectionProgress: 0,
-        arrivalHeading: startYaw,
-        exitHeading: startYaw,
-        routeBlocked: !startEdge,
-        lane: 1,
-        laneOffset: LANE_OFFSETS[1],
-        laneFrom: LANE_OFFSETS[1],
-        laneTo: LANE_OFFSETS[1],
-        laneT: 1,
-        jumpTime: 0,
-        slideTime: 0,
-        speed: RUN_SPEED_BASE,
-        distance: 0,
-        alive: Boolean(startEdge),
-        pendingChoice: null,
-      });
-
-      pressedKeys.clear();
-      gameOverPanel.classList.add("hidden");
-      updateRunnerTransform(0);
-      updateFollowCamera(1);
-      updateStats(currentGraph);
-    }
-
-    function requestLane(delta) {
-      if (!runState.alive) return;
-      const nextLane = clamp(runState.lane + delta, 0, LANE_OFFSETS.length - 1);
-      if (nextLane === runState.lane) return;
-      runState.lane = nextLane;
-      runState.laneFrom = runState.laneOffset;
-      runState.laneTo = LANE_OFFSETS[nextLane];
-      runState.laneT = 0;
-    }
-
-    function requestTurn(choice) {
-      if (!runState.alive) return;
-      if (runState.insideIntersection || distanceToIntersection() < 32) {
-        runState.pendingChoice = choice;
-      }
-    }
-
-    function jump() {
-      if (!runState.alive) return;
-      if (runState.jumpTime > 0 || runState.slideTime > 0) return;
-      runState.jumpTime = 0.0001;
-    }
-
-    function slide() {
-      if (!runState.alive) return;
-      if (runState.slideTime > 0 || runState.jumpTime > 0) return;
-      runState.slideTime = 0.0001;
-    }
-
-    function distanceToIntersection() {
-      if (!runState.edge || runState.insideIntersection) return 0;
-      return Math.max(0, runState.edge.length - runState.edgeDistance);
-    }
-
-    function updateRun(dt) {
-      if (!runner || !runState.edge) return;
-      if (!runState.alive) {
-        updateFollowCamera(dt);
-        return;
-      }
-
-      runState.speed = Math.min(RUN_SPEED_MAX, runState.speed + RUN_ACCEL * dt);
-      const move = runState.speed * dt;
-      runState.distance += move;
-
-      if (runState.laneT < 1) {
-        runState.laneT = Math.min(1, runState.laneT + dt / LANE_CHANGE_TIME);
-        const t = runState.laneT * runState.laneT * (3 - 2 * runState.laneT);
-        runState.laneOffset = runState.laneFrom + (runState.laneTo - runState.laneFrom) * t;
-      }
-
-      if (runState.jumpTime > 0) {
-        runState.jumpTime += dt;
-        if (runState.jumpTime >= JUMP_DURATION) runState.jumpTime = 0;
-      }
-      if (runState.slideTime > 0) {
-        runState.slideTime += dt;
-        if (runState.slideTime >= SLIDE_DURATION) runState.slideTime = 0;
-      }
-
-      advanceAlongGraph(move);
-      updateRunnerTransform(dt);
-      checkObstacleCollisions();
-      updateFollowCamera(dt);
-      updateStats(currentGraph);
-    }
-
-    function advanceAlongGraph(moveDist) {
-      let remaining = moveDist;
-      while (remaining > 0 && runState.alive) {
-        if (runState.insideIntersection) {
-          const traverseLen = INTERSECTION_SIZE;
-          const step = remaining / traverseLen;
-          runState.intersectionProgress += step;
-          remaining = 0;
-          if (runState.intersectionProgress >= 1) {
-            finishIntersection();
-          }
-          continue;
-        }
-
-        const edgeLeft = runState.edge.length - runState.edgeDistance;
-        if (remaining < edgeLeft) {
-          runState.edgeDistance += remaining;
-          remaining = 0;
-        } else {
-          runState.edgeDistance = runState.edge.length;
-          remaining -= edgeLeft;
-          enterIntersection();
-        }
-      }
-    }
-
-    function enterIntersection() {
-      const travel = currentTravel();
-      if (!travel) {
-        endRun("No road ahead");
-        return;
-      }
-      const choice = runState.pendingChoice || "straight";
-      const nextEdge = chooseEdgeFromNode(travel.toNodeId, travel.yaw, choice);
-      if (!nextEdge) {
-        endRun("前面没有可走的路");
-        return;
-      }
-      runState.insideIntersection = true;
-      runState.intersectionNodeId = travel.toNodeId;
-      runState.intersectionProgress = 0;
-      runState.arrivalHeading = travel.yaw;
-      runState.exitHeading = headingForEdge(nextEdge, travel.toNodeId);
-      runState.nextEdge = nextEdge;
-      runState.pendingChoice = null;
-    }
-
-    function finishIntersection() {
-      const nodeIdValue = runState.intersectionNodeId;
-      const nextEdge = runState.nextEdge;
-      if (!nextEdge) {
-        endRun("No exit edge");
-        return;
-      }
-      runState.edge = nextEdge;
-      runState.lastNodeId = nodeIdValue;
-      runState.edgeDistance = Math.max(0.01, (runState.intersectionProgress - 1) * INTERSECTION_SIZE);
-      runState.insideIntersection = false;
-      runState.intersectionNodeId = null;
-      runState.intersectionProgress = 0;
-      runState.nextEdge = null;
-    }
-
-    function jumpHeight() {
-      if (runState.jumpTime <= 0) return 0;
-      const t = clamp(runState.jumpTime / JUMP_DURATION, 0, 1);
-      return 4 * JUMP_HEIGHT * t * (1 - t);
-    }
-
-    function updateRunnerTransform(dt) {
-      if (!runner) return;
-      const sample = getPathPositionAt(runState.edgeDistance, runState.laneOffset);
-      const y = RUNNER_GROUND_Y + jumpHeight();
-      runner.root.position.set(sample.position.x, y, sample.position.z);
-      runner.root.rotation.y = sample.yaw;
-
-      const runningPhase = runState.distance * 0.22;
-      const stride = runState.slideTime > 0 ? 0.12 : Math.sin(runningPhase) * 0.55;
-      runner.leftLeg.rotation.x = stride;
-      runner.rightLeg.rotation.x = -stride;
-      runner.leftShoe.rotation.x = stride * 0.6;
-      runner.rightShoe.rotation.x = -stride * 0.6;
-
-      const slideT = runState.slideTime > 0 ? Math.sin(Math.PI * clamp(runState.slideTime / SLIDE_DURATION, 0, 1)) : 0;
-      runner.root.scale.set(1, 1 - slideT * 0.32, 1 + slideT * 0.12);
-      runner.body.rotation.x = slideT * 0.55;
-      runner.chest.rotation.x = slideT * 0.42;
-      runner.head.position.y = 4.85 - slideT * 0.85;
-      runner.helmet.position.y = 5.5 - slideT * 0.85;
-    }
-
-    /*
-    function checkObstacleCollisions() {
-      if (!runState.alive || runState.insideIntersection || !runState.edge) return;
-      for (const obstacle of obstacles) {
-        const data = obstacle.userData;
-        if (data.edgeId !== runState.edge.index) continue;
-        const dz = data.distance - runState.edgeDistance;
-        if (dz < -OBSTACLE_CLEARANCE || dz > COLLISION_Z) continue;
-        const laneDiff = Math.abs(data.lane - (runState.lane + 1));
-        const xDiff = Math.abs(data.laneOffset - runState.laneOffset);
-        if (laneDiff > 0 && xDiff > COLLISION_X) continue;
-
-        const isJumpingHigh = jumpHeight() > 2.2;
-        const isSliding = runState.slideTime > 0.08 && runState.slideTime < SLIDE_DURATION - 0.06;
-        if (data.kind === "low" && isJumpingHigh) continue;
-        if (data.kind === "high" && isSliding) continue;
-        endRun(data.kind === "high" ? "需要下滑通过高障碍" : "需要跳过或避开障碍");
-        return;
-      }
-    }
-
-    function endRun(reason) {
-      runState.alive = false;
-      runState.routeBlocked = true;
-      gameOverText.textContent = `${reason}。距离 ${Math.round(runState.distance)}m，按 R 重试当前地图。`;
-      gameOverPanel.classList.remove("hidden");
-    }
-
-    */
-    function checkObstacleCollisions() {
-      if (!runState.alive || runState.insideIntersection || !runState.edge) return;
-      for (const obstacle of obstacles) {
-        const data = obstacle.userData;
-        if (data.edgeId !== runState.edge.index) continue;
-        const dz = data.distance - runState.edgeDistance;
-        if (dz < -OBSTACLE_CLEARANCE || dz > COLLISION_Z) continue;
-        const laneDiff = Math.abs(data.lane - (runState.lane + 1));
-        const xDiff = Math.abs(data.laneOffset - runState.laneOffset);
-        if (laneDiff > 0 && xDiff > COLLISION_X) continue;
-
-        const isJumpingHigh = jumpHeight() > 2.2;
-        const isSliding = runState.slideTime > 0.08 && runState.slideTime < SLIDE_DURATION - 0.06;
-        if (data.kind === "low" && isJumpingHigh) continue;
-        if (data.kind === "high" && isSliding) continue;
-        endRun(data.kind === "high" ? "Slide under the high obstacle" : "Jump or dodge the obstacle");
-        return;
-      }
-    }
-
-    function endRun(reason) {
-      runState.alive = false;
-      runState.routeBlocked = true;
-      gameOverText.textContent = `${reason}. Distance ${Math.round(runState.distance)}m. Press R to retry this map.`;
-      gameOverPanel.classList.remove("hidden");
-    }
-
-    function updateFollowCamera(dt) {
-      if (!runner) return;
-      const yaw = runner.root.rotation.y;
-      const forward = directionVector(yaw);
-      const targetPos = runner.root.position;
-      cameraDesired.set(
-        targetPos.x - forward.x * FOLLOW_DISTANCE,
-        targetPos.y + FOLLOW_HEIGHT,
-        targetPos.z - forward.z * FOLLOW_DISTANCE
-      );
-      lookDesired.set(
-        targetPos.x + forward.x * FOLLOW_LOOK_AHEAD,
-        targetPos.y + 5.5,
-        targetPos.z + forward.z * FOLLOW_LOOK_AHEAD
-      );
-
-      const blend = dt >= 1 ? 1 : 1 - Math.pow(0.002, Math.max(0.001, dt));
-      camera.position.lerp(cameraDesired, blend);
-      cameraTarget.lerp(lookDesired, blend);
-      camera.lookAt(cameraTarget);
-      sun.target = runner.root;
     }
 
     function addBox(options) {

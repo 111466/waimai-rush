@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 800 800">
+  <rect width="800" height="800" rx="120" fill="#f6f8fa"/>
+  <g transform="translate(120 120)">
+    <circle cx="90" cy="90" r="74" fill="#2f80ed"/>
+    <path d="M90 34 L142 54 V100 C142 136 118 164 90 178 C62 164 38 136 38 100 V54 Z" fill="#fff"/>
+  </g>
+  <g transform="translate(420 120)">
+    <circle cx="90" cy="90" r="74" fill="#ffcf4a"/>
+    <circle cx="90" cy="98" r="48" fill="#fff"/>
+    <path d="M90 98 V66 M90 98 L118 116" stroke="#ff8a1f" stroke-width="14" stroke-linecap="round"/>
+    <path d="M54 28 L30 52 M126 28 L150 52" stroke="#fff" stroke-width="14" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(120 430)">
+    <circle cx="90" cy="90" r="74" fill="#2ee66b"/>
+    <path d="M90 22 L126 94 L90 170 L54 94 Z" fill="#fff"/>
+    <circle cx="90" cy="94" r="18" fill="#2ee66b"/>
+  </g>
+  <g transform="translate(420 430)">
+    <circle cx="90" cy="90" r="74" fill="#ff8a1f"/>
+    <rect x="38" y="70" width="104" height="70" rx="18" fill="#fff"/>
+    <path d="M54 70 C60 38 120 38 126 70" fill="none" stroke="#fff" stroke-width="18" stroke-linecap="round"/>
+    <path d="M36 150 C72 174 112 174 148 150" fill="none" stroke="#fff" stroke-width="16" stroke-linecap="round"/>
+  </g>
+</svg>
