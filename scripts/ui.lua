@@ -161,7 +161,7 @@ local function AddMiniPlayerProgressMarkers(children, key, edge)
         local t = step / nav.MINIMAP_PLAYER_EDGE_STEPS
         local x = x1 + (x2 - x1) * t
         local y = y1 + (y2 - y1) * t
-        AddMiniMarker(children, "mini_player_p" .. key .. "_" .. step, x, y, 8, "#8A5CFF", 4)
+        AddMiniMarker(children, "mini_player_p" .. key .. "_" .. step, x, y, 11, "#A875FF", 6)
     end
 end
 
@@ -183,9 +183,15 @@ local function BindMinimapRefs(root)
                 M.minimapRouteSegments[key] = root:FindById("mini_route_" .. key)
                 M.minimapTargetMarkers[key] = root:FindById("mini_target_" .. key)
                 M.minimapPickupMarkers[key] = root:FindById("mini_pickup_" .. key)
+                if M.minimapRouteSegments[key] then M.minimapRouteSegments[key]:SetVisible(false) end
+                if M.minimapTargetMarkers[key] then M.minimapTargetMarkers[key]:SetVisible(false) end
+                if M.minimapPickupMarkers[key] then M.minimapPickupMarkers[key]:SetVisible(false) end
                 for step = 0, nav.MINIMAP_PLAYER_EDGE_STEPS do
                     local playerKey = "p" .. key .. "_" .. step
                     M.minimapPlayerMarkers[playerKey] = root:FindById("mini_player_" .. playerKey)
+                    if M.minimapPlayerMarkers[playerKey] then
+                        M.minimapPlayerMarkers[playerKey]:SetVisible(false)
+                    end
                 end
             end
         end
@@ -195,6 +201,8 @@ local function BindMinimapRefs(root)
         local key = nav.MakeNodeSlot(node.id)
         M.minimapPlayerMarkers[key] = root:FindById("mini_player_" .. key)
         M.minimapTargetMarkers[key] = root:FindById("mini_target_" .. key)
+        if M.minimapPlayerMarkers[key] then M.minimapPlayerMarkers[key]:SetVisible(false) end
+        if M.minimapTargetMarkers[key] then M.minimapTargetMarkers[key]:SetVisible(false) end
     end)
 end
 
@@ -208,14 +216,14 @@ local function BuildMinimap()
             local key = nav.MakeEdgeSlot(edge)
             if key and not seenSegments[key] then
                 seenSegments[key] = true
-                AddMiniSegment(children, "mini_base_" .. key, edge, "rgba(145,155,165,0.45)", 2)
+                AddMiniSegment(children, "mini_base_" .. key, edge, "rgba(145,155,165,0.32)", 2)
                 segmentPositions[key] = edge
             end
         end
     end)
 
     for key, edge in pairs(segmentPositions) do
-        AddMiniSegment(children, "mini_route_" .. key, edge, "#2EE66B", 5)
+        AddMiniSegment(children, "mini_route_" .. key, edge, "#00E6B8", 4)
     end
 
     rn.ForEachVisibleNode(function(node)
@@ -232,13 +240,13 @@ local function BuildMinimap()
         local x2, y2 = MiniPoint(toNode)
         local x = (x1 + x2) * 0.5
         local y = (y1 + y2) * 0.5
-        AddMiniMarker(children, "mini_target_" .. key, x, y, 10, "#FFD34D", 2)
+        AddMiniMarker(children, "mini_target_" .. key, x, y, 11, "#FFE15A", 2)
     end
 
     rn.ForEachVisibleNode(function(node)
         if node then
             local x, y = MiniPoint(node)
-            AddMiniMarker(children, "mini_target_n" .. node.id, x, y, 10, "#FFD34D", 2)
+            AddMiniMarker(children, "mini_target_n" .. node.id, x, y, 11, "#FFE15A", 2)
         end
     end)
 
@@ -249,7 +257,7 @@ local function BuildMinimap()
         local x2, y2 = MiniPoint(toNode)
         local x = (x1 + x2) * 0.5
         local y = (y1 + y2) * 0.5
-        AddMiniMarker(children, "mini_pickup_" .. key, x, y, 9, "#FF5AA5", 5)
+        AddMiniMarker(children, "mini_pickup_" .. key, x, y, 9, "#FF4FA3", 5)
     end
 
     for key, edge in pairs(segmentPositions) do
@@ -259,7 +267,7 @@ local function BuildMinimap()
     rn.ForEachVisibleNode(function(node)
         if node then
             local x, y = MiniPoint(node)
-            AddMiniMarker(children, "mini_player_n" .. node.id, x, y, 8, "#8A5CFF", 4)
+            AddMiniMarker(children, "mini_player_n" .. node.id, x, y, 11, "#A875FF", 6)
         end
     end)
 
