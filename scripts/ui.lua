@@ -42,6 +42,8 @@ M.minimapPlayerMarkers = {}
 M.minimapTargetMarkers = {}
 M.minimapPickupMarkers = {}
 M.minimapPickupLabels = {}
+M.preciseRouteNodes = {}
+M.precisePickupNodes = {}
 M.onRestart = nil
 M.onTogglePause = nil
 M.minimapVersion = -1
@@ -52,6 +54,11 @@ M.activePlayerSlot = nil
 M.activeTargetSlot = nil
 M.activeRouteSegments = {}
 M.lastRouteSegments = {}
+M.lastPreciseRouteKey = nil
+M.precisePlayerMarker = nil
+M.preciseTargetMarker = nil
+M.precisePlayerMarkerKey = nil
+M.preciseTargetMarkerKey = nil
 
 local MINI_PANEL_W = 132
 local MINI_PANEL_H = 154
@@ -94,23 +101,26 @@ local function MakeStepButton(text, onClick)
     }
 end
 
-local function MiniPoint(node)
+local function MiniWorldPoint(worldX, worldZ)
     local usable = MINI_MAP_SIZE - MINI_MARGIN * 2
     local bounds = rn.GetVisibleBounds and rn.GetVisibleBounds() or rn.bounds or { minX = 0, maxX = 1, minZ = 0, maxZ = 1 }
     local width = math.max(1.0, bounds.maxX - bounds.minX)
     local depth = math.max(1.0, bounds.maxZ - bounds.minZ)
-    local x = MINI_LEFT + MINI_MARGIN + ((node.worldX - bounds.minX) / width) * usable
-    local y = MINI_TOP + MINI_MARGIN + (1.0 - ((node.worldZ - bounds.minZ) / depth)) * usable
+    local x = MINI_LEFT + MINI_MARGIN + ((worldX - bounds.minX) / width) * usable
+    local y = MINI_TOP + MINI_MARGIN + (1.0 - ((worldZ - bounds.minZ) / depth)) * usable
     return x, y
 end
 
-local function AddMiniSegment(children, id, edge, color, thickness)
-    local fromNode = rn.GetNode(edge.fromNode)
-    local toNode = rn.GetNode(edge.toNode)
-    if not fromNode or not toNode then return end
+local function MiniPoint(node)
+    return MiniWorldPoint(node.worldX, node.worldZ)
+end
 
-    local x1, y1 = MiniPoint(fromNode)
-    local x2, y2 = MiniPoint(toNode)
+local function IsMiniPixelVisible(x, y)
+    return x >= MINI_LEFT and x <= MINI_LEFT + MINI_MAP_SIZE
+        and y >= MINI_TOP and y <= MINI_TOP + MINI_MAP_SIZE
+end
+
+local function MakeMiniSegmentPanel(id, x1, y1, x2, y2, color, thickness)
     local dx = math.abs(x2 - x1)
     local dz = math.abs(y2 - y1)
     local left, top, width, height
@@ -127,7 +137,7 @@ local function AddMiniSegment(children, id, edge, color, thickness)
         height = math.max(thickness, dz)
     end
 
-    table.insert(children, UI.Panel {
+    return UI.Panel {
         id = id,
         position = "absolute",
         left = left,
@@ -136,11 +146,21 @@ local function AddMiniSegment(children, id, edge, color, thickness)
         height = height,
         backgroundColor = color,
         borderRadius = thickness,
-    })
+    }
 end
 
-local function AddMiniMarker(children, id, x, y, size, color, radius)
-    table.insert(children, UI.Panel {
+local function AddMiniSegment(children, id, edge, color, thickness)
+    local fromNode = rn.GetNode(edge.fromNode)
+    local toNode = rn.GetNode(edge.toNode)
+    if not fromNode or not toNode then return end
+
+    local x1, y1 = MiniPoint(fromNode)
+    local x2, y2 = MiniPoint(toNode)
+    table.insert(children, MakeMiniSegmentPanel(id, x1, y1, x2, y2, color, thickness))
+end
+
+local function MakeMiniMarkerPanel(id, x, y, size, color, radius)
+    return UI.Panel {
         id = id,
         position = "absolute",
         left = x - size * 0.5,
@@ -149,21 +169,37 @@ local function AddMiniMarker(children, id, x, y, size, color, radius)
         height = size,
         backgroundColor = color,
         borderRadius = radius or size * 0.5,
-    })
+    }
+end
+
+local function AddMiniMarker(children, id, x, y, size, color, radius)
+    table.insert(children, MakeMiniMarkerPanel(id, x, y, size, color, radius))
+end
+
+local function MakeMiniOrderLabel(id, x, y, text, fontColor)
+    return UI.Label {
+        id = id,
+        text = text or "",
+        position = "absolute",
+        left = x - 24,
+        top = y - 23,
+        width = 48,
+        height = 16,
+        fontSize = 10,
+        fontColor = fontColor or {255,211,77,255},
+    }
 end
 
 local function AddMiniOrderLabel(children, id, x, y)
-    table.insert(children, UI.Label {
-        id = id,
-        text = "",
-        position = "absolute",
-        left = x - 21,
-        top = y - 21,
-        width = 42,
-        height = 14,
-        fontSize = 9,
-        fontColor = {255,255,255,255},
-    })
+    table.insert(children, MakeMiniOrderLabel(id, x, y, ""))
+end
+
+local function GetOrderMarkerColor(order)
+    return (order and (order.markerColor or order.color)) or "#FF5AA5"
+end
+
+local function GetOrderLabelColor(order)
+    return (order and order.labelColor) or {255,211,77,255}
 end
 
 local function AddMiniPlayerProgressMarkers(children, key, edge)
@@ -179,6 +215,223 @@ local function AddMiniPlayerProgressMarkers(children, key, edge)
         local y = y1 + (y2 - y1) * t
         AddMiniMarker(children, "mini_player_p" .. key .. "_" .. step, x, y, 11, "#A875FF", 6)
     end
+end
+
+local function RemoveNode(node)
+    if node then
+        node:Remove()
+    end
+end
+
+local function ClearPreciseMinimapNodes()
+    for _, node in ipairs(M.preciseRouteNodes or {}) do
+        RemoveNode(node)
+    end
+    M.preciseRouteNodes = {}
+
+    for _, item in pairs(M.precisePickupNodes or {}) do
+        RemoveNode(item.marker)
+        RemoveNode(item.label)
+    end
+    M.precisePickupNodes = {}
+
+    RemoveNode(M.precisePlayerMarker)
+    RemoveNode(M.preciseTargetMarker)
+    M.precisePlayerMarker = nil
+    M.preciseTargetMarker = nil
+    M.precisePlayerMarkerKey = nil
+    M.preciseTargetMarkerKey = nil
+    M.lastPreciseRouteKey = nil
+end
+
+local function RouteLinesKey(lines)
+    if not lines or #lines == 0 then return "" end
+
+    local parts = {}
+    for i, line in ipairs(lines) do
+        local x1, y1 = MiniWorldPoint(line.x1, line.z1)
+        local x2, y2 = MiniWorldPoint(line.x2, line.z2)
+        parts[i] = string.format(
+            "%d:%.0f,%.0f,%.0f,%.0f",
+            line.edgeId or 0,
+            x1,
+            y1,
+            x2,
+            y2
+        )
+    end
+    return table.concat(parts, "|")
+end
+
+local function RebuildPreciseRouteLines(lines)
+    if not M.minimapPanel then return end
+
+    for _, node in ipairs(M.preciseRouteNodes or {}) do
+        RemoveNode(node)
+    end
+    M.preciseRouteNodes = {}
+
+    for i, line in ipairs(lines or {}) do
+        local x1, y1 = MiniWorldPoint(line.x1, line.z1)
+        local x2, y2 = MiniWorldPoint(line.x2, line.z2)
+        if IsMiniPixelVisible(x1, y1) or IsMiniPixelVisible(x2, y2) then
+            local node = MakeMiniSegmentPanel("mini_route_precise_" .. i, x1, y1, x2, y2, "#00E6B8", 4)
+            M.minimapPanel:AddChild(node)
+            M.preciseRouteNodes[#M.preciseRouteNodes + 1] = node
+        end
+    end
+end
+
+local function SetPreciseMarker(existingNode, existingKey, id, point, size, color, radius)
+    if not M.minimapPanel or not point then
+        if existingNode then
+            existingNode:Remove()
+        end
+        return nil, nil
+    end
+
+    local x, y = MiniWorldPoint(point.x, point.z)
+    if not IsMiniPixelVisible(x, y) then
+        if existingNode then
+            existingNode:Remove()
+        end
+        return nil, nil
+    end
+
+    local nextKey = string.format("%.0f,%.0f", x, y)
+    if existingNode and existingKey == nextKey then
+        return existingNode, existingKey
+    end
+
+    if existingNode then
+        existingNode:Remove()
+        existingNode = nil
+    end
+
+    local node = MakeMiniMarkerPanel(id, x, y, size, color, radius)
+    M.minimapPanel:AddChild(node)
+    return node, nextKey
+end
+
+local function MakeOrderPoint(order)
+    if not order or not order.edgeId or not order.edgeDist then return nil end
+
+    local edge = rn.GetEdge(order.edgeId)
+    if not edge then return nil end
+
+    local laneOffset = 0.0
+    if order.lane and CONFIG.LANE_X then
+        laneOffset = CONFIG.LANE_X[order.lane] or 0.0
+    end
+
+    local pos = rn.GetPositionOnEdgeByDist(edge, order.edgeDist, laneOffset)
+    return {
+        x = pos.x,
+        z = pos.z,
+    }
+end
+
+local function HideLegacyPickupSlot(key)
+    if not key then return end
+    if M.minimapPickupMarkers[key] then
+        M.minimapPickupMarkers[key]:SetVisible(false)
+    end
+    if M.minimapPickupLabels[key] then
+        M.minimapPickupLabels[key]:SetVisible(false)
+        M.minimapPickupLabels[key]:SetText("")
+    end
+end
+
+local function SetPrecisePickupOrders(pickupMiniData)
+    local active = {}
+
+    if pickupMiniData and pickupMiniData.orders then
+        for index, order in ipairs(pickupMiniData.orders) do
+            local key = tostring(order.id or order.slot or index)
+            local point = MakeOrderPoint(order)
+            if key and point and M.minimapPanel then
+                local x, y = MiniWorldPoint(point.x, point.z)
+                local text = order.displayText or order.label or ""
+                local markerColor = GetOrderMarkerColor(order)
+                local existing = M.precisePickupNodes[key]
+                if not IsMiniPixelVisible(x, y) then
+                    if existing then
+                        RemoveNode(existing.marker)
+                        RemoveNode(existing.label)
+                        M.precisePickupNodes[key] = nil
+                    end
+                    HideLegacyPickupSlot(order.slot)
+                    active[key] = true
+                else
+                    local positionKey = string.format("%.0f,%.0f,%s,%s", x, y, text, markerColor)
+                    if existing and existing.positionKey ~= positionKey then
+                        RemoveNode(existing.marker)
+                        RemoveNode(existing.label)
+                        existing = nil
+                    end
+                    if not existing then
+                        local marker = MakeMiniMarkerPanel("mini_pickup_precise_" .. key, x, y, 10, markerColor, 5)
+                        local label = MakeMiniOrderLabel("mini_pickup_label_precise_" .. key, x, y, text, GetOrderLabelColor(order))
+                        M.minimapPanel:AddChild(marker)
+                        M.minimapPanel:AddChild(label)
+                        M.precisePickupNodes[key] = {
+                            marker = marker,
+                            label = label,
+                            positionKey = positionKey,
+                        }
+                    end
+                    active[key] = true
+                    HideLegacyPickupSlot(order.slot)
+                end
+            end
+        end
+    end
+
+    for key, item in pairs(M.precisePickupNodes or {}) do
+        if not active[key] then
+            RemoveNode(item.marker)
+            RemoveNode(item.label)
+            M.precisePickupNodes[key] = nil
+        end
+    end
+end
+
+local function UpdatePreciseNavigation(navData)
+    local hasPrecise = navData and navData.active and navData.routeLines and #navData.routeLines > 0
+    if hasPrecise then
+        local key = RouteLinesKey(navData.routeLines)
+        if key ~= M.lastPreciseRouteKey then
+            RebuildPreciseRouteLines(navData.routeLines)
+            M.lastPreciseRouteKey = key
+        end
+    else
+        RebuildPreciseRouteLines({})
+        M.lastPreciseRouteKey = nil
+    end
+
+    return hasPrecise
+end
+
+local function UpdatePreciseNavigationMarkers(navData)
+    M.precisePlayerMarker, M.precisePlayerMarkerKey = SetPreciseMarker(
+        M.precisePlayerMarker,
+        M.precisePlayerMarkerKey,
+        "mini_player_precise",
+        navData and navData.playerPoint or nil,
+        12,
+        "#A875FF",
+        6
+    )
+
+    M.preciseTargetMarker, M.preciseTargetMarkerKey = SetPreciseMarker(
+        M.preciseTargetMarker,
+        M.preciseTargetMarkerKey,
+        "mini_target_precise",
+        navData and navData.active and navData.targetPoint or nil,
+        12,
+        "#FFE15A",
+        2
+    )
 end
 
 local function BindMinimapRefs(root)
@@ -757,6 +1010,7 @@ function M.Create(onRestart, onTogglePause)
     M.minimapTargetMarkers = {}
     M.minimapPickupMarkers = {}
     M.minimapPickupLabels = {}
+    ClearPreciseMinimapNodes()
     BindMinimapRefs(root)
 
     M.minimapVersion = rn.visibleVersion
@@ -771,6 +1025,7 @@ function M.RebuildMinimap()
     if not M.rootPanel then return end
 
     if M.minimapPanel then
+        ClearPreciseMinimapNodes()
         M.rootPanel:RemoveChild(M.minimapPanel)
         M.minimapPanel:Remove()
     end
@@ -998,14 +1253,25 @@ function M.UpdateMinimap(navData, pickupMiniData)
         end
     end
 
-    local routeSegments = navData and navData.active and navData.routeSegments or {}
+    local hasPreciseRoute = UpdatePreciseNavigation(navData)
+    local hasPreciseData = navData and navData.routeLines ~= nil
+    local hasPreciseTarget = navData and navData.active and navData.targetPoint ~= nil
+    local routeSegments = (not hasPreciseData and navData and navData.active) and navData.routeSegments or {}
     if routeSegments ~= M.lastRouteSegments then
         SetRouteSegmentsVisible(routeSegments)
         M.lastRouteSegments = routeSegments
     end
-    SetPickupOrdersVisible(pickupMiniData)
-    M.activePlayerSlot = SetOnlyVisible(M.minimapPlayerMarkers, navData and navData.playerSlot or nil, M.activePlayerSlot)
-    M.activeTargetSlot = SetOnlyVisible(M.minimapTargetMarkers, navData and navData.active and navData.targetSlot or nil, M.activeTargetSlot)
+
+    if pickupMiniData and pickupMiniData.orders then
+        SetPickupOrdersVisible(nil)
+        SetPrecisePickupOrders(pickupMiniData)
+    else
+        SetPickupOrdersVisible(pickupMiniData)
+        SetPrecisePickupOrders(nil)
+    end
+    UpdatePreciseNavigationMarkers(navData)
+    M.activePlayerSlot = SetOnlyVisible(M.minimapPlayerMarkers, (not navData or not navData.playerPoint) and navData and navData.playerSlot or nil, M.activePlayerSlot)
+    M.activeTargetSlot = SetOnlyVisible(M.minimapTargetMarkers, (not hasPreciseTarget and navData and navData.active) and navData.targetSlot or nil, M.activeTargetSlot)
 end
 
 function M.ToggleDebugPanel()

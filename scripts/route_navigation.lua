@@ -4,12 +4,15 @@
 -- 基于 RoadGraph 做最短路线搜索，维护当前配送目标、推荐路线和错路后的自动重规划。
 -- ============================================================================
 
+local cfg = require("config")
+local CONFIG = cfg.CONFIG
 local rn = require("road_network")
 
 local M = {}
 
 M.targetEdgeId = 0
 M.targetEdgeDist = 0.0
+M.targetLane = nil
 M.routeEdges = {}
 M.distanceRemaining = 0.0
 M.replanMessageTimer = 0.0
@@ -94,6 +97,7 @@ end
 function M.ClearTarget()
     M.targetEdgeId = 0
     M.targetEdgeDist = 0.0
+    M.targetLane = nil
     M.routeEdges = {}
     M.distanceRemaining = 0.0
     M.replanMessageTimer = 0.0
@@ -298,7 +302,7 @@ function M.Recalculate(pathState, showMessage)
     return false
 end
 
-function M.SetTarget(edgeId, edgeDist, pathState)
+function M.SetTarget(edgeId, edgeDist, pathState, targetLane)
     if not rn.GetEdge(edgeId) then
         M.ClearTarget()
         return false
@@ -306,6 +310,7 @@ function M.SetTarget(edgeId, edgeDist, pathState)
 
     M.targetEdgeId = edgeId
     M.targetEdgeDist = edgeDist or 0.0
+    M.targetLane = targetLane
     M.routeEdges = {}
     M.routeUnreachable = false
     M.replanMessage = ""
@@ -375,6 +380,159 @@ local function GetPlayerEdgeSlot(pathState)
     return M.MakePlayerEdgeSlot(edge, step)
 end
 
+local function PointOnEdge(edge, effectiveDist)
+    if not edge then return nil end
+    local pos = rn.GetPositionOnEdgeByDist(edge, effectiveDist or 0.0, 0.0)
+    return {
+        x = pos.x,
+        z = pos.z,
+    }
+end
+
+local function PointOnEdgeLane(edge, effectiveDist, laneOffset)
+    if not edge then return nil end
+    local pos = rn.GetPositionOnEdgeByDist(edge, effectiveDist or 0.0, laneOffset or 0.0)
+    return {
+        x = pos.x,
+        z = pos.z,
+    }
+end
+
+local function GetPlayerMinimapPoint(pathState, playerLaneOffset)
+    if not pathState then return nil end
+
+    if pathState.insideIntersection and pathState.intersectionNodePos then
+        local pos, _ = rn.GetIntersectionPosition(
+            pathState.intersectionNodePos,
+            pathState.intersectionArrivalHeading,
+            pathState.intersectionExitHeading,
+            pathState.intersectionProgress,
+            playerLaneOffset or 0.0,
+            pathState.exitLaneOffset or playerLaneOffset or 0.0
+        )
+        return {
+            x = pos.x,
+            z = pos.z,
+            nodeId = pathState.intersectionNodeId,
+        }
+    end
+
+    if pathState.currentEdge then
+        local point = PointOnEdgeLane(pathState.currentEdge, pathState.edgeDistance or 0.0, playerLaneOffset or 0.0)
+        if point then
+            point.edgeId = pathState.currentEdge.id
+            point.edgeDist = pathState.edgeDistance or 0.0
+        end
+        return point
+    end
+
+    return nil
+end
+
+local function GetTargetMinimapPoint()
+    if not M.HasTarget() then return nil end
+
+    local edge = rn.GetEdge(M.targetEdgeId)
+    local laneOffset = 0.0
+    if M.targetLane and CONFIG and CONFIG.LANE_X then
+        laneOffset = CONFIG.LANE_X[M.targetLane] or 0.0
+    end
+    local point = PointOnEdgeLane(edge, M.targetEdgeDist or 0.0, laneOffset)
+    if point then
+        point.edgeId = M.targetEdgeId
+        point.edgeDist = M.targetEdgeDist or 0.0
+    end
+    return point
+end
+
+local function AddRouteLine(lines, edge, fromDist, toDist, fromPoint, toPoint)
+    if not edge then return end
+
+    local effectiveLen = rn.GetEdgeEffectiveLength(edge)
+    local startDist = Clamp(fromDist or 0.0, 0.0, effectiveLen)
+    local endDist = Clamp(toDist or effectiveLen, 0.0, effectiveLen)
+    local startPoint = fromPoint or PointOnEdge(edge, startDist)
+    local endPoint = toPoint or PointOnEdge(edge, endDist)
+    if not startPoint or not endPoint then return end
+
+    local dx = endPoint.x - startPoint.x
+    local dz = endPoint.z - startPoint.z
+    if (dx * dx + dz * dz) < 0.25 then return end
+
+    lines[#lines + 1] = {
+        edgeId = edge.id,
+        key = M.MakeEdgeSlot(edge),
+        x1 = startPoint.x,
+        z1 = startPoint.z,
+        x2 = endPoint.x,
+        z2 = endPoint.z,
+    }
+end
+
+local function BuildMinimapRouteLines(pathState, playerPoint, targetPoint)
+    local lines = {}
+    if not pathState or not pathState.currentEdge or not M.HasRoute() then
+        return lines
+    end
+
+    local startIndex = FindRouteIndex(pathState.currentEdge.id) or 1
+    local started = false
+    local firstLine = true
+
+    for i = startIndex, #M.routeEdges do
+        local edge = rn.GetEdge(M.routeEdges[i])
+        if edge then
+            local useEdge = false
+            local fromDist = 0.0
+            local effectiveLen = rn.GetEdgeEffectiveLength(edge)
+            local toDist = effectiveLen
+
+            if not started then
+                if pathState.insideIntersection then
+                    if edge.id ~= pathState.currentEdge.id and
+                        pathState.intersectionNodeId ~= 0 and
+                        edge.fromNode == pathState.intersectionNodeId then
+                        useEdge = true
+                        started = true
+                    end
+                elseif edge.id == pathState.currentEdge.id then
+                    fromDist = pathState.edgeDistance or 0.0
+                    useEdge = true
+                    started = true
+                else
+                    useEdge = true
+                    started = true
+                end
+            else
+                useEdge = true
+            end
+
+            if useEdge then
+                if edge.id == M.targetEdgeId then
+                    toDist = M.targetEdgeDist or 0.0
+                end
+
+                local lineStartPoint = nil
+                if firstLine then
+                    lineStartPoint = playerPoint
+                end
+                local lineEndPoint = nil
+                if edge.id == M.targetEdgeId then
+                    lineEndPoint = targetPoint
+                end
+                AddRouteLine(lines, edge, fromDist, toDist, lineStartPoint, lineEndPoint)
+                firstLine = false
+
+                if edge.id == M.targetEdgeId then
+                    break
+                end
+            end
+        end
+    end
+
+    return lines
+end
+
 function M.GetSuggestedTurn(pathState)
     if not pathState or not M.HasRoute() then
         return nil
@@ -407,7 +565,7 @@ function M.GetSuggestedTurn(pathState)
     }
 end
 
-function M.GetMinimapData(pathState)
+function M.GetMinimapData(pathState, playerLaneOffset)
     local routeSegments = {}
     if M.HasRoute() then
         for _, edgeId in ipairs(M.routeEdges) do
@@ -433,6 +591,10 @@ function M.GetMinimapData(pathState)
         targetSlot = M.MakeEdgeSlot(rn.GetEdge(M.targetEdgeId))
     end
 
+    local playerPoint = GetPlayerMinimapPoint(pathState, playerLaneOffset)
+    local targetPoint = GetTargetMinimapPoint()
+    local routeLines = BuildMinimapRouteLines(pathState, playerPoint, targetPoint)
+
     local message = ""
     if M.replanMessageTimer > 0.0 then
         message = M.replanMessage
@@ -445,8 +607,11 @@ function M.GetMinimapData(pathState)
     return {
         active = M.HasTarget(),
         routeSegments = routeSegments,
+        routeLines = routeLines,
         playerSlot = playerSlot,
+        playerPoint = playerPoint,
         targetSlot = targetSlot,
+        targetPoint = targetPoint,
         message = message,
         transientMessage = M.replanMessageTimer > 0.0,
         suggested = M.GetSuggestedTurn(pathState),

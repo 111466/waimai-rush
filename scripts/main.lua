@@ -240,7 +240,7 @@ local function HandleUpdate(eventType, eventData)
     -- 摄像机跟随
     cam.Update(dt, player.node, player.currentSpeed)
 
-    local navData = nav.GetMinimapData(s)
+    local navData = nav.GetMinimapData(s, player.currentLaneX)
     local pickupMiniData = pickup.GetMinimapData()
 
     ui.UpdateMinimap(navData, pickupMiniData)

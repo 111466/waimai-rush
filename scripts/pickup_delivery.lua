@@ -18,7 +18,7 @@ local player = require("player")
 local M = {}
 
 local SHADOW_Y = CONFIG.PLAYER_GROUND_Y + 0.012
-local ORDER_LATERAL_THRESHOLD = 0.85
+local DELIVERY_LATERAL_THRESHOLD = 0.85
 
 local ORDER_TYPES = {
     {
@@ -32,6 +32,8 @@ local ORDER_TYPES = {
         timeFactor = CONFIG.ORDER_TIME_ROUTE_FACTOR,
         timeExtra = CONFIG.ORDER_TIME_EXTRA_SECONDS,
         latePenaltyMultiplier = 1.0,
+        color = "#FF5AA5",
+        labelColor = {255, 112, 178, 255},
     },
     {
         id = "rush",
@@ -44,6 +46,8 @@ local ORDER_TYPES = {
         timeFactor = 1.05,
         timeExtra = 2.0,
         latePenaltyMultiplier = 1.8,
+        color = "#FF4D4D",
+        labelColor = {255, 92, 92, 255},
     },
     {
         id = "long",
@@ -56,6 +60,8 @@ local ORDER_TYPES = {
         timeFactor = 1.45,
         timeExtra = 6.0,
         latePenaltyMultiplier = 1.0,
+        color = "#FFD34D",
+        labelColor = {255, 211, 77, 255},
     },
     {
         id = "nearby",
@@ -68,6 +74,8 @@ local ORDER_TYPES = {
         timeFactor = CONFIG.ORDER_TIME_ROUTE_FACTOR,
         timeExtra = CONFIG.ORDER_TIME_EXTRA_SECONDS,
         latePenaltyMultiplier = 0.8,
+        color = "#2EE66B",
+        labelColor = {46, 230, 107, 255},
     },
     {
         id = "fragile",
@@ -81,6 +89,8 @@ local ORDER_TYPES = {
         timeExtra = 4.0,
         latePenaltyMultiplier = 1.2,
         fragile = true,
+        color = "#4DA3FF",
+        labelColor = {77, 163, 255, 255},
     },
 }
 
@@ -155,6 +165,7 @@ M.orderTimeRemaining = 0.0
 M.orderLateSeconds = 0.0
 M.lastEdgeId = 0
 M.lastEdgeDistance = 0.0
+M.lastPlayerLaneX = CONFIG.LANE_X[CONFIG.currentLane] or 0.0
 
 M.pickupNodes = {}
 M.pickupShadowNodes = {}
@@ -310,36 +321,42 @@ function M.CapturePathSnapshot()
         M.lastEdgeId = 0
         M.lastEdgeDistance = 0.0
     end
+    M.lastPlayerLaneX = player and player.currentLaneX or CONFIG.LANE_X[CONFIG.currentLane] or 0.0
 end
 
-local function WasTargetSwept(edgeId, targetDist)
+local function WasTargetSwept(edgeId, targetDist, longitudinalThreshold)
     local s = path.state
     if not s.currentEdge then return false end
 
+    longitudinalThreshold = longitudinalThreshold or CONFIG.COLLISION_Z_THRESHOLD or 1.0
     local currentDist = s.edgeDistance or 0.0
     local currentEdgeId = s.currentEdge.id
     if currentEdgeId ~= edgeId then
         if M.lastEdgeId ~= edgeId then return false end
         local edge = rn.GetEdge(edgeId)
         local endDist = edge and rn.GetEdgeEffectiveLength(edge) or currentDist
-        return targetDist >= (M.lastEdgeDistance or 0.0) - CONFIG.COLLISION_Z_THRESHOLD
-            and targetDist <= endDist + CONFIG.COLLISION_Z_THRESHOLD
+        return targetDist >= (M.lastEdgeDistance or 0.0) - longitudinalThreshold
+            and targetDist <= endDist + longitudinalThreshold
     elseif M.lastEdgeId ~= edgeId then
-        return math.abs(currentDist - targetDist) <= CONFIG.COLLISION_Z_THRESHOLD
+        return math.abs(currentDist - targetDist) <= longitudinalThreshold
     end
 
     local fromDist = math.min(M.lastEdgeDistance or currentDist, currentDist)
     local toDist = math.max(M.lastEdgeDistance or currentDist, currentDist)
-    return targetDist >= fromDist - CONFIG.COLLISION_Z_THRESHOLD
-        and targetDist <= toDist + CONFIG.COLLISION_Z_THRESHOLD
+    return targetDist >= fromDist - longitudinalThreshold
+        and targetDist <= toDist + longitudinalThreshold
 end
 
-local function IsPlayerNearLane(lane)
+local function IsPlayerNearLane(lane, lateralThreshold)
     local targetX = CONFIG.LANE_X[lane]
     if not targetX then return false end
 
     local playerX = player and player.currentLaneX or CONFIG.LANE_X[CONFIG.currentLane]
-    return math.abs((playerX or 0.0) - targetX) <= ORDER_LATERAL_THRESHOLD
+    local lastPlayerX = M.lastPlayerLaneX or playerX or 0.0
+    local minX = math.min(lastPlayerX, playerX or lastPlayerX)
+    local maxX = math.max(lastPlayerX, playerX or lastPlayerX)
+    lateralThreshold = lateralThreshold or DELIVERY_LATERAL_THRESHOLD
+    return targetX >= minX - lateralThreshold and targetX <= maxX + lateralThreshold
 end
 
 local function StopOrderTimer()
@@ -471,14 +488,47 @@ local function IsOrderSlotUsed(slot)
     return false
 end
 
-local function IsPickupSpotReserved(edgeId, edgeDist)
-    local minGap = CONFIG.ORDER_PICKUP_MIN_DISTANCE_BETWEEN or 22.0
+local function GetPickupWorldPoint(edgeId, edgeDist, lane)
+    local edge = rn.GetEdge(edgeId)
+    if not edge then return nil end
+
+    local laneOffset = 0.0
+    if lane and CONFIG.LANE_X then
+        laneOffset = CONFIG.LANE_X[lane] or 0.0
+    end
+    return rn.GetPositionOnEdgeByDist(edge, edgeDist or 0.0, laneOffset)
+end
+
+local function IsPickupWorldTooClose(edgeId, edgeDist, lane)
+    local minWorldGap = CONFIG.ORDER_PICKUP_MIN_WORLD_DISTANCE or 0.0
+    if minWorldGap <= 0.0 then return false end
+
+    local pos = GetPickupWorldPoint(edgeId, edgeDist, lane)
+    if not pos then return false end
+
+    local minSq = minWorldGap * minWorldGap
+    for _, order in ipairs(M.availableOrders) do
+        local otherPos = GetPickupWorldPoint(order.pickupEdgeId, order.pickupEdgeDist, order.pickupLane)
+        if otherPos then
+            local dx = pos.x - otherPos.x
+            local dz = pos.z - otherPos.z
+            if dx * dx + dz * dz < minSq then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+local function IsPickupSpotReserved(edgeId, edgeDist, lane)
+    local minGap = CONFIG.ORDER_PICKUP_MIN_DISTANCE_BETWEEN or 36.0
     for _, order in ipairs(M.availableOrders) do
         if order.pickupEdgeId == edgeId and math.abs((order.pickupEdgeDist or 0.0) - edgeDist) < minGap then
             return true
         end
     end
-    return false
+    return IsPickupWorldTooClose(edgeId, edgeDist, lane)
 end
 
 local function IsDeliverySpotReserved(edgeId, edgeDist, lane)
@@ -603,7 +653,7 @@ local function BuildOrderFromPickupCandidate(candidate)
 
     local orderType = PickOrderType()
     local lane = math.random(1, 3)
-    if IsPickupSpotReserved(candidate.edgeId, candidate.edgeDist) then
+    if IsPickupSpotReserved(candidate.edgeId, candidate.edgeDist, lane) then
         return nil
     end
 
@@ -622,6 +672,9 @@ local function BuildOrderFromPickupCandidate(candidate)
         name = orderType.name,
         reward = orderType.reward,
         fragile = orderType.fragile == true,
+        color = orderType.color,
+        markerColor = orderType.color,
+        labelColor = orderType.labelColor,
         displayText = orderType.label .. "/" .. tostring(orderType.reward) .. "￥",
         pickupEdgeId = candidate.edgeId,
         pickupEdgeDist = candidate.edgeDist,
@@ -735,7 +788,7 @@ local function ActivateDeliveryTarget(order, currentSpeed)
     if not rn.GetEdge(order.deliveryEdgeId) then return false end
 
     local s = path.state
-    if not nav.SetTarget(order.deliveryEdgeId, order.deliveryEdgeDist, s) then
+    if not nav.SetTarget(order.deliveryEdgeId, order.deliveryEdgeDist, s, order.deliveryLane) then
         return false
     end
 
@@ -837,7 +890,11 @@ function M.CheckPickup()
 
     for i = #M.availableOrders, 1, -1 do
         local order = M.availableOrders[i]
-        local hit = WasTargetSwept(order.pickupEdgeId, order.pickupEdgeDist) and IsPlayerNearLane(order.pickupLane)
+        local hit = WasTargetSwept(
+            order.pickupEdgeId,
+            order.pickupEdgeDist,
+            CONFIG.ORDER_PICKUP_LONGITUDINAL_THRESHOLD or CONFIG.COLLISION_Z_THRESHOLD
+        ) and IsPlayerNearLane(order.pickupLane, CONFIG.ORDER_PICKUP_LATERAL_THRESHOLD or 1.15)
         if hit then
             AcceptOrderAt(i)
             return
@@ -888,7 +945,8 @@ function M.CheckDelivery()
     if not s.currentEdge then return end
 
     local targetDist = M.deliveryEdgeDist or 0.0
-    local hit = WasTargetSwept(M.deliveryEdgeId, targetDist) and IsPlayerNearLane(M.deliveryLane)
+    local hit = WasTargetSwept(M.deliveryEdgeId, targetDist, CONFIG.COLLISION_Z_THRESHOLD)
+        and IsPlayerNearLane(M.deliveryLane, DELIVERY_LATERAL_THRESHOLD)
 
     if not hit and M.deliveryEdgeId ~= s.currentEdge.id then
         return
@@ -983,6 +1041,9 @@ function M.GetMinimapData()
                     reward = order.reward,
                     displayText = order.displayText,
                     typeId = order.typeId,
+                    color = order.color,
+                    markerColor = order.markerColor,
+                    labelColor = order.labelColor,
                 }
             end
         end
@@ -1072,6 +1133,7 @@ function M.Reset()
     M.lastPickupEdgeId = 0
     M.firstPickupPending = true
     M.nextPickupDistance = 0.0
+    M.lastPlayerLaneX = CONFIG.LANE_X[CONFIG.currentLane] or 0.0
 
     ClearDeliveryTarget()
     M.hasPackage = false
