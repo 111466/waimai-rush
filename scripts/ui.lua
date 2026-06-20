@@ -23,6 +23,8 @@ M.lblIncome = nil
 M.lblCombo = nil
 M.lblSpeed = nil
 M.lblHint = nil
+M.hudTimerFrame = nil
+M.hudHintPanel = nil
 M.lblRiderLevel = nil
 M.lblRiderXP = nil
 M.lblMenuRiderLevel = nil
@@ -57,6 +59,10 @@ M.lblFinalStats = nil
 M.lblFinalGain = nil
 M.lblFinalLevel = nil
 M.lblFinalUnlocks = nil
+M.lblFinalDeliveries = nil
+M.lblFinalOnTime = nil
+M.lblFinalDistance = nil
+M.lblFinalCombo = nil
 M.minimapPanel = nil
 M.minimapOrderListPanel = nil
 M.lblMiniStatus = nil
@@ -100,17 +106,17 @@ M.preciseTargetMarker = nil
 M.precisePlayerMarkerKey = nil
 M.preciseTargetMarkerKey = nil
 
-local MINI_PANEL_W = 132
-local MINI_PANEL_H = 148
-local MINI_ORDER_LIST_W = 132
-local MINI_ORDER_LIST_TOP = 248
+local MINI_PANEL_W = 136
+local MINI_PANEL_H = 158
+local MINI_ORDER_LIST_W = 136
+local MINI_ORDER_LIST_TOP = 258
 local MINI_ORDER_ROW_H = 18
 local MINI_ORDER_ROW_GAP = 5
 local MINI_ORDER_LIST_PADDING_Y = 8
-local MINI_MAP_SIZE = 104
-local MINI_LEFT = 10
-local MINI_TOP = 28
-local MINI_MARGIN = 10
+local MINI_MAP_SIZE = 94
+local MINI_LEFT = 21
+local MINI_TOP = 38
+local MINI_MARGIN = 9
 
 local DEBUG_PANEL_W = 214
 local DEBUG_PANEL_H = 274
@@ -127,6 +133,20 @@ local ORDER_TYPE_NAMES = {
     rush = "急送",
     long = "远距",
     fragile = "易碎",
+}
+
+local HUD_COLORS = {
+    ink = "#142330",
+    inkSoft = "rgba(20,35,48,0.86)",
+    inkGlass = "rgba(20,35,48,0.78)",
+    cream = "#FFF7DF",
+    creamGlass = "rgba(255,248,224,0.94)",
+    orange = "#FF8618",
+    orangeDark = "#C85A00",
+    blue = "#28B8F0",
+    teal = "#00E6B8",
+    yellow = "#FFE15A",
+    red = "#F25F68",
 }
 
 local function Pct(value)
@@ -243,12 +263,53 @@ local function FormatOnOff(value)
     return value and "开" or "关"
 end
 
-local function MakePanelTitle(text)
-    return UI.Label {
+local function MakeActionButton(text, width, height, color, onClick, fontSize, marginTop)
+    return UI.Button {
         text = text,
-        fontSize = 24,
+        width = width,
+        height = height,
+        marginTop = marginTop or 0,
+        backgroundColor = color or HUD_COLORS.blue,
+        borderRadius = math.floor(height * 0.42),
+        borderWidth = 3,
+        fontSize = fontSize or 17,
         fontWeight = "bold",
-        fontColor = {30,38,46,255},
+        fontColor = {255,255,255,255},
+        onClick = onClick,
+    }
+end
+
+local function MakeResultStatCell(id, value, label, color)
+    return UI.Panel {
+        width = 66,
+        height = 52,
+        backgroundColor = color or "rgba(255,255,255,0.58)",
+        borderRadius = 14,
+        borderWidth = 2,
+        alignItems = "center",
+        justifyContent = "center",
+        children = {
+            UI.Label {
+                id = id,
+                text = value,
+                width = 62,
+                height = 23,
+                fontSize = 17,
+                fontWeight = "bold",
+                fontColor = {28,47,60,255},
+                textAlign = "center",
+            },
+            UI.Label {
+                text = label,
+                width = 62,
+                height = 17,
+                fontSize = 11,
+                fontWeight = "bold",
+                fontColor = {112,83,38,255},
+                textAlign = "center",
+                marginTop = 1,
+            },
+        },
     }
 end
 
@@ -510,9 +571,9 @@ local function MakeMiniOrderRow(index)
                 width = MINI_ORDER_LIST_W - 31,
                 height = MINI_ORDER_ROW_H,
                 marginLeft = 6,
-                fontSize = 12,
+                fontSize = 11,
                 fontWeight = "bold",
-                fontColor = {36,54,64,255},
+                fontColor = {93,48,6,255},
             },
         },
     }
@@ -526,7 +587,7 @@ local function BuildMiniOrderList()
             height = 16,
             fontSize = 11,
             fontWeight = "bold",
-            fontColor = {255,138,31,255},
+            fontColor = {255,255,255,255},
             textAlign = "center",
         },
     }
@@ -545,8 +606,10 @@ local function BuildMiniOrderList()
         padding = MINI_ORDER_LIST_PADDING_Y,
         flexDirection = "column",
         gap = MINI_ORDER_ROW_GAP,
-        backgroundColor = "rgba(255,248,224,0.94)",
-        borderRadius = 12,
+        backgroundImage = "Textures/home_order_sign.png",
+        backgroundFit = "fill",
+        backgroundColor = HUD_COLORS.creamGlass,
+        borderRadius = 18,
         children = children,
     }
 end
@@ -554,26 +617,26 @@ end
 local function BuildPowerupPanel()
     return UI.Panel {
         id = "powerupPanel",
-        width = 142,
-        height = 66,
+        width = 84,
+        height = 96,
         position = "absolute",
         left = 14,
-        top = 724,
-        padding = 7,
+        top = 692,
+        padding = 0,
         flexDirection = "column",
         alignItems = "center",
-        backgroundColor = "rgba(255,248,224,0.94)",
-        borderRadius = 18,
         children = {
             UI.Button {
                 id = "powerupButton",
                 text = "无道具",
-                width = 128,
-                height = 34,
-                backgroundColor = "#28B8F0",
-                borderRadius = 17,
+                width = 64,
+                height = 66,
+                backgroundImage = "Textures/home_round_blue.png",
+                backgroundFit = "fill",
+                backgroundColor = {0,0,0,0},
+                borderRadius = 26,
                 borderWidth = 0,
-                fontSize = 16,
+                fontSize = 14,
                 fontWeight = "bold",
                 fontColor = {255,255,255,255},
                 onClick = function()
@@ -582,16 +645,26 @@ local function BuildPowerupPanel()
                     end
                 end,
             },
-            UI.Label {
-                id = "powerupStatus",
-                text = "",
-                width = 128,
-                height = 16,
-                marginTop = 3,
-                fontSize = 11,
-                fontWeight = "bold",
-                fontColor = {91,54,8,255},
-                textAlign = "center",
+            UI.Panel {
+                width = 82,
+                height = 22,
+                marginTop = 6,
+                backgroundColor = "rgba(255,250,234,0.94)",
+                borderRadius = 11,
+                justifyContent = "center",
+                alignItems = "center",
+                children = {
+                    UI.Label {
+                        id = "powerupStatus",
+                        text = "",
+                        width = 78,
+                        height = 16,
+                        fontSize = 11,
+                        fontWeight = "bold",
+                        fontColor = {93,48,6,255},
+                        textAlign = "center",
+                    },
+                },
             },
         },
     }
@@ -888,28 +961,48 @@ end
 
 local function BuildMinimap()
     local children = {
-        UI.Label {
-            text = "路线雷达",
+        UI.Panel {
             position = "absolute",
-            left = 10,
+            left = 8,
             top = 7,
-            width = 74,
-            height = 17,
-            fontSize = 12,
-            fontWeight = "bold",
-            fontColor = {255,255,255,255},
+            width = MINI_PANEL_W - 16,
+            height = 24,
+            backgroundColor = HUD_COLORS.yellow,
+            borderRadius = 12,
+            children = {
+                UI.Label {
+                    text = "路线雷达",
+                    position = "absolute",
+                    left = 9,
+                    top = 3,
+                    width = 72,
+                    height = 17,
+                    fontSize = 12,
+                    fontWeight = "bold",
+                    fontColor = {102,48,1,255},
+                },
+                UI.Label {
+                    text = "N",
+                    position = "absolute",
+                    left = 94,
+                    top = 3,
+                    width = 18,
+                    height = 17,
+                    fontSize = 11,
+                    fontWeight = "bold",
+                    fontColor = {255,255,255,255},
+                    textAlign = "right",
+                },
+            },
         },
-        UI.Label {
-            text = "N",
+        UI.Panel {
             position = "absolute",
-            left = 102,
-            top = 7,
-            width = 20,
-            height = 17,
-            fontSize = 11,
-            fontWeight = "bold",
-            fontColor = {92,221,255,255},
-            textAlign = "right",
+            left = MINI_LEFT,
+            top = MINI_TOP,
+            width = MINI_MAP_SIZE,
+            height = MINI_MAP_SIZE,
+            backgroundColor = "rgba(255,255,255,0.08)",
+            borderRadius = 10,
         },
     }
     local seenSegments = {}
@@ -979,8 +1072,8 @@ local function BuildMinimap()
         id = "miniStatus",
         text = "等待订单",
         position = "absolute",
-        left = 10,
-        top = 132,
+        left = 12,
+        top = 133,
         width = MINI_PANEL_W - 20,
         height = 15,
         fontSize = 12,
@@ -996,8 +1089,9 @@ local function BuildMinimap()
         position = "absolute",
         right = 12,
         top = 92,
-        backgroundColor = "rgba(15,28,42,0.78)",
-        borderRadius = 14,
+        backgroundColor = "rgba(20,35,48,0.86)",
+        borderRadius = 20,
+        borderWidth = 3,
         children = children,
     }
 end
@@ -1287,33 +1381,24 @@ local function BuildMainMenu()
     end
 
     local function MakeMenuImageButton(id, text, image, pressedImage, left, top, width, height, onClick)
-        return UI.Panel {
+        return UI.Button {
             id = id,
+            text = text or "",
             position = "absolute",
             left = X(left),
             top = Y(top),
             width = W(width),
             height = H(height),
             backgroundImage = image,
+            pressedBackgroundImage = pressedImage,
             backgroundFit = "fill",
-            children = {
-                UI.Button {
-                    text = "",
-                    position = "absolute",
-                    left = 0,
-                    top = 0,
-                    width = "100%",
-                    height = "100%",
-                    backgroundImage = image,
-                    pressedBackgroundImage = pressedImage,
-                    backgroundFit = "fill",
-                    backgroundColor = {0,0,0,0},
-                    borderWidth = 0,
-                    borderRadius = 0,
-                    onClick = onClick,
-                },
-                MakeLocalTextLabel(nil, text or "", 0, "18%", "100%", "50%", 30, {255,255,255,255}, "center"),
-            },
+            backgroundColor = {0,0,0,0},
+            borderWidth = 0,
+            borderRadius = 0,
+            fontSize = 30,
+            fontWeight = "bold",
+            fontColor = {255,255,255,255},
+            onClick = onClick,
         }
     end
 
@@ -1525,6 +1610,45 @@ local function StopHomeAnimations()
     StopNodeAnimation(M.menuStartButton)
 end
 
+local function StopGameplayAnimations()
+    StopNodeAnimation(M.hudTimerFrame)
+    StopNodeAnimation(M.lblCombo)
+    StopNodeAnimation(M.btnPowerup)
+end
+
+local function StartGameplayAnimations()
+    PlayNodeAnimation(M.hudTimerFrame, {
+        keyframes = {
+            [0] = { scale = 1.0 },
+            [0.5] = { scale = 1.035 },
+            [1] = { scale = 1.0 },
+        },
+        duration = 1.35,
+        easing = "easeInOut",
+        loop = true,
+    })
+    PlayNodeAnimation(M.lblCombo, {
+        keyframes = {
+            [0] = { translateY = 0, scale = 1.0 },
+            [0.5] = { translateY = -2, scale = 1.05 },
+            [1] = { translateY = 0, scale = 1.0 },
+        },
+        duration = 1.1,
+        easing = "easeInOut",
+        loop = true,
+    })
+    PlayNodeAnimation(M.btnPowerup, {
+        keyframes = {
+            [0] = { translateY = 0, scale = 1.0 },
+            [0.5] = { translateY = -3, scale = 1.04 },
+            [1] = { translateY = 0, scale = 1.0 },
+        },
+        duration = 1.65,
+        easing = "easeInOut",
+        loop = true,
+    })
+end
+
 local function PlayLaneStripAnimations()
     local laneStrips = M.menuLaneStrips or {}
     local count = #laneStrips
@@ -1663,66 +1787,90 @@ local function BuildPauseOverlay()
         position = "absolute",
         justifyContent = "center",
         alignItems = "center",
-        backgroundColor = "rgba(0,0,0,0.58)",
+        backgroundColor = "rgba(9,19,28,0.62)",
         children = {
             UI.Panel {
-                width = 286,
-                height = 286,
-                backgroundColor = "#FFFFFF",
-                borderRadius = 14,
-                padding = 18,
+                width = 314,
+                height = 342,
+                backgroundColor = HUD_COLORS.cream,
+                borderRadius = 26,
+                borderWidth = 4,
+                padding = 20,
                 alignItems = "center",
                 children = {
-                    MakePanelTitle("已暂停"),
                     UI.Label {
-                        text = "配送节奏已冻结",
+                        text = "配送已暂停",
+                        width = 270,
+                        height = 38,
+                        fontSize = 30,
+                        fontWeight = "bold",
+                        fontColor = {255,134,24,255},
+                        textAlign = "center",
+                    },
+                    UI.Label {
+                        text = "路线、计时和道具状态已冻结",
                         fontSize = 13,
-                        fontColor = {92,104,114,255},
+                        fontWeight = "bold",
+                        fontColor = {122,82,32,255},
                         marginTop = 6,
                     },
-                    UI.Button {
-                        text = "继续",
-                        variant = "primary",
-                        width = 210,
-                        height = 40,
-                        marginTop = 22,
-                        onClick = function()
+                    MakeActionButton(
+                        "继续配送",
+                        246,
+                        54,
+                        HUD_COLORS.orange,
+                        function()
                             if M.onTogglePause then
                                 M.onTogglePause()
                             end
                         end,
+                        22,
+                        22
+                    ),
+                    UI.Panel {
+                        width = 246,
+                        height = 40,
+                        flexDirection = "row",
+                        justifyContent = "space-between",
+                        marginTop = 11,
+                        children = {
+                            MakeActionButton(
+                                "重开",
+                                118,
+                                38,
+                                HUD_COLORS.blue,
+                                function()
+                                    if M.onRestart then
+                                        M.onRestart()
+                                    end
+                                end,
+                                16
+                            ),
+                            MakeActionButton(
+                                "设置",
+                                118,
+                                38,
+                                "#22C979",
+                                function()
+                                    M.ShowStaticPage("settings", "pause")
+                                end,
+                                16
+                            ),
+                        },
                     },
-                    UI.Button {
-                        text = "重新开始",
-                        width = 210,
-                        height = 36,
-                        marginTop = 10,
-                        onClick = function()
-                            if M.onRestart then
-                                M.onRestart()
-                            end
-                        end,
-                    },
-                    UI.Button {
-                        text = "设置",
-                        width = 210,
-                        height = 36,
-                        marginTop = 10,
-                        onClick = function()
-                            M.ShowStaticPage("settings", "pause")
-                        end,
-                    },
-                    UI.Button {
-                        text = "返回主菜单",
-                        width = 210,
-                        height = 36,
-                        marginTop = 10,
-                        onClick = function()
+                    MakeActionButton(
+                        "返回主菜单",
+                        246,
+                        40,
+                        "#65727C",
+                        function()
                             if M.onReturnMenu then
                                 M.onReturnMenu()
                             end
                         end,
-                    },
+                        16,
+                        12
+                    ),
                 },
             },
         },
@@ -1737,66 +1885,141 @@ local function BuildGameOverPanel(onRestart)
         position = "absolute",
         justifyContent = "center",
         alignItems = "center",
-        backgroundColor = "rgba(0,0,0,0.7)",
+        backgroundColor = "rgba(9,19,28,0.72)",
         children = {
             UI.Panel {
-                width = 318,
-                height = 410,
-                backgroundColor = "#FFFFFF",
-                borderRadius = 14,
+                width = 330,
+                height = 468,
+                backgroundColor = HUD_COLORS.cream,
+                borderRadius = 26,
+                borderWidth = 4,
                 padding = 18,
                 alignItems = "center",
                 children = {
-                    MakePanelTitle("配送完成"),
-                    UI.Label { id = "finalIncome", text = "本局收入: ¥0", fontSize = 22, fontWeight = "bold", fontColor = {255,138,31,255}, marginTop = 12 },
-                    UI.Label { id = "finalStats", text = "送达 0 单  准时 0 单", fontSize = 14, fontWeight = "bold", fontColor = {45,58,70,255}, marginTop = 8 },
-                    UI.Label { id = "finalDist", text = "距离: 0m  连击: 0", fontSize = 14, fontColor = {70,82,92,255}, marginTop = 6 },
+                    UI.Label {
+                        text = "配送完成",
+                        width = 286,
+                        height = 38,
+                        fontSize = 31,
+                        fontWeight = "bold",
+                        fontColor = {255,134,24,255},
+                        textAlign = "center",
+                    },
+                    UI.Label {
+                        id = "finalIncome",
+                        text = "本局收入: ¥0",
+                        width = 286,
+                        height = 34,
+                        fontSize = 23,
+                        fontWeight = "bold",
+                        fontColor = {255,134,24,255},
+                        marginTop = 10,
+                        textAlign = "center",
+                    },
                     UI.Panel {
-                        width = 250,
-                        height = 74,
-                        marginTop = 12,
-                        padding = 10,
-                        backgroundColor = "#FFF7E8",
-                        borderRadius = 10,
+                        width = 286,
+                        height = 116,
+                        marginTop = 9,
                         children = {
-                            UI.Label { id = "finalGain", text = "金币 +0  XP +0", fontSize = 17, fontWeight = "bold", fontColor = {210,105,18,255} },
-                            UI.Label { id = "finalLevel", text = "Lv.1  XP 0/60", fontSize = 13, fontColor = {80,72,60,255}, marginTop = 8 },
+                            UI.Panel {
+                                width = 286,
+                                height = 52,
+                                flexDirection = "row",
+                                justifyContent = "space-between",
+                                children = {
+                                    MakeResultStatCell("finalDeliveries", "0单", "送达", "rgba(255,255,255,0.68)"),
+                                    MakeResultStatCell("finalOnTime", "0单", "准时", "rgba(255,255,255,0.68)"),
+                                    MakeResultStatCell("finalDistance", "0m", "距离", "rgba(255,255,255,0.68)"),
+                                    MakeResultStatCell("finalCombo", "0", "连击", "rgba(255,255,255,0.68)"),
+                                },
+                            },
+                            UI.Label {
+                                id = "finalStats",
+                                text = "送达 0 单  准时 0 单",
+                                width = 286,
+                                height = 22,
+                                fontSize = 13,
+                                fontWeight = "bold",
+                                fontColor = {45,58,70,255},
+                                marginTop = 9,
+                                textAlign = "center",
+                            },
+                            UI.Label {
+                                id = "finalDist",
+                                text = "距离: 0m  连击: 0",
+                                width = 286,
+                                height = 20,
+                                fontSize = 13,
+                                fontWeight = "bold",
+                                fontColor = {70,82,92,255},
+                                textAlign = "center",
+                            },
                         },
                     },
-                    UI.Label { id = "finalUnlocks", text = "继续配送提升等级", width = 250, height = 34, fontSize = 12, fontColor = {92,104,114,255}, marginTop = 8, textAlign = "center" },
-                    UI.Button {
-                        text = "再来一单",
-                        variant = "primary",
-                        width = 220,
-                        height = 40,
-                        marginTop = 14,
-                        onClick = function()
+                    UI.Panel {
+                        width = 286,
+                        height = 78,
+                        marginTop = 12,
+                        padding = 10,
+                        backgroundColor = "#FFF1BB",
+                        borderRadius = 18,
+                        borderWidth = 2,
+                        children = {
+                            UI.Label {
+                                id = "finalGain",
+                                text = "金币 +0  XP +0",
+                                width = 266,
+                                height = 24,
+                                fontSize = 18,
+                                fontWeight = "bold",
+                                fontColor = {210,105,18,255},
+                                textAlign = "center",
+                            },
+                            UI.Label {
+                                id = "finalLevel",
+                                text = "Lv.1  XP 0/60",
+                                width = 266,
+                                height = 20,
+                                fontSize = 13,
+                                fontWeight = "bold",
+                                fontColor = {80,72,60,255},
+                                marginTop = 7,
+                                textAlign = "center",
+                            },
+                        },
+                    },
+                    UI.Label { id = "finalUnlocks", text = "继续配送提升等级", width = 286, height = 34, fontSize = 12, fontWeight = "bold", fontColor = {92,104,114,255}, marginTop = 8, textAlign = "center" },
+                    MakeActionButton(
+                        "再来一单",
+                        246,
+                        52,
+                        HUD_COLORS.orange,
+                        function()
                             onRestart()
                         end,
-                    },
+                        22,
+                        2
+                    ),
                     UI.Panel {
-                        width = 220,
+                        width = 246,
                         height = 40,
                         flexDirection = "row",
                         justifyContent = "space-between",
                         marginTop = 10,
                         children = {
-                            UI.Button {
-                                text = "骑手成长",
-                                width = 104,
-                                height = 36,
-                                onClick = function() M.ShowStaticPage("rider", "result") end,
-                            },
-                            UI.Button {
-                                text = "主菜单",
-                                width = 104,
-                                height = 36,
-                                onClick = function()
+                            MakeActionButton("骑手成长", 118, 38, HUD_COLORS.blue, function() M.ShowStaticPage("rider", "result") end, 15),
+                            MakeActionButton(
+                                "主菜单",
+                                118,
+                                38,
+                                "#65727C",
+                                function()
                                     if M.onReturnMenu then
                                         M.onReturnMenu()
                                     end
                                 end,
-                            },
+                                15
+                            ),
                         },
                     },
                 },
@@ -1846,21 +2069,33 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu, onUsePowe
         width = "100%", height = "100%",
         children = {
             UI.Panel {
+                id = "incomeBadge",
                 position = "absolute",
-                left = 14,
-                top = 14,
-                width = 128,
-                height = 58,
-                backgroundColor = "rgba(16,38,52,0.74)",
-                borderRadius = 16,
+                left = 12,
+                top = 12,
+                width = 136,
+                height = 64,
+                backgroundImage = "Textures/home_level_badge.png",
+                backgroundFit = "fill",
+                backgroundColor = HUD_COLORS.inkSoft,
+                borderRadius = 18,
                 children = {
+                    UI.Panel {
+                        position = "absolute",
+                        left = 11,
+                        top = 9,
+                        width = 22,
+                        height = 22,
+                        backgroundImage = "Textures/home_coin_icon.png",
+                        backgroundFit = "fill",
+                    },
                     UI.Label {
                         id = "income",
                         text = "¥0",
                         position = "absolute",
-                        left = 12,
-                        top = 5,
-                        width = 104,
+                        left = 38,
+                        top = 6,
+                        width = 88,
                         height = 26,
                         fontSize = 22,
                         fontWeight = "bold",
@@ -1871,8 +2106,8 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu, onUsePowe
                         text = "Lv.1 新手骑手",
                         position = "absolute",
                         left = 12,
-                        top = 31,
-                        width = 104,
+                        top = 34,
+                        width = 112,
                         height = 14,
                         fontSize = 11,
                         fontWeight = "bold",
@@ -1883,8 +2118,8 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu, onUsePowe
                         text = "XP 0/60",
                         position = "absolute",
                         left = 12,
-                        top = 44,
-                        width = 104,
+                        top = 48,
+                        width = 112,
                         height = 12,
                         fontSize = 10,
                         fontColor = {145,223,255,255},
@@ -1892,23 +2127,26 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu, onUsePowe
                 },
             },
             UI.Panel {
+                id = "hudTimerFrame",
                 position = "absolute",
-                left = 146,
+                left = 154,
                 top = 18,
-                width = 112,
-                height = 44,
-                backgroundColor = "rgba(255,248,224,0.90)",
-                borderRadius = 18,
+                width = 108,
+                height = 46,
+                backgroundImage = "Textures/home_coin_badge_base.png",
+                backgroundFit = "fill",
+                backgroundColor = HUD_COLORS.creamGlass,
+                borderRadius = 23,
                 children = {
                     UI.Label {
                         id = "timerNormal",
                         text = "等待订单",
                         position = "absolute",
                         left = 0,
-                        top = 8,
-                        width = 112,
+                        top = 9,
+                        width = 108,
                         height = 26,
-                        fontSize = 18,
+                        fontSize = 17,
                         fontWeight = "bold",
                         fontColor = {255,138,31,255},
                         textAlign = "center",
@@ -1918,10 +2156,10 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu, onUsePowe
                         text = "",
                         position = "absolute",
                         left = 0,
-                        top = 8,
-                        width = 112,
+                        top = 9,
+                        width = 108,
                         height = 26,
-                        fontSize = 18,
+                        fontSize = 17,
                         fontWeight = "bold",
                         fontColor = {226,120,0,255},
                         textAlign = "center",
@@ -1931,10 +2169,10 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu, onUsePowe
                         text = "",
                         position = "absolute",
                         left = 0,
-                        top = 8,
-                        width = 112,
+                        top = 9,
+                        width = 108,
                         height = 26,
-                        fontSize = 18,
+                        fontSize = 17,
                         fontWeight = "bold",
                         fontColor = {255,73,73,255},
                         textAlign = "center",
@@ -1943,43 +2181,57 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu, onUsePowe
             },
             UI.Panel {
                 position = "absolute",
-                left = 268,
+                left = 270,
                 top = 18,
-                width = 58,
-                height = 34,
-                backgroundColor = "rgba(16,38,52,0.68)",
-                borderRadius = 14,
+                width = 44,
+                height = 44,
+                backgroundImage = "Textures/home_round_green.png",
+                backgroundFit = "fill",
+                backgroundColor = HUD_COLORS.inkGlass,
+                borderRadius = 17,
                 justifyContent = "center",
                 alignItems = "center",
                 children = {
-                    UI.Label { id = "speed", text = "", width = 58, height = 22, fontSize = 14, fontWeight = "bold", fontColor = {220,245,255,255}, textAlign = "center" },
+                    UI.Label { id = "speed", text = "", width = 42, height = 26, fontSize = 11, fontWeight = "bold", fontColor = {255,255,255,255}, textAlign = "center" },
                 },
             },
             UI.Label {
                 id = "combo",
                 text = "",
                 position = "absolute",
-                left = 242,
-                top = 56,
-                width = 82,
+                left = 214,
+                top = 62,
+                width = 100,
                 height = 22,
                 fontSize = 16,
                 fontWeight = "bold",
-                fontColor = {0,229,184,255},
+                fontColor = {255,255,255,255},
                 textAlign = "center",
             },
-            UI.Label {
-                id = "hint",
-                text = "",
+            UI.Panel {
+                id = "hudHintPanel",
                 position = "absolute",
-                left = 52,
-                top = 82,
-                width = 184,
-                height = 34,
-                fontSize = 15,
-                fontWeight = "bold",
-                fontColor = {255,232,118,255},
-                textAlign = "center",
+                left = 78,
+                top = 92,
+                width = 198,
+                height = 38,
+                backgroundColor = "rgba(20,35,48,0.82)",
+                borderRadius = 19,
+                borderWidth = 2,
+                justifyContent = "center",
+                alignItems = "center",
+                children = {
+                    UI.Label {
+                        id = "hint",
+                        text = "",
+                        width = 184,
+                        height = 23,
+                        fontSize = 14,
+                        fontWeight = "bold",
+                        fontColor = {255,232,118,255},
+                        textAlign = "center",
+                    },
+                },
             },
         },
     }
@@ -2010,15 +2262,17 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu, onUsePowe
     local pauseButton = UI.Button {
         id = "pauseButton",
         text = "暂停",
-        width = 50,
-        height = 30,
+        width = 44,
+        height = 44,
         position = "absolute",
-        left = 330,
+        left = 326,
         top = 18,
-        backgroundColor = "#28B8F0",
-        borderRadius = 15,
+        backgroundImage = "Textures/home_round_blue.png",
+        backgroundFit = "fill",
+        backgroundColor = {0,0,0,0},
+        borderRadius = 17,
         borderWidth = 0,
-        fontSize = 13,
+        fontSize = 12,
         fontWeight = "bold",
         fontColor = {255,255,255,255},
         onClick = function()
@@ -2062,6 +2316,8 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu, onUsePowe
     M.lblCombo = root:FindById("combo")
     M.lblSpeed = root:FindById("speed")
     M.lblHint = root:FindById("hint")
+    M.hudTimerFrame = root:FindById("hudTimerFrame")
+    M.hudHintPanel = root:FindById("hudHintPanel")
     M.lblRiderLevel = root:FindById("riderLevel")
     M.lblRiderXP = root:FindById("riderXP")
     M.lblMenuRiderLevel = root:FindById("menuRiderLevel")
@@ -2095,6 +2351,10 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu, onUsePowe
     M.lblFinalGain = root:FindById("finalGain")
     M.lblFinalLevel = root:FindById("finalLevel")
     M.lblFinalUnlocks = root:FindById("finalUnlocks")
+    M.lblFinalDeliveries = root:FindById("finalDeliveries")
+    M.lblFinalOnTime = root:FindById("finalOnTime")
+    M.lblFinalDistance = root:FindById("finalDistance")
+    M.lblFinalCombo = root:FindById("finalCombo")
     M.lblMiniStatus = root:FindById("miniStatus")
     M.btnDebugToggle = root:FindById("debugToggle")
     M.lblDebugOffsetY = root:FindById("dbgOffsetY")
@@ -2131,6 +2391,9 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu, onUsePowe
     if M.lblMiniStatus then
         M.lblMiniStatus:SetText("等待订单")
     end
+    if M.hudHintPanel then
+        M.hudHintPanel:SetVisible(false)
+    end
     M.SetOrderTimerDisplay(nil)
     RefreshDebugPanel()
     M.ShowMainMenu()
@@ -2163,6 +2426,11 @@ local function SetGameplayUIVisible(visible)
     if M.btnPause then M.btnPause:SetVisible(visible) end
     if M.debugPanel then
         M.debugPanel:SetVisible(visible and debugAllowed and M.debugPanelVisible)
+    end
+    if visible then
+        StartGameplayAnimations()
+    else
+        StopGameplayAnimations()
     end
 end
 
@@ -2213,6 +2481,7 @@ end
 function M.ShowPauseOverlay(show)
     if show then
         SetGameplayUIVisible(true)
+        StopGameplayAnimations()
         if M.staticPagePanel then M.staticPagePanel:SetVisible(false) end
         if M.pauseOverlayPanel then M.pauseOverlayPanel:SetVisible(true) end
     else
@@ -2291,6 +2560,16 @@ function M.SetOrderTimerDisplay(orderTimerData)
     local state = data.state or "waiting"
     local text = data.text or "等待订单"
 
+    if M.hudTimerFrame and M.hudTimerFrame.SetStyle then
+        local timerColor = HUD_COLORS.creamGlass
+        if state == "warning" then
+            timerColor = "#FFE8A6"
+        elseif state == "late" then
+            timerColor = "#FFE0DF"
+        end
+        M.hudTimerFrame:SetStyle({ backgroundColor = timerColor })
+    end
+
     if M.lblTimerNormal then
         M.lblTimerNormal:SetText(text)
         if state ~= "waiting" and state ~= "normal" then
@@ -2343,8 +2622,8 @@ function M.UpdateHUD(orderTimerData, totalIncome, comboCount, currentSpeed, inte
         M.lblSpeed:SetText(string.format("%.0fm/s", currentSpeed))
     end
     if M.lblHint then
+        local hintText = ""
         if intersectionActive then
-            local hintText = ""
             if hasTurnChoice then
                 -- 玩家已做出选择
                 if turnChoice == -1 then
@@ -2357,26 +2636,31 @@ function M.UpdateHUD(orderTimerData, totalIncome, comboCount, currentSpeed, inte
             else
                 hintText = BuildAvailableTurnsText(availableTurns)
             end
-            M.lblHint:SetText(AppendSuggestedTurn(hintText, navData))
+            hintText = AppendSuggestedTurn(hintText, navData)
         elseif navData and navData.transientMessage and navData.message ~= "" then
-            M.lblHint:SetText(navData.message)
-        else
-            M.lblHint:SetText("")
+            hintText = navData.message
+        end
+        M.lblHint:SetText(hintText)
+        if M.hudHintPanel then
+            M.hudHintPanel:SetVisible(hintText ~= "")
         end
     end
 end
 
 function M.UpdatePowerupHUD(powerupData)
     local data = powerupData or {}
-    local buttonText = data.readyText or "无道具"
+    local buttonText = data.held and "使用" or "无"
     local statusText = ""
 
     if data.message and data.message ~= "" then
         statusText = data.message
     elseif data.shieldActive then
+        buttonText = "盾"
         statusText = "护盾已启动"
     elseif data.held and data.name then
-        statusText = "当前: " .. data.name
+        statusText = data.name
+    else
+        statusText = data.readyText or "无道具"
     end
 
     if M.btnPowerup then
@@ -2421,6 +2705,18 @@ function M.ShowGameOver(result)
         end
         if M.lblFinalDist then
             M.lblFinalDist:SetText("距离: " .. tostring(math.floor(result.distance or 0)) .. "m  连击: " .. tostring(result.bestCombo or 0))
+        end
+        if M.lblFinalDeliveries then
+            M.lblFinalDeliveries:SetText(tostring(result.deliveries or 0) .. "单")
+        end
+        if M.lblFinalOnTime then
+            M.lblFinalOnTime:SetText(tostring(result.onTimeDeliveries or 0) .. "单")
+        end
+        if M.lblFinalDistance then
+            M.lblFinalDistance:SetText(tostring(math.floor(result.distance or 0)) .. "m")
+        end
+        if M.lblFinalCombo then
+            M.lblFinalCombo:SetText(tostring(result.bestCombo or 0))
         end
         if M.lblFinalGain then
             M.lblFinalGain:SetText("金币 +" .. tostring(result.coinsEarned or 0) .. "  XP +" .. tostring(result.xpEarned or 0))
@@ -2615,6 +2911,9 @@ function M.SetPaused(paused)
     end
     if M.lblHint then
         M.lblHint:SetText(paused and "已暂停" or "")
+    end
+    if M.hudHintPanel then
+        M.hudHintPanel:SetVisible(paused == true)
     end
     M.ShowPauseOverlay(paused)
 end

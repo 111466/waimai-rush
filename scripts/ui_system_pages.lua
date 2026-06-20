@@ -459,17 +459,6 @@ local function MakeTopShell(context)
             backgroundColor = "#FFF1BB",
             borderRadius = 22,
             borderWidth = 4,
-            children = {
-                UI.Panel {
-                    position = "absolute",
-                    left = X(18),
-                    top = Y(12),
-                    width = W(322),
-                    height = H(62),
-                    backgroundColor = "rgba(126,220,255,0.24)",
-                    borderRadius = 22,
-                },
-            },
         },
     }
 end

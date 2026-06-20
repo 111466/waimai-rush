@@ -349,8 +349,8 @@ local function CreateScene()
     )
     zone_.ambientColor = Color(0.90, 0.97, 1.0)
     zone_.fogColor = Color(0.53, 0.86, 1.0)
-    zone_.fogStart = 190.0
-    zone_.fogEnd = 280.0
+    zone_.fogStart = 1000.0
+    zone_.fogEnd = 1200.0
 
     -- 地面跟随玩家，避免跑出有限地面边界。
     groundNode_ = scene_:CreateChild("Ground")

@@ -54,7 +54,7 @@ function M.Init()
     M.powerupShield = M.CreatePBRMaterial(Color(0.18, 0.55, 1.0, 1.0), 0.2, 0.34)
     M.powerupClock = M.CreatePBRMaterial(Color(1.0, 0.83, 0.28, 1.0), 0.15, 0.36)
     M.arrow = M.CreatePBRMaterial(Color(0.07, 0.77, 0.70, 1.0), 0.24, 0.36)
-    M.crossroads = M.CreatePBRMaterial(Color(0.11, 0.16, 0.20, 1.0), 0.0, 0.84)
+    M.crossroads = M.CreatePBRMaterial(Color(0.13, 0.19, 0.23, 1.0), 0.0, 0.82)
     M.shadow = M.CreatePBRMaterial(Color(0.07, 0.12, 0.16, 1.0), 0.0, 1.0)
 end
 
