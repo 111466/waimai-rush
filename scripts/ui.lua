@@ -1297,7 +1297,6 @@ local function BuildMainMenu()
             backgroundImage = image,
             backgroundFit = "fill",
             children = {
-                MakeLocalTextLabel(nil, text or "", 0, -6, "100%", "70%", 30, {255,255,255,255}, "center"),
                 UI.Button {
                     text = "",
                     position = "absolute",
@@ -1313,6 +1312,7 @@ local function BuildMainMenu()
                     borderRadius = 0,
                     onClick = onClick,
                 },
+                MakeLocalTextLabel(nil, text or "", 0, "18%", "100%", "50%", 30, {255,255,255,255}, "center"),
             },
         }
     end
@@ -1340,7 +1340,7 @@ local function BuildMainMenu()
         }
     end
 
-    local function MakeDockEntry(x, iconImage, mark, label, onClick)
+    local function MakeDockEntry(x, iconImage, iconGlyphImage, label, onClick)
         return UI.Panel {
             position = "absolute",
             left = X(x),
@@ -1351,7 +1351,7 @@ local function BuildMainMenu()
             backgroundFit = "fill",
             children = {
                 MakeLocalImagePanel(nil, iconImage, "31.250%", "15.385%", "37.500%", "38.462%"),
-                MakeLocalTextLabel(nil, mark, "31.250%", "15.385%", "37.500%", "38.462%", 14, {255,255,255,255}, "center"),
+                MakeLocalImagePanel(nil, iconGlyphImage, "31.250%", "15.385%", "37.500%", "38.462%"),
                 MakeLocalTextLabel(nil, label, 0, "58.974%", "100%", "26.923%", 13, {99,51,5,255}, "center"),
                 UI.Button {
                     text = "",
@@ -1369,7 +1369,7 @@ local function BuildMainMenu()
         }
     end
 
-    local function MakeRoundEntry(id, image, label, left, top, onClick)
+    local function MakeRoundEntry(id, image, iconImage, left, top, onClick)
         return UI.Panel {
             id = id,
             position = "absolute",
@@ -1380,7 +1380,7 @@ local function BuildMainMenu()
             backgroundImage = image,
             backgroundFit = "fill",
             children = {
-                MakeLocalTextLabel(nil, label, 0, "17.000%", "100%", "46.000%", 15, {255,255,255,255}, "center"),
+                MakeLocalImagePanel(nil, iconImage, "26.563%", "25.758%", "46.875%", "45.455%"),
                 UI.Button {
                     text = "",
                     position = "absolute",
@@ -1414,9 +1414,9 @@ local function BuildMainMenu()
     local riderPanel = MakeImagePanel("menuRiderImage", "Textures/home_rider.png", 101, 314, 188, 188)
     local startButton = MakeMenuImageButton(
         "menuStartButton",
-        "",
-        "Textures/home_start_button.png",
-        "Textures/home_start_button_pressed.png",
+        "接单开冲",
+        "Textures/home_start_button_base.png",
+        "Textures/home_start_button_base_pressed.png",
         22,
         630,
         346,
@@ -1483,15 +1483,15 @@ local function BuildMainMenu()
             MakeImagePanel(nil, "Textures/home_subtitle_badge.png", 111, 220, 168, 34),
             MakeTextLabel(nil, "接单上路，准时送达", 123, 226, 144, 17, 13, {92,43,0,255}, "center"),
             MakeImagePanel(nil, "Textures/home_order_sign.png", 0, 250, 159, 146),
-            MakeRoundEntry("menuTaskButton", "Textures/home_round_blue.png", "任务", 303, 272, function() M.ShowStaticPage("tasks", "menu") end),
-            MakeRoundEntry("menuAchievementButton", "Textures/home_round_green.png", "成就", 303, 350, function() M.ShowStaticPage("achievements", "menu") end),
-            MakeRoundEntry("menuSettingsButton", "Textures/home_round_red.png", "设置", 303, 428, function() M.ShowStaticPage("settings", "menu") end),
+            MakeRoundEntry("menuTaskButton", "Textures/home_round_blue.png", "Textures/home_icon_task.png", 303, 272, function() M.ShowStaticPage("tasks", "menu") end),
+            MakeRoundEntry("menuAchievementButton", "Textures/home_round_green.png", "Textures/home_icon_achievement.png", 303, 350, function() M.ShowStaticPage("achievements", "menu") end),
+            MakeRoundEntry("menuSettingsButton", "Textures/home_round_red.png", "Textures/home_icon_settings.png", 303, 428, function() M.ShowStaticPage("settings", "menu") end),
             riderPanel,
             startButton,
-            MakeDockEntry(17, "Textures/home_dock_icon_orange.png", "骑", "骑手", function() M.ShowStaticPage("rider", "menu") end),
-            MakeDockEntry(105, "Textures/home_dock_icon_blue.png", "升", "升级", function() M.ShowStaticPage("upgrades", "menu") end),
-            MakeDockEntry(193, "Textures/home_dock_icon_green.png", "单", "订单", function() M.ShowStaticPage("orders", "menu") end),
-            MakeDockEntry(281, "Textures/home_dock_icon_gray.png", "包", "背包", function() M.ShowStaticPage("backpack", "menu") end),
+            MakeDockEntry(17, "Textures/home_dock_icon_orange.png", "Textures/home_icon_rider.png", "骑手", function() M.ShowStaticPage("rider", "menu") end),
+            MakeDockEntry(105, "Textures/home_dock_icon_blue.png", "Textures/home_icon_upgrade.png", "升级", function() M.ShowStaticPage("upgrades", "menu") end),
+            MakeDockEntry(193, "Textures/home_dock_icon_green.png", "Textures/home_icon_order.png", "订单", function() M.ShowStaticPage("orders", "menu") end),
+            MakeDockEntry(281, "Textures/home_dock_icon_gray.png", "Textures/home_icon_bag.png", "背包", function() M.ShowStaticPage("backpack", "menu") end),
         },
     }
 end

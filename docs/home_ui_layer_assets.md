@@ -12,7 +12,6 @@
 
 | 文件 | 尺寸 | 内容 | 动态文字 |
 | --- | ---: | --- | --- |
-| `assets/Textures/home_scene_bg.png` | 390x844 | 天空、云、太阳、城市、道路、速度线、底部浅色渐变 | 不包含 |
 | `assets/Textures/home_scene_bg_static.png` | 390x844 | 静态背景，不含云、车道虚线、速度线、骑手阴影、底部渐变 | 不包含 |
 | `assets/Textures/home_cloud_one.png` | 104x48 | 左上云，供 `cloudDrift` 动效使用 | 不包含 |
 | `assets/Textures/home_cloud_two.png` | 122x58 | 太阳前方云，供 `cloudDrift` 动效使用 | 不包含 |
@@ -26,7 +25,6 @@
 | `assets/Textures/home_title.png` | 250x138 | 标题“外卖冲冲冲”的描边和投影效果 | 固定标题，允许包含 |
 | `assets/Textures/home_subtitle_badge.png` | 168x34 | 副标题胶囊底板 | 不包含 |
 | `assets/Textures/home_level_badge.png` | 166x72 | 左上等级 HUD 底板 | 不包含 |
-| `assets/Textures/home_coin_badge.png` | 114x58 | 右上金币 HUD 底板和金币图标 | 不包含金币数字 |
 | `assets/Textures/home_coin_badge_base.png` | 114x58 | 右上金币 HUD 底板，不含金币图标，供金币图标独立动效使用 | 不包含 |
 | `assets/Textures/home_coin_icon.png` | 26x26 | 金币图标，供 `coinPop` 动效使用 | 不包含 |
 | `assets/Textures/home_xp_track.png` | 132x8 | XP 灰色底槽 | 不包含 |
@@ -43,10 +41,13 @@
 | `assets/Textures/home_dock_icon_blue.png` | 30x30 | 底部蓝色圆图标底 | 不包含“升” |
 | `assets/Textures/home_dock_icon_green.png` | 30x30 | 底部绿色圆图标底 | 不包含“单” |
 | `assets/Textures/home_dock_icon_gray.png` | 30x30 | 底部灰色圆图标底 | 不包含“包” |
-| `assets/Textures/home_layers_preview.png` | 390x844 | 分层拼合预览图，用于视觉检查 | 预览用，包含示例文字 |
-| `assets/Textures/home_dynamic_layers_compare.png` | 1218x890 | 完整背景和“静态背景 + 动态层”的对比图 | 检查用 |
-| `assets/Textures/home_reference_screen_compare.png` | 1620x890 | 用户参考截图、上一版整图、新拆层重组的屏幕级对比图 | 检查用 |
-| `assets/Textures/home_asset_layers_sheet.png` | 920x950 | 所有主要图层的缩略检查表 | 检查用 |
+| `assets/Textures/home_icon_rider.png` | 30x30 | 底部“骑手”白色 SVG 图标，来自原型 HTML | 不包含 |
+| `assets/Textures/home_icon_upgrade.png` | 30x30 | 底部“升级”白色 SVG 图标，来自原型 HTML | 不包含 |
+| `assets/Textures/home_icon_order.png` | 30x30 | 底部“订单”白色 SVG 图标，来自原型 HTML | 不包含 |
+| `assets/Textures/home_icon_bag.png` | 30x30 | 底部“背包”白色 SVG 图标，来自原型 HTML | 不包含 |
+| `assets/Textures/home_icon_task.png` | 30x30 | 右侧“任务”白色 SVG 图标，来自原型 HTML | 不包含 |
+| `assets/Textures/home_icon_achievement.png` | 30x30 | 右侧“成就”白色 SVG 图标，来自原型 HTML | 不包含 |
+| `assets/Textures/home_icon_settings.png` | 30x30 | 右侧“设置”白色 SVG 图标，来自原型 HTML | 不包含 |
 
 ## 动态层级顺序
 
@@ -62,12 +63,11 @@
 
 说明：`home_bottom_fade.png` 必须在车道线之后渲染，才能保持原型里底部逐渐泛白的效果。
 
-## 对比结论
+## 清理说明
 
-- `home_scene_bg.png` 现在由 `home_scene_bg_static.png` 和动态层重新拼出。
-- 已做数值检查：`home_scene_bg.png` 与“静态背景 + 动态层重组”的差异为 0。
-- `home_asset_layers_sheet.png` 用于逐个检查旧拆层和新动效拆层。
-- `home_reference_screen_compare.png` 用于和用户截图、上一版整图做整体观感对比。
+- 旧整图、分层预览图、对比检查图、旧主按钮整图已删除，避免运行时资源目录混入调试产物。
+- 当前 `assets/Textures/` 保留的是 Lua 首页和系统页会直接引用的 PNG。
+- 如需重新生成对比检查图，可运行 `prototypes/home-ui-redesign/export_layers.py` 临时导出，确认后不要把检查图作为运行时资源保留。
 
 ## Lua 叠字建议
 
@@ -81,7 +81,6 @@
 - 右侧入口 `任务 / 成就 / 设置`
 - 主按钮 `接单开冲`
 - 底部入口 `骑手 / 升级 / 订单 / 背包`
-- 底部图标字 `骑 / 升 / 单 / 包`
 
 ## 生成方式
 

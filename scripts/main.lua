@@ -337,8 +337,8 @@ local function CreateScene()
     lightNode.direction = Vector3(0.3, -1.0, 0.5):Normalized()
     local light = lightNode:CreateComponent("Light")
     light.lightType = LIGHT_DIRECTIONAL
-    light.color = Color(1.0, 0.95, 0.9)
-    light.brightness = 1.2
+    light.color = Color(1.0, 0.98, 0.88)
+    light.brightness = 1.45
     light.castShadows = false
 
     -- 环境光 / 雾效
@@ -347,16 +347,16 @@ local function CreateScene()
         Vector3(centerX - zoneHalfX, -50, centerZ - zoneHalfZ),
         Vector3(centerX + zoneHalfX, 120, centerZ + zoneHalfZ)
     )
-    zone_.ambientColor = Color(0.68, 0.76, 0.84)
-    zone_.fogColor = Color(0.56, 0.84, 1.0)
-    zone_.fogStart = 135.0
-    zone_.fogEnd = 300.0
+    zone_.ambientColor = Color(0.90, 0.97, 1.0)
+    zone_.fogColor = Color(0.53, 0.86, 1.0)
+    zone_.fogStart = 190.0
+    zone_.fogEnd = 280.0
 
     -- 地面跟随玩家，避免跑出有限地面边界。
     groundNode_ = scene_:CreateChild("Ground")
     local gm = groundNode_:CreateComponent("StaticModel")
     gm.model = cache:GetResource("Model", "Models/Box.mdl")
-    gm.material = mats.CreatePBRMaterial(Color(0.35, 0.55, 0.3, 1.0), 0.0, 0.9)
+    gm.material = mats.CreatePBRMaterial(Color(1.0, 0.90, 0.58, 1.0), 0.0, 0.9)
     groundNode_.scale = Vector3(groundSizeX, 0.1, groundSizeZ)
     groundNode_.position = Vector3(centerX, -0.05, centerZ)
 end

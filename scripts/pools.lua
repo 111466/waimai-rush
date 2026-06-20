@@ -23,12 +23,12 @@ M.visibleVersion = -1
 M.buildingMaterialCache = {}
 
 local buildingColors = {
-    Color(0.55, 0.78, 0.82, 1.0),
-    Color(0.75, 0.85, 0.60, 1.0),
-    Color(0.90, 0.75, 0.55, 1.0),
-    Color(0.70, 0.65, 0.85, 1.0),
-    Color(0.85, 0.60, 0.65, 1.0),
-    Color(0.60, 0.80, 0.70, 1.0),
+    Color(0.36, 0.74, 0.86, 1.0),
+    Color(0.25, 0.60, 0.76, 1.0),
+    Color(1.0, 0.70, 0.25, 1.0),
+    Color(1.0, 0.84, 0.35, 1.0),
+    Color(0.20, 0.80, 0.45, 1.0),
+    Color(0.95, 0.36, 0.44, 1.0),
 }
 
 local function RemoveNodes(list)

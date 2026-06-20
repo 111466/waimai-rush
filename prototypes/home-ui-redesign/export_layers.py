@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import argparse
 from pathlib import Path
 from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 
@@ -282,9 +283,12 @@ def draw_coin_icon():
     return save(image, "home_coin_icon.png")
 
 
-def save_scene_backgrounds():
+def save_scene_backgrounds(include_composite=False):
     static_bg = draw_scene_bg()
     save(static_bg, "home_scene_bg_static.png")
+
+    if not include_composite:
+        return
 
     full = Image.open(OUT / "home_scene_bg_static.png").convert("RGBA")
     for name, x, y in [
@@ -626,7 +630,6 @@ def compose_reference_compare():
         return
     ref = Image.open(reference_path).convert("RGBA")
     preview = Image.open(OUT / "home_layers_preview.png").convert("RGBA")
-    old = Image.open(OUT / "home_bg.png").convert("RGBA")
     target_h = 844
 
     def fit_height(image):
@@ -634,12 +637,11 @@ def compose_reference_compare():
         return image.resize((int(round(image.width * ratio)), target_h), Image.Resampling.LANCZOS)
 
     ref = fit_height(ref)
-    old = fit_height(old)
     preview = fit_height(preview)
     gap = 14
     header = 36
-    columns = [ref, old, preview]
-    labels = ["参考截图", "上一版整图", "新拆层重组预览"]
+    columns = [ref, preview]
+    labels = ["参考截图", "当前拆层重组预览"]
     w = sum(im.width for im in columns) + gap * (len(columns) + 1)
     h = target_h + header + gap
     canvas = Image.new("RGBA", (w, h), rgba("#eef3f6"))
@@ -686,7 +688,6 @@ def compose_reference_screen_compare():
         return
     ref = crop_reference_screen(Image.open(reference_path))
     preview = Image.open(OUT / "home_layers_preview.png").convert("RGBA")
-    old = Image.open(OUT / "home_bg.png").convert("RGBA")
     diff = ImageChops.difference(ref, preview)
     diff = ImageEnhance.Brightness(diff).enhance(3)
     diff = diff.convert("RGBA")
@@ -694,8 +695,8 @@ def compose_reference_screen_compare():
 
     gap = 12
     header = 34
-    columns = [ref, old, preview, diff]
-    labels = ["参考截图裁屏", "上一版整图", "新拆层重组", "参考 vs 新预览 差异 3x"]
+    columns = [ref, preview, diff]
+    labels = ["参考截图裁屏", "当前拆层重组", "参考 vs 当前预览 差异 3x"]
     w = 390 * len(columns) + gap * (len(columns) + 1)
     h = 844 + header + gap
     canvas = Image.new("RGBA", (w, h), rgba("#eef3f6"))
@@ -803,7 +804,7 @@ def compose_asset_layers_sheet():
     canvas.save(OUT / "home_asset_layers_sheet.png")
 
 
-def main():
+def main(include_debug=False):
     draw_cloud_one()
     draw_cloud_two()
     draw_lane_strip_frames()
@@ -812,11 +813,12 @@ def main():
     draw_speed_line("home_speed_line_c.png", 44, 132)
     draw_rider_shadow()
     draw_bottom_fade()
-    save_scene_backgrounds()
+    save_scene_backgrounds(include_debug)
     draw_title()
     draw_subtitle_badge()
     draw_level_badge()
-    draw_coin_badge()
+    if include_debug:
+        draw_coin_badge()
     draw_coin_badge_base()
     draw_coin_icon()
     draw_xp_assets()
@@ -832,13 +834,25 @@ def main():
     draw_dock_icon("home_dock_icon_blue.png", "#2f80ed")
     draw_dock_icon("home_dock_icon_green.png", "#27c96b")
     draw_dock_icon("home_dock_icon_gray.png", "#5b6570")
-    compose_preview()
-    compose_layer_compare()
-    compose_reference_compare()
-    compose_reference_screen_compare()
-    compose_html_render_compare()
-    compose_asset_layers_sheet()
+    if include_debug:
+        compose_preview()
+        compose_layer_compare()
+        compose_reference_compare()
+        compose_reference_screen_compare()
+        compose_html_render_compare()
+        compose_asset_layers_sheet()
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="导出首页运行时贴图")
+    parser.add_argument(
+        "--debug-previews",
+        action="store_true",
+        help="额外生成完整背景、分层预览和对比检查图；默认不生成调试产物。",
+    )
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
-    main()
+    args = parse_args()
+    main(include_debug=args.debug_previews)
