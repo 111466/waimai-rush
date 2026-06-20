@@ -580,6 +580,7 @@ local function MakeMiniOrderRow(index)
 end
 
 local function BuildMiniOrderList()
+    ---@type any[]
     local children = {
         UI.Label {
             text = "可接订单",
