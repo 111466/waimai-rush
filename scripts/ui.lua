@@ -10,6 +10,7 @@ local nav = require("route_navigation")
 local cam = require("camera")
 local progression = require("progression")
 local meta = require("meta_progress")
+local systemPages = require("ui_system_pages")
 
 local M = {}
 
@@ -46,14 +47,7 @@ M.menuStartButton = nil
 M.menuXpFill = nil
 M.pauseOverlayPanel = nil
 M.staticPagePanel = nil
-M.lblStaticPageTitle = nil
-M.staticRows = {}
-M.upgradeButtons = {}
-M.upgradeButtonPanel = nil
-M.settingButtons = {}
-M.settingButtonPanel = nil
-M.taskClaimPanel = nil
-M.achievementClaimPanel = nil
+M.systemPageRefs = nil
 M.staticBackMode = "menu"
 M.staticPageKey = nil
 M.gameOverPanel = nil
@@ -126,7 +120,6 @@ local DEBUG_STEP_SMALL = 0.25
 local DEBUG_STEP_BIG = 1.0
 local DEBUG_STEP_ANGLE = 2.5
 local DEBUG_STEP_PITCH = 0.25
-local STATIC_ROW_COUNT = 8
 
 local ORDER_TYPE_NAMES = {
     normal = "普通",
@@ -134,14 +127,6 @@ local ORDER_TYPE_NAMES = {
     rush = "急送",
     long = "远距",
     fragile = "易碎",
-}
-
-local SETTINGS_ACTIONS = {
-    { key = "sound", text = "音效" },
-    { key = "music", text = "音乐" },
-    { key = "vibration", text = "震动" },
-    { key = "controlMode", text = "操作" },
-    { key = "debugPanel", text = "调试" },
 }
 
 local function Pct(value)
@@ -254,172 +239,8 @@ local function FormatUnlockedOrderTypes(typeIds)
     return table.concat(parts, " / ")
 end
 
-local function FormatReward(row)
-    local parts = {}
-    if (row.coins or 0) > 0 then
-        parts[#parts + 1] = "¥" .. tostring(row.coins)
-    end
-    if (row.xp or 0) > 0 then
-        parts[#parts + 1] = "XP " .. tostring(row.xp)
-    end
-    if #parts == 0 then
-        return "无奖励"
-    end
-    return table.concat(parts, " / ")
-end
-
-local function FormatProgressRow(row)
-    local state = "进行中"
-    if row.claimed then
-        state = "已领取"
-    elseif row.done then
-        state = "可领取"
-    end
-    return row.name
-        .. "  " .. tostring(row.current or 0) .. "/" .. tostring(row.target or 1)
-        .. "  " .. state
-        .. "  奖励 " .. FormatReward(row)
-end
-
 local function FormatOnOff(value)
     return value and "开" or "关"
-end
-
-local function FindNextUnlockText(level)
-    local bestLevel = nil
-    local parts = {}
-
-    for _, row in ipairs(CONFIG.RIDER_ORDER_COUNT_UNLOCKS or {}) do
-        if row.level and row.level > level and (not bestLevel or row.level < bestLevel) then
-            bestLevel = row.level
-        end
-    end
-    for _, unlockLevel in pairs(CONFIG.RIDER_ORDER_TYPE_UNLOCKS or {}) do
-        if unlockLevel and unlockLevel > level and (not bestLevel or unlockLevel < bestLevel) then
-            bestLevel = unlockLevel
-        end
-    end
-
-    if not bestLevel then
-        return "已解锁全部骑手成长内容"
-    end
-
-    for _, row in ipairs(CONFIG.RIDER_ORDER_COUNT_UNLOCKS or {}) do
-        if row.level == bestLevel then
-            parts[#parts + 1] = tostring(row.count or 0) .. " 个同时订单"
-        end
-    end
-    for typeId, unlockLevel in pairs(CONFIG.RIDER_ORDER_TYPE_UNLOCKS or {}) do
-        if unlockLevel == bestLevel then
-            parts[#parts + 1] = (ORDER_TYPE_NAMES[typeId] or typeId) .. "单"
-        end
-    end
-
-    if #parts == 0 then
-        return "下一等级继续提升订单能力"
-    end
-    return "下一解锁 Lv." .. tostring(bestLevel) .. ": " .. table.concat(parts, " / ")
-end
-
-local function BuildTaskRows()
-    local source = meta.GetTaskRows and meta.GetTaskRows() or {}
-    local rows = {}
-    for _, row in ipairs(source) do
-        rows[#rows + 1] = FormatProgressRow(row)
-    end
-    rows[#rows + 1] = "任务奖励为一次性领取，领取后写入本地存档"
-    return rows
-end
-
-local function BuildAchievementRows()
-    local source = meta.GetAchievementRows and meta.GetAchievementRows() or {}
-    local rows = {}
-    for _, row in ipairs(source) do
-        rows[#rows + 1] = FormatProgressRow(row)
-    end
-    return rows
-end
-
-local function BuildOrderRows()
-    local rows = {}
-    rows[#rows + 1] = "当前可同时显示 " .. tostring(progression.GetMaxAvailableOrders()) .. " 个取餐点"
-
-    local pickup = require("pickup_delivery")
-    local orderTypes = pickup.GetOrderTypeRows and pickup.GetOrderTypeRows() or {}
-    for _, orderType in ipairs(orderTypes) do
-        local unlockLevel = progression.GetOrderTypeUnlockLevel and progression.GetOrderTypeUnlockLevel(orderType.id) or 1
-        local unlocked = progression.IsOrderTypeUnlocked and progression.IsOrderTypeUnlocked(orderType.id)
-        local status = unlocked and "已解锁" or ("Lv." .. tostring(unlockLevel or 1) .. " 解锁")
-        local risk = orderType.fragile and "碰撞会失败" or ("罚时x" .. string.format("%.1f", orderType.latePenaltyMultiplier or 1.0))
-        local delivered = meta.GetDeliveredOrderTypeCount and meta.GetDeliveredOrderTypeCount(orderType.id) or 0
-        rows[#rows + 1] = string.format(
-            "%s单  ¥%s / XP %s  %s-%s段路  %s  %s  已送%s",
-            orderType.name or ORDER_TYPE_NAMES[orderType.id] or "订单",
-            tostring(orderType.reward or 0),
-            tostring(orderType.xp or 0),
-            tostring(orderType.minHops or 1),
-            tostring(orderType.maxHops or 1),
-            risk,
-            status,
-            tostring(delivered)
-        )
-    end
-
-    rows[#rows + 1] = "高价订单权重随骑手等级提升"
-    return rows
-end
-
-local function BuildSettingsRows()
-    local settings = meta.GetSettings and meta.GetSettings() or {}
-    return {
-        "音效: " .. FormatOnOff(settings.sound ~= false) .. "  按钮 / 金币 / 送达反馈",
-        "音乐: " .. FormatOnOff(settings.music ~= false) .. "  首页与跑单背景",
-        "震动: " .. FormatOnOff(settings.vibration ~= false) .. "  接单 / 碰撞 / 完成订单",
-        "操作方式: " .. tostring(settings.controlMode or "混合"),
-        "调试面板: " .. FormatOnOff(settings.debugPanel == true) .. "  开发相机参数入口",
-        "点击下方按钮可切换设置，设置会写入本地存档",
-    }
-end
-
-local function UpdateSettingButtonTexts()
-    local settings = meta.GetSettings and meta.GetSettings() or {}
-    local labels = {
-        sound = FormatOnOff(settings.sound ~= false),
-        music = FormatOnOff(settings.music ~= false),
-        vibration = FormatOnOff(settings.vibration ~= false),
-        controlMode = tostring(settings.controlMode or "混合"),
-        debugPanel = FormatOnOff(settings.debugPanel == true),
-    }
-    for i, action in ipairs(SETTINGS_ACTIONS) do
-        local button = M.settingButtons and M.settingButtons[i]
-        if button then
-            button:SetText(labels[action.key] or action.text)
-        end
-    end
-end
-
-local function BuildBackpackRows()
-    return {
-        "背包系统暂未开放",
-        "后续用于开局携带道具、装备保温箱、查看消耗品",
-        "当前局内道具仍会在路上刷新，可直接拾取使用",
-    }
-end
-
-local function BuildRiderRows()
-    local data = progression.GetHUDData()
-    local summary = meta.GetSummary()
-    local xpText = data.maxLevel and "MAX" or (tostring(data.xp or 0) .. "/" .. tostring(data.xpToNext or 0))
-
-    return {
-        "Lv." .. tostring(data.level or 1) .. " " .. (data.title or "骑手") .. "  XP " .. xpText,
-        "金币: ¥" .. tostring(summary.coins or 0) .. "  总局数: " .. tostring(summary.totalRuns or 0),
-        "同时订单: " .. tostring(progression.GetMaxAvailableOrders()) .. " 个取餐点",
-        "已解锁: " .. FormatUnlockedOrderTypes(progression.GetUnlockedOrderTypes()),
-        "配送奖励: +" .. tostring(summary.rewardBonusPercent or 0) .. "%  道具加时: +" .. string.format("%.1f", summary.powerupDurationBonus or 0) .. "s",
-        "最高送达: " .. tostring(summary.bestDeliveries or 0) .. " 单  最高连击: " .. tostring(summary.bestCombo or 0),
-        FindNextUnlockText(data.level or 1),
-    }
 end
 
 local function MakePanelTitle(text)
@@ -432,23 +253,38 @@ local function MakePanelTitle(text)
 end
 
 local function HandleUpgradeClick(key)
+    if not key then
+        return
+    end
     local ok, message = meta.TryUpgrade(key)
     progression.ApplyMetaState(meta.GetRiderState())
     print("[UI] " .. tostring(message))
     M.ShowStaticPage("upgrades", M.staticBackMode)
 end
 
-local function BuildUpgradeButton(index, key)
-    return UI.Button {
-        id = "upgradeButton" .. tostring(index),
-        text = "升级",
-        width = 88,
-        height = 32,
-        marginTop = 8,
-        onClick = function()
-            HandleUpgradeClick(key)
-        end,
-    }
+local function HandleUpgradeIndexClick(index)
+    local key = systemPages.GetUpgradeKey and systemPages.GetUpgradeKey(index)
+    HandleUpgradeClick(key)
+end
+
+local function HandleUpgradeAllClick()
+    local keys = meta.GetUpgradeKeys and meta.GetUpgradeKeys() or {}
+    local upgraded = 0
+    local messages = {}
+    for _, key in ipairs(keys) do
+        local ok, message = meta.TryUpgrade(key)
+        if ok then
+            upgraded = upgraded + 1
+            messages[#messages + 1] = message
+        end
+    end
+    progression.ApplyMetaState(meta.GetRiderState())
+    if upgraded > 0 then
+        print("[UI] 批量升级 " .. tostring(upgraded) .. " 项: " .. table.concat(messages, " / "))
+    else
+        print("[UI] 没有可购买升级项")
+    end
+    M.ShowStaticPage("upgrades", M.staticBackMode)
 end
 
 local function HandleSettingClick(action)
@@ -479,6 +315,18 @@ local function HandleSettingClick(action)
     M.ShowStaticPage("settings", M.staticBackMode)
 end
 
+local function HandleSettingKeyClick(key)
+    HandleSettingClick(systemPages.GetSettingAction and systemPages.GetSettingAction(key))
+end
+
+local function HandleSettingsSaveClick()
+    if meta.Save then
+        meta.Save()
+    end
+    print("[UI] 设置已保存")
+    M.ShowStaticPage("settings", M.staticBackMode)
+end
+
 local function ClaimAvailable(claimFunc)
     if not claimFunc then
         return false, "领取接口不存在"
@@ -500,81 +348,34 @@ local function HandleAchievementClaimClick()
     M.ShowStaticPage("achievements", M.staticBackMode)
 end
 
-local function BuildClaimButton(id, text, onClick)
-    return UI.Button {
-        id = id,
-        text = text,
-        width = 148,
-        height = 34,
-        marginTop = 8,
-        onClick = onClick,
-    }
-end
+local function HandleProgressClaimOne(prefix, index)
+    local rows = {}
+    local claimFunc = nil
+    local pageKey = nil
 
-local function BuildSettingButton(index, action)
-    return UI.Button {
-        id = "settingButton" .. tostring(index),
-        text = action.text,
-        width = 58,
-        height = 32,
-        marginTop = 8,
-        onClick = function()
-            HandleSettingClick(action)
-        end,
-    }
-end
+    if prefix == "task" then
+        rows = meta.GetTaskRows and meta.GetTaskRows() or {}
+        claimFunc = meta.ClaimTask
+        pageKey = "tasks"
+    elseif prefix == "achievement" then
+        rows = meta.GetAchievementRows and meta.GetAchievementRows() or {}
+        claimFunc = meta.ClaimAchievement
+        pageKey = "achievements"
+    end
 
-local function MakeStaticRow(index)
-    return UI.Panel {
-        id = "staticRow" .. tostring(index),
-        width = "100%",
-        height = 42,
-        marginTop = 8,
-        padding = 10,
-        backgroundColor = "#F6F8FA",
-        borderRadius = 8,
-        children = {
-            UI.Label {
-                id = "staticRowText" .. tostring(index),
-                text = "",
-                fontSize = 13,
-                fontWeight = "bold",
-                fontColor = {33,45,56,255},
-            },
-        },
-    }
-end
+    local row = rows[index or 0]
+    if not row or not row.id or not claimFunc then
+        print("[UI] 没有可领取目标")
+        return
+    end
 
-local STATIC_PAGE_DATA = {
-    rider = {
-        title = "骑手成长",
-        rows = {},
-    },
-    upgrades = {
-        title = "局外升级",
-        rows = {},
-    },
-    orders = {
-        title = "订单图鉴",
-        rows = {},
-    },
-    backpack = {
-        title = "背包",
-        rows = {},
-    },
-    tasks = {
-        title = "今日任务",
-        rows = {},
-    },
-    achievements = {
-        title = "成就墙",
-        rows = {},
-    },
-    settings = {
-        title = "设置",
-        rows = {},
-    },
-}
+    local ok, message = claimFunc(row.id)
+    progression.ApplyMetaState(meta.GetRiderState())
+    print("[UI] " .. tostring(message))
+    if pageKey then
+        M.ShowStaticPage(pageKey, M.staticBackMode)
+    end
+end
 
 local function MiniWorldPoint(worldX, worldZ)
     local usable = MINI_MAP_SIZE - MINI_MARGIN * 2
@@ -1613,9 +1414,9 @@ local function BuildMainMenu()
     local riderPanel = MakeImagePanel("menuRiderImage", "Textures/home_rider.png", 101, 314, 188, 188)
     local startButton = MakeMenuImageButton(
         "menuStartButton",
-        "接单开冲",
-        "Textures/home_start_button_base.png",
-        "Textures/home_start_button_base_pressed.png",
+        "",
+        "Textures/home_start_button.png",
+        "Textures/home_start_button_pressed.png",
         22,
         630,
         346,
@@ -1682,9 +1483,6 @@ local function BuildMainMenu()
             MakeImagePanel(nil, "Textures/home_subtitle_badge.png", 111, 220, 168, 34),
             MakeTextLabel(nil, "接单上路，准时送达", 123, 226, 144, 17, 13, {92,43,0,255}, "center"),
             MakeImagePanel(nil, "Textures/home_order_sign.png", 0, 250, 159, 146),
-            MakeTextLabel(nil, "+¥30", 37, 273, 64, 22, 18, {160,50,0,255}, "center"),
-            MakeTextLabel(nil, "准时送达", 45, 297, 48, 14, 11, {92,43,0,255}, "center"),
-            MakeTextLabel(nil, "2 单", 51, 311, 36, 14, 11, {92,43,0,255}, "center"),
             MakeRoundEntry("menuTaskButton", "Textures/home_round_blue.png", "任务", 303, 272, function() M.ShowStaticPage("tasks", "menu") end),
             MakeRoundEntry("menuAchievementButton", "Textures/home_round_green.png", "成就", 303, 350, function() M.ShowStaticPage("achievements", "menu") end),
             MakeRoundEntry("menuSettingsButton", "Textures/home_round_red.png", "设置", 303, 428, function() M.ShowStaticPage("settings", "menu") end),
@@ -2008,110 +1806,26 @@ local function BuildGameOverPanel(onRestart)
 end
 
 local function BuildStaticPage()
-    local rows = {}
-    for i = 1, STATIC_ROW_COUNT do
-        rows[#rows + 1] = MakeStaticRow(i)
-    end
-
-    local upgradeButtons = {}
-    local upgradeKeys = meta.GetUpgradeKeys and meta.GetUpgradeKeys() or {}
-    for i, key in ipairs(upgradeKeys) do
-        upgradeButtons[#upgradeButtons + 1] = BuildUpgradeButton(i, key)
-    end
-    local settingButtons = {}
-    for i, action in ipairs(SETTINGS_ACTIONS) do
-        settingButtons[#settingButtons + 1] = BuildSettingButton(i, action)
-    end
-
-    return UI.Panel {
-        id = "staticPagePanel",
-        width = "100%",
-        height = "100%",
-        position = "absolute",
-        backgroundColor = "#EEF6FA",
-        padding = 18,
-        children = {
-            UI.Panel {
-                width = "100%",
-                height = 44,
-                flexDirection = "row",
-                alignItems = "center",
-                children = {
-                    UI.Button {
-                        text = "‹",
-                        width = 40,
-                        height = 40,
-                        onClick = function()
-                            if M.staticBackMode == "pause" then
-                                M.ShowPauseOverlay(true)
-                            elseif M.staticBackMode == "result" then
-                                if M.staticPagePanel then M.staticPagePanel:SetVisible(false) end
-                                if M.gameOverPanel then M.gameOverPanel:SetVisible(true) end
-                            else
-                                M.ShowMainMenu()
-                            end
-                        end,
-                    },
-                    UI.Label {
-                        id = "staticPageTitle",
-                        text = "页面",
-                        fontSize = 24,
-                        fontWeight = "bold",
-                        fontColor = {30,38,46,255},
-                        marginLeft = 12,
-                    },
-                },
-            },
-            UI.Panel {
-                width = "100%",
-                marginTop = 16,
-                padding = 14,
-                backgroundColor = "#FFFFFF",
-                borderRadius = 12,
-                children = rows,
-            },
-            UI.Panel {
-                id = "upgradeButtonPanel",
-                width = "100%",
-                height = 48,
-                marginTop = 12,
-                flexDirection = "row",
-                justifyContent = "space-around",
-                children = upgradeButtons,
-            },
-            UI.Panel {
-                id = "settingButtonPanel",
-                width = "100%",
-                height = 48,
-                marginTop = 12,
-                flexDirection = "row",
-                justifyContent = "space-around",
-                children = settingButtons,
-            },
-            UI.Panel {
-                id = "taskClaimPanel",
-                width = "100%",
-                height = 48,
-                marginTop = 12,
-                justifyContent = "center",
-                alignItems = "center",
-                children = {
-                    BuildClaimButton("taskClaimButton", "领取可领任务", HandleTaskClaimClick),
-                },
-            },
-            UI.Panel {
-                id = "achievementClaimPanel",
-                width = "100%",
-                height = 48,
-                marginTop = 12,
-                justifyContent = "center",
-                alignItems = "center",
-                children = {
-                    BuildClaimButton("achievementClaimButton", "领取可领成就", HandleAchievementClaimClick),
-                },
-            },
-        },
-    }
+    return systemPages.Build({
+        onBack = function()
+            if M.staticBackMode == "pause" then
+                M.ShowPauseOverlay(true)
+            elseif M.staticBackMode == "result" then
+                systemPages.StopAnimations(M.systemPageRefs)
+                if M.staticPagePanel then M.staticPagePanel:SetVisible(false) end
+                if M.gameOverPanel then M.gameOverPanel:SetVisible(true) end
+            else
+                M.ShowMainMenu()
+            end
+        end,
+        onUpgrade = HandleUpgradeIndexClick,
+        onUpgradeAll = HandleUpgradeAllClick,
+        onSetting = HandleSettingKeyClick,
+        onSaveSettings = HandleSettingsSaveClick,
+        onClaimOne = HandleProgressClaimOne,
+        onClaimAllTasks = HandleTaskClaimClick,
+        onClaimAllAchievements = HandleAchievementClaimClick,
+    })
 end
 
 function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu, onUsePowerup)
@@ -2392,30 +2106,7 @@ function M.Create(onRestart, onTogglePause, onStartGame, onReturnMenu, onUsePowe
     M.lblDebugFovMax = root:FindById("dbgFovMax")
     M.lblDebugFovCurrent = root:FindById("dbgFovCurrent")
     M.btnPause = root:FindById("pauseButton")
-    M.lblStaticPageTitle = root:FindById("staticPageTitle")
-    M.upgradeButtonPanel = root:FindById("upgradeButtonPanel")
-    M.settingButtonPanel = root:FindById("settingButtonPanel")
-    M.taskClaimPanel = root:FindById("taskClaimPanel")
-    M.achievementClaimPanel = root:FindById("achievementClaimPanel")
-    if M.upgradeButtonPanel then M.upgradeButtonPanel:SetVisible(false) end
-    if M.settingButtonPanel then M.settingButtonPanel:SetVisible(false) end
-    if M.taskClaimPanel then M.taskClaimPanel:SetVisible(false) end
-    if M.achievementClaimPanel then M.achievementClaimPanel:SetVisible(false) end
-    M.upgradeButtons = {}
-    for i = 1, #(meta.GetUpgradeKeys and meta.GetUpgradeKeys() or {}) do
-        M.upgradeButtons[i] = root:FindById("upgradeButton" .. tostring(i))
-    end
-    M.settingButtons = {}
-    for i = 1, #SETTINGS_ACTIONS do
-        M.settingButtons[i] = root:FindById("settingButton" .. tostring(i))
-    end
-    M.staticRows = {}
-    for i = 1, STATIC_ROW_COUNT do
-        M.staticRows[i] = {
-            panel = root:FindById("staticRow" .. tostring(i)),
-            text = root:FindById("staticRowText" .. tostring(i)),
-        }
-    end
+    M.systemPageRefs = systemPages.Bind(root)
 
     M.minimapOrderRows = {}
     M.minimapOrderDots = {}
@@ -2481,7 +2172,10 @@ local function HideTopLevelPanels()
         StopHomeAnimations()
     end
     if M.pauseOverlayPanel then M.pauseOverlayPanel:SetVisible(false) end
-    if M.staticPagePanel then M.staticPagePanel:SetVisible(false) end
+    if M.staticPagePanel then
+        systemPages.StopAnimations(M.systemPageRefs)
+        M.staticPagePanel:SetVisible(false)
+    end
     if M.gameOverPanel then M.gameOverPanel:SetVisible(false) end
 end
 
@@ -2528,25 +2222,16 @@ function M.ShowPauseOverlay(show)
 end
 
 function M.ShowStaticPage(key, backMode)
-    local data = STATIC_PAGE_DATA[key]
-    if not data then return end
-    ---@type string[]
-    local rows = data.rows
-    if key == "rider" then
-        rows = BuildRiderRows()
-    elseif key == "upgrades" and meta.GetUpgradeRows then
-        rows = meta.GetUpgradeRows()
-    elseif key == "orders" then
-        rows = BuildOrderRows()
-    elseif key == "tasks" then
-        rows = BuildTaskRows()
-    elseif key == "achievements" then
-        rows = BuildAchievementRows()
-    elseif key == "settings" then
-        rows = BuildSettingsRows()
-    elseif key == "backpack" then
-        rows = BuildBackpackRows()
-    end
+    local allowed = {
+        rider = true,
+        upgrades = true,
+        orders = true,
+        backpack = true,
+        tasks = true,
+        achievements = true,
+        settings = true,
+    }
+    if not allowed[key] then return end
     M.staticBackMode = backMode or "menu"
     M.staticPageKey = key
     if M.mainMenuPanel then
@@ -2557,70 +2242,11 @@ function M.ShowStaticPage(key, backMode)
     if M.gameOverPanel then M.gameOverPanel:SetVisible(false) end
     SetGameplayUIVisible(false)
 
-    if M.lblStaticPageTitle then
-        M.lblStaticPageTitle:SetText(data.title)
-    end
-    for i = 1, STATIC_ROW_COUNT do
-        local row = M.staticRows[i]
-        local text = rows[i]
-        if row and row.panel then
-            row.panel:SetVisible(text ~= nil)
-        end
-        if row and row.text then
-            row.text:SetText(text or "")
-        end
-    end
-
-    local showUpgradeButtons = key == "upgrades"
-    local showSettingButtons = key == "settings"
-    local showTaskClaim = key == "tasks"
-    local showAchievementClaim = key == "achievements"
-    if M.upgradeButtonPanel then
-        M.upgradeButtonPanel:SetVisible(showUpgradeButtons)
-    end
-    if M.settingButtonPanel then
-        M.settingButtonPanel:SetVisible(showSettingButtons)
-    end
-    if M.taskClaimPanel then
-        M.taskClaimPanel:SetVisible(showTaskClaim)
-    end
-    if M.achievementClaimPanel then
-        M.achievementClaimPanel:SetVisible(showAchievementClaim)
-    end
-    for i = 1, #SETTINGS_ACTIONS do
-        local button = M.settingButtons and M.settingButtons[i]
-        if button then
-            button:SetVisible(showSettingButtons)
-        end
-    end
-    if showSettingButtons then
-        UpdateSettingButtonTexts()
-    end
-    if showUpgradeButtons then
-        local keys = meta.GetUpgradeKeys and meta.GetUpgradeKeys() or {}
-        for i = 1, #keys do
-            local button = M.upgradeButtons and M.upgradeButtons[i]
-            local upgradeKey = keys[i]
-            if button then
-                button:SetVisible(upgradeKey ~= nil)
-                if upgradeKey then
-                    button:SetText(meta.GetUpgradeName and meta.GetUpgradeName(upgradeKey) or ("升级" .. tostring(i)))
-                end
-            end
-        end
-    else
-        local keys = meta.GetUpgradeKeys and meta.GetUpgradeKeys() or {}
-        for i = 1, #keys do
-            local button = M.upgradeButtons and M.upgradeButtons[i]
-            if button then
-                button:SetVisible(false)
-            end
-        end
-    end
-
     if M.staticPagePanel then
         M.staticPagePanel:SetVisible(true)
     end
+    systemPages.Refresh(M.systemPageRefs, key)
+    systemPages.StartAnimations(M.systemPageRefs)
 end
 
 local function BuildAvailableTurnsText(availableTurns)

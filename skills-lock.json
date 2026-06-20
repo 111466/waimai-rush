@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "game-assets": {
+      "source": "Meowa-AI/meowa-skills",
+      "sourceType": "github",
+      "skillPath": "skills/game-assets/SKILL.md",
+      "computedHash": "3541ccbc823800ac9f471d8ee1c7c242abb10d69707d31078d2540750da4833e"
+    }
+  }
+}
